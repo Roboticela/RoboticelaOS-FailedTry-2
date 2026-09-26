@@ -371,6 +371,69 @@ Result CssGetCapabilities(CssCapabilities *out)
      * which is a phase of its own -- so those declarations are PRESERVED rather than
      * read, and no track is measured or item placed here. */
     out->grid = 1;
+    /* The table vocabulary (18.5): five closed sets -- the layout rule, the collapse,
+     * the caption side, the empty-cell rule and visibility -- each a row per value with
+     * the classifications a table layout pass reads, plus `border-spacing` carried as a
+     * declaration. What it does not claim is table *layout*: no column is measured, no
+     * border is collapsed and no collapsed row is removed, and the internal table display
+     * types are not in this build's display vocabulary because the internal-box model is
+     * 19.6's. */
+    out->tables = 1;
+    /* The multi-column family (18.6): the count, width, span and fill rule of a
+     * fragmentation container, the `column-rule-*` decoration (the border family's
+     * shapes reused rather than copied), the two shorthands as carried declarations and
+     * the gutter 18.4 already registered. What it does not claim is fragmentation
+     * *layout*: no content is split, no height is balanced and no column count is
+     * derived from a width. */
+    out->multiColumn = 1;
+    /* The writing-mode family (18.13): the three closed sets that decide which physical
+     * edge is inline-start and how a character stands -- `direction`, `writing-mode` and
+     * `text-orientation` -- each a row per value with the classifications a consumer
+     * reads, and `direction` upgraded from the bare KEYWORD shape it had since 9.7. What
+     * it does not claim is vertical *layout* or a vertical *shaper*: no run, line, caret
+     * or fragment is derived from a writing mode here, and the two `sideways-*` values are
+     * carried as values the build's text engine does not yet draw. */
+    out->writingModes = 1;
+    /* The transform family (18.7): the two closed sets a transformed box is described
+     * by -- `transform-style` and `backface-visibility` -- plus the closed set of
+     * function names a `transform` list is built from, with the 3D and matrix
+     * classifications a rendering pass reads. What it does not claim is transform
+     * *layout* or a matrix library: no list is composed, no matrix multiplied and no
+     * origin resolved; `transform` and its relatives are carried declarations. */
+    out->transforms = 1;
+    /* The transition family (18.8): the `transition-behavior` closed set and the
+     * keyword half of the timing-function grammar, with its discrete-step
+     * classification. What it does not claim is a transition *engine* or a clock: no
+     * transition is started, no curve sampled and no value interpolated; the property
+     * list, time list and timing-function list are carried declarations. */
+    out->transitions = 1;
+    /* The animation family (18.9): four closed sets -- direction, fill mode, play state
+     * and composition -- each a row per value with the classifications a consumer reads,
+     * plus the `animation-iteration-count` shape (`infinite` or a non-negative number,
+     * where a fraction is legal). The timing-function keywords are the transition
+     * family's reused. What it does not claim is an animation *engine* or a clock, and
+     * no `@keyframes` at-rule is parsed: the name, time and timing-function lists are
+     * carried declarations. */
+    out->animations = 1;
+    /* Media queries (18.10): the media-type and media-feature vocabularies and the
+     * condition/query matcher, whose answer is yes, no or *unknown* -- a feature the
+     * context cannot answer is unknown rather than a silent no. What it does not claim
+     * is the `@media` grammar (no prelude is tokenized and no at-rule is attached) or a
+     * viewport, which the caller copies into the context. */
+    out->mediaQueries = 1;
+    /* Container queries (18.11): the `container-type` closed set and a matcher that
+     * evaluates a container query's condition list -- the media module's own condition
+     * model -- against a container's size. What it does not claim is the `@container`
+     * grammar or an ancestor walk: the caller finds the query container and hands its
+     * size here, and a `normal` box answers unknown rather than matching. */
+    out->containerQueries = 1;
+    /* Logical properties (18.12): the side/axis vocabulary and `CssLogicalResolveSide`,
+     * which maps a role to a physical `CssBoxSide` under a writing mode and direction.
+     * The box model's logical longhands and shorthands are registered as the same shape
+     * their physical counterparts are. What it does not claim is logical-value *use* --
+     * no element's computed style is mapped to physical values -- and the logical border
+     * longhands and logical min/max sizes are named as not built. */
+    out->logicalProperties = 1;
     out->defaultStyles = 0;
     out->stylesheetLoading = 0;
     return RoboOk;

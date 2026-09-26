@@ -650,6 +650,190 @@
  * (`RoboCssDomainGrid`). What the phase does *not* claim is grid layout: no track
  * is measured, no item is placed and no line number is resolved.
  *
+ * 0.23.0 is the twenty-second, and it is the fifth version added by Phase 18: it
+ * is the **table vocabulary** (`RoboCSSTable.h`). CSS's table properties are the
+ * first family here whose members are *mostly inherited*, which is the fact the
+ * phase turns on: a table's cells take the collapse, the spacing, the caption
+ * side and the empty-cell rule from the table box rather than deciding them for
+ * themselves, and exactly one of them — `table-layout` — is the box's own.
+ *
+ * Five closed sets are typed: `table-layout` (`auto` | `fixed`),
+ * `border-collapse` (`separate` | `collapse`), `caption-side` (`top` | `bottom`
+ * | the four logical edges), `empty-cells` (`show` | `hide`) and `visibility`
+ * (`visible` | `hidden` | `collapse`). Each is a row per value carrying the
+ * classifications a table layout pass dispatches on — whether widths come from
+ * the contents, whether adjoining borders adjoin, whether a caption edge is on
+ * the block or the inline axis, whether an empty cell draws, whether the box
+ * takes space and whether it paints — and each is read through the same
+ * shared closed-vocabulary body the display and position shapes use, so a
+ * seventh set is a row rather than a seventh copy of "ask the identifier, then
+ * ask the table". `caption-side` is the first vocabulary here with *logical*
+ * values: which physical edge `block-start` lands on is a writing-mode question
+ * the phase that has one answers, and this phase only reports the axis.
+ *
+ * `border-spacing` is deliberately not a vocabulary. Its grammar is
+ * `<length>{1,2}` — the shared length grammar with a pair above it — so it is
+ * carried PRESERVED until the phase that reads it, exactly as the grid track
+ * templates are. And the internal table display types (`display: table`,
+ * `table-row`, `table-cell`, …) are **not** rows in this build's display
+ * vocabulary: an internal table box is a layout fact of its own, and the phase
+ * that introduces it is table layout (19.6). This version types the properties a
+ * table box is described by and says so rather than implying the boxes are here.
+ *
+ * One capability joins the table (`tables`) and one diagnostic domain
+ * (`RoboCssDomainTable`).
+ *
+ * 0.24.0 is the twenty-third, and it is the sixth version added by Phase 18: it
+ * is the **multi-column vocabulary** (`RoboCSSColumn.h`). A multi-column container
+ * is a *fragmentation* container — a block that splits its content into a sequence
+ * of columns — and the two properties that say how a column box *behaves* live in
+ * the module: `column-span` (`none` | `all`, where `all` takes the box out of the
+ * column flow) and `column-fill` (`auto` | `balance`), each a closed set with the
+ * classification a fragmentation pass dispatches on. Two more are read through
+ * shapes the table already had: `column-width` is the shared length grammar with
+ * the keyword `auto`, and `column-count` is the one numeric shape of its own, an
+ * `auto` or a **positive** whole number (zero columns is not a smaller count, it
+ * is not a count).
+ *
+ * The three `column-rule-*` properties are deliberately *not* a family here:
+ * `column-rule-width`, `column-rule-style` and `column-rule-color` reuse the
+ * border family's line width, border style and colour shapes, so `column-rule-*
+ * style: banana` is the same mistake as `border-top-style: banana` and is refused
+ * by the same table. The two shorthands `column-rule` and `columns` are carried
+ * declarations like every other shorthand here, and `column-gap` was already
+ * registered by 18.4 because it is the same gutter `row-gap` is.
+ *
+ * One capability joins the table (`multiColumn`) and one diagnostic domain
+ * (`RoboCssDomainColumn`).
+ *
+ * 0.25.0 is Phase 18.13, **writing modes**, and its family is the three closed
+ * sets that together decide which physical edge is inline-start and how a
+ * character stands inside a vertical line: `direction` (`ltr` | `rtl`),
+ * `writing-mode` (`horizontal-tb`, `vertical-rl`, `vertical-lr`, `sideways-rl`,
+ * `sideways-lr`) and `text-orientation` (`mixed` | `upright` | `sideways`),
+ * each a row per value with the classifications a consumer reads
+ * (`CssDirectionIsRightToLeft`, `CssWritingModeIsHorizontal`/`…IsVertical`/
+ * `…IsSideways`, `CssTextOrientationIsSideways`).
+ *
+ * The interesting row is `writing-mode`, because "vertical" and "sideways" are
+ * two questions with two answers: `vertical-rl` is vertical and mixed while
+ * `sideways-rl` is vertical *and* turns the text, so the table carries both
+ * columns rather than deriving one from the other. `direction` is **upgraded in
+ * place** rather than added — it had the KEYWORD shape since 9.7, so
+ * `direction: banana` used to compute to a keyword carrying the letters; its
+ * inheritance and its `ltr` initial are unchanged, and `ltr` is the zero of the
+ * enumerator. All three properties are inherited, so a child on the wrong axes
+ * cannot be described; `writing-mode` and `text-orientation` are the two new
+ * rows.
+ *
+ * What the phase does *not* claim is a vertical *layout* or a vertical
+ * *shaper*: no run, line, caret or fragment is derived from a writing mode in
+ * RoboCSS, and the two `sideways-*` values are carried as values the build's
+ * text engine does not yet draw. The value says *which axis is which*, and the
+ * module that has a box reads it (RoboText's `RoboTextWritingMode` is the
+ * engine's own). One capability joins the table (`writingModes`) and one
+ * diagnostic domain (`RoboCssDomainWriting`).
+ *
+ * 0.26.0 is Phase 18.7, **transforms**, and its family is the two closed sets a
+ * transformed box is described by — `transform-style` (`flat` | `preserve-3d`) and
+ * `backface-visibility` (`visible` | `hidden`) — plus the closed set of
+ * `<transform-function>` names (`CssTransformFunction`) a `transform` list is built
+ * from, with the two classifications a consumer reads: whether a function operates
+ * in 3D and whether one member already fixes the whole transform (`matrix`,
+ * `matrix3d`).
+ *
+ * The function-name set is the interesting half: it is what `transform: frobnicate(1)`
+ * is refused against, and what a later pass reads to decide whether a list needs the
+ * 3D machinery. The transform *list* itself, its origin, a perspective and the three
+ * individual transform properties are **carried declarations**, because a list is an
+ * ordered grammar of functions with arguments rather than a closed set — the same
+ * boundary the grid track templates and `border-spacing`'s pair state. What the phase
+ * does *not* claim is transform *layout* or a matrix library: nothing composes a list,
+ * multiplies two matrices, resolves an origin or draws anything turned. One capability
+ * joins the table (`transforms`) and one diagnostic domain (`RoboCssDomainTransform`).
+ *
+ * 0.27.0 is Phase 18.8, **transitions**, and its family is one closed set and one
+ * keyword vocabulary: `transition-behavior` (`normal` | `allow-discrete`) as a typed
+ * shape, and the keyword half of the timing-function grammar (`ease`, `linear`,
+ * `ease-in`, `ease-out`, `ease-in-out`, `step-start`, `step-end`) with the one
+ * classification a consumer reads — whether an easing is a discrete step.
+ *
+ * The rest of the family is *grammar*, so it is carried: a property-name list
+ * (`transition-property`), a time list (`transition-duration`, `transition-delay`),
+ * a timing-function list (`transition-timing-function`, which also admits
+ * `cubic-bezier()`, `steps()` and `linear()`) and the shorthand `transition` are all
+ * registered as carried declarations. What the phase does *not* claim is a transition
+ * *engine* or a clock: no transition starts, no curve is sampled and no value is
+ * interpolated. One capability joins the table (`transitions`) and one diagnostic
+ * domain (`RoboCssDomainTransition`).
+ *
+ * 0.28.0 is Phase 18.9, **animations**, and its family is four closed sets plus one
+ * numeric shape: `animation-direction` (`normal` | `reverse` | `alternate` |
+ * `alternate-reverse`, where reversing and alternating are two separate answers),
+ * `animation-fill-mode` (`none` | `forwards` | `backwards` | `both`),
+ * `animation-play-state` (`running` | `paused`) and `animation-composition`
+ * (`replace` | `add` | `accumulate`), each a row per value with the classifications a
+ * consumer reads, plus `animation-iteration-count` (`infinite`, or a non-negative
+ * number where a fraction is legal — the bound is a floor, not a whole-number rule).
+ *
+ * `animation-timing-function` is **not** a second copy of the transition family's
+ * timing-function keywords; it is the same set (§18.8) reused, exactly as
+ * `column-rule-*` reuse the border shapes. The rest of the family — a keyframes name,
+ * a time list and the shorthand — is carried, and a `@keyframes` at-rule is the source
+ * a name refers to rather than a property. What the phase does *not* claim is an
+ * animation *engine* or a clock: no animation starts, no keyframe resolves and no
+ * value interpolates. One capability joins the table (`animations`) and one diagnostic
+ * domain (`RoboCssDomainAnimation`).
+ *
+ * 0.29.0 is Phase 18.10, **media queries**. Unlike every family since 18.2 it adds no
+ * registry row: a media query is `@media`'s prelude, not a property. What it adds is
+ * the media-type vocabulary (`all` | `screen` | `print`), the media-feature vocabulary
+ * with its kinds and its range forms (a feature's spelling carries its operator, so
+ * `min-width` is the feature `width` with a floor and the range forms are not rows of
+ * their own), a `CssMediaContext` a caller fills in, and the condition/query matcher.
+ *
+ * The matcher's answer has three values — yes, no and **unknown** — and the third is
+ * load-bearing: a feature the context cannot answer (`(prefers-contrast: more)` on a
+ * context with no contrast preference, `(display-mode: standalone)` on a build with no
+ * display mode) is UNKNOWN rather than a silent no, because a sheet that could not be
+ * decided is a different sentence from one that did not match. One capability joins
+ * the table (`mediaQueries`) and one diagnostic domain (`RoboCssDomainMedia`). What
+ * the phase does not claim is the `@media` grammar — no prelude is tokenized and no
+ * at-rule is attached (that is 18.21's wiring) — and `@container` is 18.11's.
+ *
+ * 0.30.0 is Phase 18.11, **container queries**. It adds the `container-type` closed
+ * set (`normal` | `size` | `inline-size`), with the two classifications a caller reads
+ * (does the box establish a container, and is it inline-only), and a matcher that
+ * evaluates a container query's condition list — the **media-query** module's own
+ * `CssMediaCondition` (§18.10) — against a container's size. That reuse is the point:
+ * the condition grammar is one, and only the box it is measured against differs.
+ *
+ * Two rows join the table (`container-type`, typed; `container-name` and `container`,
+ * carried) and no `@container` grammar is parsed: the caller that has a box walks to
+ * its query container and hands the size here, and a `normal` box answers UNKNOWN
+ * rather than matching something that never declared itself a container. `inline-size`
+ * and `block-size` as *feature names* are deliberately not built — a logical feature
+ * needs the writing mode 18.12 resolves. One capability joins the table
+ * (`containerQueries`) and one diagnostic domain (`RoboCssDomainContainer`).
+ *
+ * 0.31.0 is Phase 18.12, **logical properties**. It owns the logical side/axis
+ * vocabulary (`block-start` | `block-end` | `inline-start` | `inline-end`) and the one
+ * resolver that turns a role into a physical `CssBoxSide` under a `CssWritingMode` and
+ * `CssDirection` (§18.13): the block axis is the mode's, the inline axis is the mode's
+ * turned by `direction`, and the two `sideways-*` modes share their vertical
+ * counterpart's axes because sideways turns the *text*, not the axes.
+ *
+ * The box model's logical longhands and shorthands — `margin-block-start`,
+ * `padding-inline-end`, `inset-block-start`, `block-size`, `inline-size` and the four
+ * axis shorthands — join the table as the **same shape** their physical counterparts
+ * are, because turning a role into the physical edge it names is the resolver's job
+ * rather than a second value model. Nothing here maps an element's *computed* style to
+ * physical values — that is the phase with an element (19.10) — and the logical border
+ * longhands and logical `min-`/`max-` sizes are named as not built. One capability
+ * joins the table (`logicalProperties`) and one diagnostic domain
+ * (`RoboCssDomainLogical`); no new computation is added, because every logical row
+ * reads a shape the table already has.
+ *
  * The surface will keep growing for the whole of Phase 9, so API freeze is
  * NOT claimed here (RoboCssApiFrozen=0).
  */
@@ -658,9 +842,9 @@
 #define ROBO_CSS_VERSION_H
 
 #define RoboCssVersionMajor 0
-#define RoboCssVersionMinor 22
+#define RoboCssVersionMinor 31
 #define RoboCssVersionPatch 0
-#define RoboCssVersionString "0.22.0"
+#define RoboCssVersionString "0.31.0"
 
 /** 1 once the Phase 9 surface is frozen (not yet — see header comment). */
 #define RoboCssApiFrozen 0

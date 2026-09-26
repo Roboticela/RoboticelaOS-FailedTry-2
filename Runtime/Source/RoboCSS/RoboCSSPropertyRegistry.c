@@ -211,6 +211,48 @@ const char *CssPropertyComputationName(
         return "grid-auto-flow";
     case RoboCssPropertyComputationGridGap:
         return "grid-gap";
+    case RoboCssPropertyComputationTableLayout:
+        return "table-layout";
+    case RoboCssPropertyComputationBorderCollapse:
+        return "border-collapse";
+    case RoboCssPropertyComputationCaptionSide:
+        return "caption-side";
+    case RoboCssPropertyComputationEmptyCells:
+        return "empty-cells";
+    case RoboCssPropertyComputationVisibility:
+        return "visibility";
+    case RoboCssPropertyComputationColumnCount:
+        return "column-count";
+    case RoboCssPropertyComputationColumnWidth:
+        return "column-width";
+    case RoboCssPropertyComputationColumnSpan:
+        return "column-span";
+    case RoboCssPropertyComputationColumnFill:
+        return "column-fill";
+    case RoboCssPropertyComputationDirection:
+        return "direction";
+    case RoboCssPropertyComputationWritingMode:
+        return "writing-mode";
+    case RoboCssPropertyComputationTextOrientation:
+        return "text-orientation";
+    case RoboCssPropertyComputationTransformStyle:
+        return "transform-style";
+    case RoboCssPropertyComputationBackfaceVisibility:
+        return "backface-visibility";
+    case RoboCssPropertyComputationTransitionBehavior:
+        return "transition-behavior";
+    case RoboCssPropertyComputationAnimationDirection:
+        return "animation-direction";
+    case RoboCssPropertyComputationAnimationFillMode:
+        return "animation-fill-mode";
+    case RoboCssPropertyComputationAnimationPlayState:
+        return "animation-play-state";
+    case RoboCssPropertyComputationAnimationComposition:
+        return "animation-composition";
+    case RoboCssPropertyComputationAnimationIterationCount:
+        return "animation-iteration-count";
+    case RoboCssPropertyComputationContainerType:
+        return "container-type";
     default:
         return "unknown";
     }
@@ -511,8 +553,12 @@ static const RegistryStandardEntry registryStandardEntries[] = {
       RoboCssPropertyComputationColor,      "black",      0 },
     { "cursor",        RoboCssPropertyInheritanceInherited,
       RoboCssPropertyComputationKeyword,    "auto",       0 },
+    /* `direction`'s shape is upgraded in place for 18.13: the KEYWORD shape accepted any
+     * identifier, so `direction: banana` computed to a keyword carrying the letters. It
+     * joins the writing vocabulary's closed set (`ltr`, `rtl`); its inheritance and its
+     * `ltr` initial value are unchanged, and `ltr` is the zero of the enumerator. */
     { "direction",     RoboCssPropertyInheritanceInherited,
-      RoboCssPropertyComputationKeyword,    "ltr",        0 },
+      RoboCssPropertyComputationDirection,  "ltr",        0 },
     { "font-family",   RoboCssPropertyInheritanceInherited,
       RoboCssPropertyComputationFontFamily,"serif",      0 },
     { "font-size",     RoboCssPropertyInheritanceInherited,
@@ -533,8 +579,14 @@ static const RegistryStandardEntry registryStandardEntries[] = {
       RoboCssPropertyComputationLength,     "0",          0 },
     { "text-transform",RoboCssPropertyInheritanceInherited,
       RoboCssPropertyComputationKeyword,    "none",       0 },
+    /* `visibility` is a registered property of this table since 9.7 and its shape is
+     * upgraded here: the KEYWORD shape accepted any identifier, so `visibility: banana`
+     * computed to a keyword carrying the letters, which is exactly the silent failure
+     * every closed vocabulary in this module exists to move forward in time. It joins
+     * the table vocabulary's closed set (`visible`, `hidden`, `collapse`) while keeping
+     * the inheritance and initial value it always had. */
     { "visibility",    RoboCssPropertyInheritanceInherited,
-      RoboCssPropertyComputationKeyword,    "visible",    0 },
+      RoboCssPropertyComputationVisibility, "visible",    0 },
     { "white-space",   RoboCssPropertyInheritanceInherited,
       RoboCssPropertyComputationKeyword,    "normal",     0 },
     { "word-spacing",  RoboCssPropertyInheritanceInherited,
@@ -962,7 +1014,254 @@ static const RegistryStandardEntry registryStandardEntries[] = {
     { "grid-template-rows", RoboCssPropertyInheritanceNonInherited,
       RoboCssPropertyComputationPreserve,     "none",     0 },
     { "row-gap",        RoboCssPropertyInheritanceNonInherited,
-      RoboCssPropertyComputationGridGap,      "normal",   0 }
+      RoboCssPropertyComputationGridGap,      "normal",   0 },
+
+    /*
+     * --- the table family (18.5) ---
+     *
+     * Five new rows (`visibility` was already here and has its shape upgraded above),
+     * and the family is the first whose members are *mostly inherited*:
+     * a table's cells take the collapse, the spacing, the caption side and the empty-cell
+     * rule from the table box rather than deciding them for themselves, while
+     * `table-layout` is the box's own. That split is the whole reason these rows are
+     * gathered here rather than alphabetised: getting one of them non-inherited would make
+     * every cell of a table that declared it inside the wrong box lay itself out by the
+     * rule an ancestor wrote.
+     *
+     * Five of the rows take a closed vocabulary of their own. `border-spacing` does not:
+     * its grammar is `<length>{1,2}`, the shared length grammar with a pair above it, and
+     * this build carries the declaration PRESERVED until the phase that reads it (19.6).
+     * A PRESERVED row is still correct -- it carries the author's declaration, its
+     * inheritance and its initial value -- it simply is not interpreted here.
+     */
+    { "border-collapse", RoboCssPropertyInheritanceInherited,
+      RoboCssPropertyComputationBorderCollapse, "separate", 0 },
+    { "border-spacing",  RoboCssPropertyInheritanceInherited,
+      RoboCssPropertyComputationPreserve,     "0",        0 },
+    { "caption-side",    RoboCssPropertyInheritanceInherited,
+      RoboCssPropertyComputationCaptionSide,  "top",      0 },
+    { "empty-cells",     RoboCssPropertyInheritanceInherited,
+      RoboCssPropertyComputationEmptyCells,   "show",     0 },
+    { "table-layout",    RoboCssPropertyInheritanceNonInherited,
+      RoboCssPropertyComputationTableLayout,  "auto",     0 },
+
+    /*
+     * --- the multi-column family (18.6) ---
+     *
+     * Nine rows, none inherited: a fragmentation container's column count, width,
+     * span, fill rule and rule decoration are the box's own, and a child that inherited
+     * a column count would split *itself* into that many columns. `column-gap` was
+     * already registered by 18.4 (it is the same gutter `row-gap` is) and is not repeated.
+     *
+     * Four of the rows take shapes the table already has. `column-rule-width`, 
+     * `column-rule-style` and `column-rule-color` are the border family's line width, border
+     * style and colour shapes rather than a second copy of any of the three; `column-width`
+     * is the shared length grammar with the keyword `auto`; `column-count` is the one numeric
+     * shape of its own (a positive integer or `auto`); and the two shorthands `column-rule`
+     * and `columns` are carried declarations like every other shorthand here.
+     */
+    { "column-count",    RoboCssPropertyInheritanceNonInherited,
+      RoboCssPropertyComputationColumnCount,  "auto",     0 },
+    { "column-fill",     RoboCssPropertyInheritanceNonInherited,
+      RoboCssPropertyComputationColumnFill,   "balance",  0 },
+    { "column-rule",     RoboCssPropertyInheritanceNonInherited,
+      RoboCssPropertyComputationPreserve,     "medium none currentColor",
+      RoboCssPropertyFlagShorthand },
+    { "column-rule-color", RoboCssPropertyInheritanceNonInherited,
+      RoboCssPropertyComputationColor,        "currentcolor", 0 },
+    { "column-rule-style", RoboCssPropertyInheritanceNonInherited,
+      RoboCssPropertyComputationBorderStyle,  "none",     0 },
+    { "column-rule-width", RoboCssPropertyInheritanceNonInherited,
+      RoboCssPropertyComputationLineWidth,    "medium",   0 },
+    { "column-span",     RoboCssPropertyInheritanceNonInherited,
+      RoboCssPropertyComputationColumnSpan,   "none",     0 },
+    { "column-width",    RoboCssPropertyInheritanceNonInherited,
+      RoboCssPropertyComputationColumnWidth,  "auto",     0 },
+    { "columns",         RoboCssPropertyInheritanceNonInherited,
+      RoboCssPropertyComputationPreserve,     "auto auto",
+      RoboCssPropertyFlagShorthand },
+
+    /*
+     * --- the writing-mode family (18.13) ---
+     *
+     * Two new rows beside the `direction` row upgraded above. All three are
+     * **inherited**: the writing mode and the orientation decide which physical edge
+     * is inline-start and how a character stands, and a child that did not inherit them
+     * would be laid out on axes its parent was not on. `writing-mode` starts at
+     * `horizontal-tb` and `text-orientation` at `mixed`, which are each the zero of
+     * their enumerator, so a cleared record is already right. `text-orientation` is
+     * carried and inert in `horizontal-tb`, exactly as `background-attachment: fixed`
+     * is a value with no scrollport; the build's text engine does not yet shape the
+     * `sideways-*` values, and they are read here as the values they are.
+     */
+    { "writing-mode",     RoboCssPropertyInheritanceInherited,
+      RoboCssPropertyComputationWritingMode,  "horizontal-tb", 0 },
+    { "text-orientation", RoboCssPropertyInheritanceInherited,
+      RoboCssPropertyComputationTextOrientation, "mixed",    0 },
+
+    /*
+     * --- the transform family (18.7) ---
+     *
+     * Nine rows, none inherited: a transform is the box's own (a child that
+     * inherited its parent's transform would move with it rather than with the
+     * layout). Two take closed vocabularies — `transform-style` (`flat` |
+     * `preserve-3d`) and `backface-visibility` (`visible` | `hidden`) — and the
+     * rest carry their declarations, because a transform *list*, an origin, a
+     * perspective and the three individual transform properties are grammars the
+     * phase names rather than parses; what this phase supplies is the closed set of
+     * function names a list is built from (`CssTransformFunction`). The initials are
+     * `none` for the four lists and the two origins' own `50% 50%`, and `flat` /
+     * `visible` are each the zero of their enumerator.
+     */
+    { "transform",           RoboCssPropertyInheritanceNonInherited,
+      RoboCssPropertyComputationPreserve, "none",      0 },
+    { "transform-origin",    RoboCssPropertyInheritanceNonInherited,
+      RoboCssPropertyComputationPreserve, "50% 50%",   0 },
+    { "transform-style",     RoboCssPropertyInheritanceNonInherited,
+      RoboCssPropertyComputationTransformStyle, "flat",      0 },
+    { "perspective",         RoboCssPropertyInheritanceNonInherited,
+      RoboCssPropertyComputationPreserve, "none",      0 },
+    { "perspective-origin",  RoboCssPropertyInheritanceNonInherited,
+      RoboCssPropertyComputationPreserve, "50% 50%",   0 },
+    { "backface-visibility", RoboCssPropertyInheritanceNonInherited,
+      RoboCssPropertyComputationBackfaceVisibility, "visible", 0 },
+    { "translate",           RoboCssPropertyInheritanceNonInherited,
+      RoboCssPropertyComputationPreserve, "none",      0 },
+    { "rotate",              RoboCssPropertyInheritanceNonInherited,
+      RoboCssPropertyComputationPreserve, "none",      0 },
+    { "scale",               RoboCssPropertyInheritanceNonInherited,
+      RoboCssPropertyComputationPreserve, "none",      0 },
+
+    /*
+     * --- the transition family (18.8) ---
+     *
+     * Six rows, none inherited: a transition is the box's own. Five of them are
+     * *grammars* -- a property-name list, a time list, a timing-function list and
+     * the shorthand that concatenates all four -- so they are carried declarations.
+     * One is a closed set, `transition-behavior`, which is the phase's typed shape.
+     * The timing-function *keywords* (`ease`, `linear`, `step-start`, ...) are the
+     * set this phase supplies for a consumer to read; the functional forms
+     * (`cubic-bezier()`, `steps()`) are part of the property's grammar and are
+     * carried rather than represented.
+     */
+    { "transition-behavior", RoboCssPropertyInheritanceNonInherited,
+      RoboCssPropertyComputationTransitionBehavior, "normal", 0 },
+    { "transition-delay",    RoboCssPropertyInheritanceNonInherited,
+      RoboCssPropertyComputationPreserve, "0s",        0 },
+    { "transition-duration", RoboCssPropertyInheritanceNonInherited,
+      RoboCssPropertyComputationPreserve, "0s",        0 },
+    { "transition-property", RoboCssPropertyInheritanceNonInherited,
+      RoboCssPropertyComputationPreserve, "all",       0 },
+    { "transition-timing-function", RoboCssPropertyInheritanceNonInherited,
+      RoboCssPropertyComputationPreserve, "ease",      0 },
+    { "transition",          RoboCssPropertyInheritanceNonInherited,
+      RoboCssPropertyComputationPreserve, "all 0s ease 0s",
+      RoboCssPropertyFlagShorthand },
+
+    /*
+     * --- the animation family (18.9) ---
+     *
+     * Ten rows, none inherited. Four take closed vocabularies -- `animation-direction`,
+     * `animation-fill-mode`, `animation-play-state` and `animation-composition` -- and
+     * `animation-iteration-count` is the one numeric shape of its own (`infinite`, or a
+     * non-negative number, where a fraction is legal). The rest are grammars: a
+     * keyframes name, a time list, a timing-function list and the shorthand that
+     * concatenates all of them. `animation-timing-function` reuses the transition
+     * family's timing-function keywords rather than growing a second copy. A
+     * `@keyframes` at-rule is the source an animation name refers to, not a property,
+     * and is not registered here.
+     */
+    { "animation",           RoboCssPropertyInheritanceNonInherited,
+      RoboCssPropertyComputationPreserve, "none 0s ease 0s 1 normal none running",
+      RoboCssPropertyFlagShorthand },
+    { "animation-composition", RoboCssPropertyInheritanceNonInherited,
+      RoboCssPropertyComputationAnimationComposition, "replace", 0 },
+    { "animation-delay",     RoboCssPropertyInheritanceNonInherited,
+      RoboCssPropertyComputationPreserve, "0s",        0 },
+    { "animation-direction", RoboCssPropertyInheritanceNonInherited,
+      RoboCssPropertyComputationAnimationDirection, "normal", 0 },
+    { "animation-duration",  RoboCssPropertyInheritanceNonInherited,
+      RoboCssPropertyComputationPreserve, "0s",        0 },
+    { "animation-fill-mode", RoboCssPropertyInheritanceNonInherited,
+      RoboCssPropertyComputationAnimationFillMode, "none", 0 },
+    { "animation-iteration-count", RoboCssPropertyInheritanceNonInherited,
+      RoboCssPropertyComputationAnimationIterationCount, "1", 0 },
+    { "animation-name",      RoboCssPropertyInheritanceNonInherited,
+      RoboCssPropertyComputationPreserve, "none",      0 },
+    { "animation-play-state", RoboCssPropertyInheritanceNonInherited,
+      RoboCssPropertyComputationAnimationPlayState, "running", 0 },
+    { "animation-timing-function", RoboCssPropertyInheritanceNonInherited,
+      RoboCssPropertyComputationPreserve, "ease",      0 },
+
+    /*
+     * --- the container-query family (18.11) ---
+     *
+     * Three rows, none inherited. `container-type` is the phase's one typed shape
+     * (`normal` | `size` | `inline-size`); the name list and the shorthand are carried,
+     * exactly as the grid track templates are. `@container` itself is a prelude, not a
+     * property.
+     */
+    { "container-type",      RoboCssPropertyInheritanceNonInherited,
+      RoboCssPropertyComputationContainerType, "normal",    0 },
+    { "container-name",      RoboCssPropertyInheritanceNonInherited,
+      RoboCssPropertyComputationPreserve, "none",      0 },
+    { "container",           RoboCssPropertyInheritanceNonInherited,
+      RoboCssPropertyComputationPreserve, "none / normal",
+      RoboCssPropertyFlagShorthand },
+
+    /*
+     * --- the logical-property family (18.12) ---
+     *
+     * Eighteen rows, none inherited. A logical longhand is carried as the *same shape*
+     * its physical counterpart is -- `margin-block-start` is an `EdgeOffset` like
+     * `margin-top`, `padding-inline-end` a `Length` like `padding-right`,
+     * `inline-size` a `Length` `auto` like `width` -- because turning a role into the
+     * physical edge it names is the resolver's job (`RoboCSSLogical.h`), not a second
+     * value model. The four shorthands are carried declarations like every other
+     * shorthand here. Not built and named: the logical border longhands, `min-`/`max-`
+     * logical sizes, `border-start-start-radius` and the logical shorthands of the
+     * insets beyond the two axes.
+     */
+    { "margin-block-start",  RoboCssPropertyInheritanceNonInherited,
+      RoboCssPropertyComputationEdgeOffset, "0",         0 },
+    { "margin-block-end",    RoboCssPropertyInheritanceNonInherited,
+      RoboCssPropertyComputationEdgeOffset, "0",         0 },
+    { "margin-inline-start", RoboCssPropertyInheritanceNonInherited,
+      RoboCssPropertyComputationEdgeOffset, "0",         0 },
+    { "margin-inline-end",   RoboCssPropertyInheritanceNonInherited,
+      RoboCssPropertyComputationEdgeOffset, "0",         0 },
+    { "padding-block-start", RoboCssPropertyInheritanceNonInherited,
+      RoboCssPropertyComputationLength,     "0",         0 },
+    { "padding-block-end",   RoboCssPropertyInheritanceNonInherited,
+      RoboCssPropertyComputationLength,     "0",         0 },
+    { "padding-inline-start", RoboCssPropertyInheritanceNonInherited,
+      RoboCssPropertyComputationLength,     "0",         0 },
+    { "padding-inline-end",  RoboCssPropertyInheritanceNonInherited,
+      RoboCssPropertyComputationLength,     "0",         0 },
+    { "inset-block-start",   RoboCssPropertyInheritanceNonInherited,
+      RoboCssPropertyComputationEdgeOffset, "auto",      0 },
+    { "inset-block-end",     RoboCssPropertyInheritanceNonInherited,
+      RoboCssPropertyComputationEdgeOffset, "auto",      0 },
+    { "inset-inline-start",  RoboCssPropertyInheritanceNonInherited,
+      RoboCssPropertyComputationEdgeOffset, "auto",      0 },
+    { "inset-inline-end",    RoboCssPropertyInheritanceNonInherited,
+      RoboCssPropertyComputationEdgeOffset, "auto",      0 },
+    { "block-size",          RoboCssPropertyInheritanceNonInherited,
+      RoboCssPropertyComputationLength,     "auto",      0 },
+    { "inline-size",         RoboCssPropertyInheritanceNonInherited,
+      RoboCssPropertyComputationLength,     "auto",      0 },
+    { "margin-block",        RoboCssPropertyInheritanceNonInherited,
+      RoboCssPropertyComputationPreserve,   "0",
+      RoboCssPropertyFlagShorthand },
+    { "margin-inline",       RoboCssPropertyInheritanceNonInherited,
+      RoboCssPropertyComputationPreserve,   "0",
+      RoboCssPropertyFlagShorthand },
+    { "padding-block",       RoboCssPropertyInheritanceNonInherited,
+      RoboCssPropertyComputationPreserve,   "0",
+      RoboCssPropertyFlagShorthand },
+    { "padding-inline",      RoboCssPropertyInheritanceNonInherited,
+      RoboCssPropertyComputationPreserve,   "0",
+      RoboCssPropertyFlagShorthand }
 };
 
 Result CssPropertyRegistryCreateStandard(

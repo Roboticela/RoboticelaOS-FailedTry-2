@@ -444,15 +444,15 @@ Completed stack today: **Phases 0-12**, **Phase 15** and **Phase 16** (RoboJS mo
 18.2 CSSOM ✅
 18.3 Flexbox ✅
 18.4 Grid ✅
-18.5 Tables
-18.6 Multi-column layout
-18.7 Transforms
-18.8 Transitions
-18.9 Animations
-18.10 Media queries
-18.11 Container queries
-18.12 Logical properties
-18.13 Writing modes
+18.5 Tables ✅
+18.6 Multi-column layout ✅
+18.7 Transforms ✅
+18.8 Transitions ✅
+18.9 Animations ✅
+18.10 Media queries ✅
+18.11 Container queries ✅
+18.12 Logical properties ✅
+18.13 Writing modes ✅
 18.14 CSS fonts
 18.15 CSS text
 18.16 CSS images

@@ -1465,6 +1465,14 @@ static const char *const computedBoxFlexBasisKeywords[] = {
 static const char *const computedBoxGridGapKeywords[] = { "normal" };
 
 /**
+ * `column-width`'s one keyword (18.6): `auto`, or a length.
+ *
+ * `auto` means "let the count decide", which is not zero and not a length, so it is
+ * carried as the keyword it is — exactly as `normal` is for a grid gutter.
+ */
+static const char *const computedColumnWidthKeywords[] = { "auto" };
+
+/**
  * One length family: which shape it is, what it may be written as, and what to
  * say when an identifier is not in that vocabulary.
  *
@@ -1514,7 +1522,14 @@ static const ComputedLengthGrammar computedLengthGrammars[] = {
     { RoboCssPropertyComputationGridGap, computedBoxGridGapKeywords,
       sizeof(computedBoxGridGapKeywords) /
           sizeof(computedBoxGridGapKeywords[0]),
-      "not a length, a percentage or normal" }
+      "not a length, a percentage or normal" },
+    /* `column-width` (18.6) joins the length body with the keyword `auto`, for the same
+     * reason the grid gutter did: its value *is* a length, and what is its own is the
+     * keyword list. */
+    { RoboCssPropertyComputationColumnWidth, computedColumnWidthKeywords,
+      sizeof(computedColumnWidthKeywords) /
+          sizeof(computedColumnWidthKeywords[0]),
+      "not a length or auto" }
 };
 
 /** The grammar for @p computation, or NULL when it is not a length family. */
@@ -1872,6 +1887,115 @@ static Result ComputedVocabularyFlexAlignMake(CssComputedValue *out,
         out, CssFlexAlignFromSlice(keyword), diag);
 }
 
+/* The table vocabularies (18.5): five more predicates, and the same make body.
+ * Each value here is a keyword and nothing else, so a typed enumerator would be a
+ * second copy of a table for a reader this phase does not yet have -- the table
+ * layout pass (19.6) is what will read them. What the closed set buys is the
+ * refusal, exactly as it does for `background-repeat`. */
+static int ComputedVocabularyTableLayoutKnown(CssSlice keyword)
+{
+    return CssTableLayoutSliceIsKnown(keyword);
+}
+
+static int ComputedVocabularyBorderCollapseKnown(CssSlice keyword)
+{
+    return CssBorderCollapseSliceIsKnown(keyword);
+}
+
+static int ComputedVocabularyCaptionSideKnown(CssSlice keyword)
+{
+    return CssCaptionSideSliceIsKnown(keyword);
+}
+
+static int ComputedVocabularyEmptyCellsKnown(CssSlice keyword)
+{
+    return CssEmptyCellsSliceIsKnown(keyword);
+}
+
+static int ComputedVocabularyVisibilityKnown(CssSlice keyword)
+{
+    return CssVisibilitySliceIsKnown(keyword);
+}
+
+/* The multi-column vocabularies (18.6): two more predicates and the same make body. */
+static int ComputedVocabularyColumnSpanKnown(CssSlice keyword)
+{
+    return CssColumnSpanSliceIsKnown(keyword);
+}
+
+static int ComputedVocabularyColumnFillKnown(CssSlice keyword)
+{
+    return CssColumnFillSliceIsKnown(keyword);
+}
+
+/* The writing-mode vocabularies (18.13): three more predicates and the same make body.
+ * `direction` is the one whose shape is *upgraded* rather than added -- it used to be
+ * the KEYWORD shape -- so its predicate is what makes `direction: banana` a refusal
+ * where it used to be a value. */
+static int ComputedVocabularyDirectionKnown(CssSlice keyword)
+{
+    return CssDirectionSliceIsKnown(keyword);
+}
+
+static int ComputedVocabularyWritingModeKnown(CssSlice keyword)
+{
+    return CssWritingModeSliceIsKnown(keyword);
+}
+
+static int ComputedVocabularyTextOrientationKnown(CssSlice keyword)
+{
+    return CssTextOrientationSliceIsKnown(keyword);
+}
+
+/* The transform vocabularies (18.7): two more predicates and the same make body. The
+ * transform *list* and its origin are carried declarations, so the function-name set
+ * is not a computed shape here -- it is the vocabulary a later pass checks a list's
+ * members against. */
+static int ComputedVocabularyTransformStyleKnown(CssSlice keyword)
+{
+    return CssTransformStyleSliceIsKnown(keyword);
+}
+
+static int ComputedVocabularyBackfaceVisibilityKnown(CssSlice keyword)
+{
+    return CssBackfaceVisibilitySliceIsKnown(keyword);
+}
+
+/* The transition vocabulary (18.8): one predicate and the same make body. The
+ * timing-function keywords are the *keyword* half of a grammar this phase carries,
+ * so `transition-behavior` is the only shape read through the closed set. */
+static int ComputedVocabularyTransitionBehaviorKnown(CssSlice keyword)
+{
+    return CssTransitionBehaviorSliceIsKnown(keyword);
+}
+
+/* The animation vocabularies (18.9): four more predicates and the same make body. */
+static int ComputedVocabularyAnimationDirectionKnown(CssSlice keyword)
+{
+    return CssAnimationDirectionSliceIsKnown(keyword);
+}
+
+static int ComputedVocabularyAnimationFillModeKnown(CssSlice keyword)
+{
+    return CssAnimationFillModeSliceIsKnown(keyword);
+}
+
+static int ComputedVocabularyAnimationPlayStateKnown(CssSlice keyword)
+{
+    return CssAnimationPlayStateSliceIsKnown(keyword);
+}
+
+static int ComputedVocabularyAnimationCompositionKnown(CssSlice keyword)
+{
+    return CssAnimationCompositionSliceIsKnown(keyword);
+}
+
+/* The container-query vocabulary (18.11): one predicate and the same make body. */
+static int ComputedVocabularyContainerTypeKnown(CssSlice keyword)
+{
+    return CssContainerTypeSliceIsKnown(keyword);
+}
+
 /**
  * A closed vocabulary whose value *is* its keyword, carried as one.
  *
@@ -1932,7 +2056,78 @@ static const ComputedVocabularyGrammar computedVocabularyGrammars[] = {
       "not an align-self value" },
     { RoboCssPropertyComputationAlignContent, ComputedVocabularyAlignContentKnown,
       ComputedVocabularyFlexAlignMake, "not a single align-content keyword",
-      "not an align-content value" }
+      "not an align-content value" },
+    /* The table vocabularies (18.5) are five more rows in the same table, and their
+     * make door is the one that carries the keyword: unlike a display or a position
+     * there is nothing to *do* with `collapse` at this stage, so a typed enumerator
+     * would be a second copy of a table for a reader that arrives at 19.6. */
+    { RoboCssPropertyComputationTableLayout, ComputedVocabularyTableLayoutKnown,
+      ComputedVocabularyKeywordMake, "not a single table-layout keyword",
+      "not a table-layout value" },
+    { RoboCssPropertyComputationBorderCollapse,
+      ComputedVocabularyBorderCollapseKnown, ComputedVocabularyKeywordMake,
+      "not a single border-collapse keyword", "not a border-collapse value" },
+    { RoboCssPropertyComputationCaptionSide, ComputedVocabularyCaptionSideKnown,
+      ComputedVocabularyKeywordMake, "not a single caption-side keyword",
+      "not a caption-side value" },
+    { RoboCssPropertyComputationEmptyCells, ComputedVocabularyEmptyCellsKnown,
+      ComputedVocabularyKeywordMake, "not a single empty-cells keyword",
+      "not an empty-cells value" },
+    { RoboCssPropertyComputationVisibility, ComputedVocabularyVisibilityKnown,
+      ComputedVocabularyKeywordMake, "not a single visibility keyword",
+      "not a visibility value" },
+    /* The multi-column vocabularies (18.6) are two more rows in the same table. */
+    { RoboCssPropertyComputationColumnSpan, ComputedVocabularyColumnSpanKnown,
+      ComputedVocabularyKeywordMake, "not a single column-span keyword",
+      "not a column-span value" },
+    { RoboCssPropertyComputationColumnFill, ComputedVocabularyColumnFillKnown,
+      ComputedVocabularyKeywordMake, "not a single column-fill keyword",
+      "not a column-fill value" },
+    /* The writing-mode vocabularies (18.13) are three more rows in the same table. */
+    { RoboCssPropertyComputationDirection, ComputedVocabularyDirectionKnown,
+      ComputedVocabularyKeywordMake, "not a single direction keyword",
+      "not a direction value" },
+    { RoboCssPropertyComputationWritingMode, ComputedVocabularyWritingModeKnown,
+      ComputedVocabularyKeywordMake, "not a single writing-mode keyword",
+      "not a writing-mode value" },
+    { RoboCssPropertyComputationTextOrientation,
+      ComputedVocabularyTextOrientationKnown, ComputedVocabularyKeywordMake,
+      "not a single text-orientation keyword", "not a text-orientation value" },
+    /* The transform vocabularies (18.7) are two more rows in the same table. */
+    { RoboCssPropertyComputationTransformStyle,
+      ComputedVocabularyTransformStyleKnown, ComputedVocabularyKeywordMake,
+      "not a single transform-style keyword", "not a transform-style value" },
+    { RoboCssPropertyComputationBackfaceVisibility,
+      ComputedVocabularyBackfaceVisibilityKnown, ComputedVocabularyKeywordMake,
+      "not a single backface-visibility keyword",
+      "not a backface-visibility value" },
+    /* The transition vocabulary (18.8) is one more row in the same table. */
+    { RoboCssPropertyComputationTransitionBehavior,
+      ComputedVocabularyTransitionBehaviorKnown, ComputedVocabularyKeywordMake,
+      "not a single transition-behavior keyword",
+      "not a transition-behavior value" },
+    /* The animation vocabularies (18.9) are four more rows in the same table. */
+    { RoboCssPropertyComputationAnimationDirection,
+      ComputedVocabularyAnimationDirectionKnown, ComputedVocabularyKeywordMake,
+      "not a single animation-direction keyword",
+      "not an animation-direction value" },
+    { RoboCssPropertyComputationAnimationFillMode,
+      ComputedVocabularyAnimationFillModeKnown, ComputedVocabularyKeywordMake,
+      "not a single animation-fill-mode keyword",
+      "not an animation-fill-mode value" },
+    { RoboCssPropertyComputationAnimationPlayState,
+      ComputedVocabularyAnimationPlayStateKnown, ComputedVocabularyKeywordMake,
+      "not a single animation-play-state keyword",
+      "not an animation-play-state value" },
+    { RoboCssPropertyComputationAnimationComposition,
+      ComputedVocabularyAnimationCompositionKnown,
+      ComputedVocabularyKeywordMake,
+      "not a single animation-composition keyword",
+      "not an animation-composition value" },
+    /* The container-query vocabulary (18.11) is one more row in the same table. */
+    { RoboCssPropertyComputationContainerType,
+      ComputedVocabularyContainerTypeKnown, ComputedVocabularyKeywordMake,
+      "not a single container-type keyword", "not a container-type value" }
 };
 
 /** The vocabulary grammar for @p computation, or NULL when it is not one. */
@@ -2577,6 +2772,117 @@ static Result ComputedComputeOrder(CssComputedValue *out,
     return CssComputedValueMakeNumber(out, (double)integer, 1, diag);
 }
 
+/**
+ * Compute a `column-count`: `auto`, or a positive whole number (18.6).
+ *
+ * A shape of its own rather than the NUMBER family, and the difference is the bound
+ * rather than the syntax: a count of zero columns is not a smaller count, it is not a
+ * column count at all, so `0` and a negative or fractional number are mistakes rather
+ * than values to clamp. `auto` is the initial value and means "as many as fit", which
+ * is a different statement from one. The keyword is asked first, the way the length
+ * grammar asks its own, so `column-count: auto` is a value and `column-count: banana`
+ * is told it is not one.
+ */
+static Result ComputedComputeColumnCount(CssComputedValue *out,
+                                         const CssValue *specified,
+                                         CssDiag *diag)
+{
+    static const char *const reason = "not auto or a positive whole number";
+    CssPropertyComputation computation = RoboCssPropertyComputationColumnCount;
+    const CssToken *token = ComputedSingleToken(specified);
+    CssNumeric numeric = CssNumericNone();
+    int64_t integer = 0;
+
+    if (token && token->type == RoboCssTokenIdent) {
+        char keyword[64];
+        size_t length = 0u;
+
+        if (!CssTokenKeywordText(token, keyword, sizeof(keyword), &length) ||
+            !CssBytesEqualAsciiCi((const uint8_t *)keyword, length, "auto")) {
+            return ComputedReject(out, computation, reason, diag);
+        }
+        return CssComputedValueMakeKeyword(
+            out, CssSliceFromBytes((const uint8_t *)keyword, length), diag);
+    }
+
+    switch (CssNumericFromValue(specified, &numeric)) {
+    case RoboCssNumericParseResolved:
+        break;
+    case RoboCssNumericParseDeferred:
+        return ComputedKeep(out, specified, 1, diag);
+    case RoboCssNumericParseNonFinite:
+        return ComputedReject(out, computation, "not a finite number", diag);
+    default:
+        return ComputedReject(out, computation, reason, diag);
+    }
+
+    if (numeric.kind != RoboCssNumericInteger ||
+        !CssNumericIntegerValue(numeric, &integer)) {
+        return ComputedReject(out, computation,
+                              "a column count must be a whole number", diag);
+    }
+    if (integer < 1) {
+        return ComputedReject(out, computation,
+                              "a column count must be at least one", diag);
+    }
+    return CssComputedValueMakeNumber(out, (double)integer, 1, diag);
+}
+
+/**
+ * Compute an `animation-iteration-count`: `infinite`, or a non-negative number (18.9).
+ *
+ * A shape of its own because of the two things at once: the keyword `infinite` is not
+ * a number, and the bound is a *floor* rather than CSS's usual whole-number rule — a
+ * half iteration is meaningful, so a fraction is a value and only a negative count is
+ * a mistake. `infinite` arrives as the keyword it is (the NUMBER kind has no
+ * infinity), which is why the two halves of this shape are different kinds and why
+ * the keyword is asked first.
+ */
+static Result ComputedComputeAnimationIterationCount(CssComputedValue *out,
+                                                     const CssValue *specified,
+                                                     CssDiag *diag)
+{
+    static const char *const reason =
+        "not infinite or a non-negative number";
+    CssPropertyComputation computation =
+        RoboCssPropertyComputationAnimationIterationCount;
+    const CssToken *token = ComputedSingleToken(specified);
+    CssNumeric numeric = CssNumericNone();
+
+    if (token && token->type == RoboCssTokenIdent) {
+        char keyword[64];
+        size_t length = 0u;
+
+        if (!CssTokenKeywordText(token, keyword, sizeof(keyword), &length) ||
+            !CssBytesEqualAsciiCi((const uint8_t *)keyword, length, "infinite")) {
+            return ComputedReject(out, computation, reason, diag);
+        }
+        return CssComputedValueMakeKeyword(
+            out, CssSliceFromBytes((const uint8_t *)keyword, length), diag);
+    }
+
+    switch (CssNumericFromValue(specified, &numeric)) {
+    case RoboCssNumericParseResolved:
+        break;
+    case RoboCssNumericParseDeferred:
+        return ComputedKeep(out, specified, 1, diag);
+    case RoboCssNumericParseNonFinite:
+        return ComputedReject(out, computation, "not a finite number", diag);
+    default:
+        return ComputedReject(out, computation, reason, diag);
+    }
+
+    if (numeric.kind != RoboCssNumericNumber &&
+        numeric.kind != RoboCssNumericInteger) {
+        return ComputedReject(out, computation, reason, diag);
+    }
+    if (numeric.number < 0.0) {
+        return ComputedReject(out, computation,
+                              "an iteration count cannot be negative", diag);
+    }
+    return CssComputedValueMakeNumber(out, numeric.number, 0, diag);
+}
+
 Result CssComputedValueCompute(
     CssPropertyComputation computation,
     const CssValue *specified,
@@ -2623,6 +2929,8 @@ Result CssComputedValueCompute(
     case RoboCssPropertyComputationFlexBasis:
     /* And the grid gutters (18.4), which are the same body with the keyword `normal`. */
     case RoboCssPropertyComputationGridGap:
+    /* And `column-width` (18.6), which is the same body with the keyword `auto`. */
+    case RoboCssPropertyComputationColumnWidth:
         return ComputedComputeLengthGrammar(
             ComputedLengthGrammarFor(computation), out, specified, diag);
     /* The two closed vocabularies (9.12, 9.13) are also one case body for the
@@ -2661,6 +2969,38 @@ Result CssComputedValueCompute(
     case RoboCssPropertyComputationAlignItems:
     case RoboCssPropertyComputationAlignSelf:
     case RoboCssPropertyComputationAlignContent:
+    /*
+     * The table vocabularies (18.5) are five more rows in the same table, and they
+     * are the first whose values are *logical* (`caption-side: block-start`) -- which
+     * changes nothing here, because the row still only asks "is this identifier one of
+     * ours" and the axis classification lives on the vocabulary.
+     */
+    case RoboCssPropertyComputationTableLayout:
+    case RoboCssPropertyComputationBorderCollapse:
+    case RoboCssPropertyComputationCaptionSide:
+    case RoboCssPropertyComputationEmptyCells:
+    case RoboCssPropertyComputationVisibility:
+    /* And the multi-column vocabularies (18.6) are two more rows. */
+    case RoboCssPropertyComputationColumnSpan:
+    case RoboCssPropertyComputationColumnFill:
+    /* And the writing-mode vocabularies (18.13) are three more rows -- the writing
+     * mode is data whose value *is* its keyword here; turning it into a run or a line
+     * is RoboText's, and that is a reader this table does not own. */
+    case RoboCssPropertyComputationDirection:
+    case RoboCssPropertyComputationWritingMode:
+    case RoboCssPropertyComputationTextOrientation:
+    /* And the transform vocabularies (18.7) are two more rows. */
+    case RoboCssPropertyComputationTransformStyle:
+    case RoboCssPropertyComputationBackfaceVisibility:
+    /* And the transition vocabulary (18.8) is one more row. */
+    case RoboCssPropertyComputationTransitionBehavior:
+    /* And the animation vocabularies (18.9) are four more rows. */
+    case RoboCssPropertyComputationAnimationDirection:
+    case RoboCssPropertyComputationAnimationFillMode:
+    case RoboCssPropertyComputationAnimationPlayState:
+    case RoboCssPropertyComputationAnimationComposition:
+    /* And the container-query vocabulary (18.11) is one more row. */
+    case RoboCssPropertyComputationContainerType:
         return ComputedComputeVocabulary(
             ComputedVocabularyGrammarFor(computation), out, specified, diag);
     case RoboCssPropertyComputationBackgroundImage:
@@ -2698,6 +3038,20 @@ Result CssComputedValueCompute(
      */
     case RoboCssPropertyComputationGridAutoFlow:
         return ComputedComputeGridAutoFlow(out, specified, diag);
+    /*
+     * And the one numeric shape multi-column adds (18.6): `column-count`, which is
+     * `auto` or a positive whole number, so its bound (at least one) is the reason it
+     * is a shape of its own rather than a bare number.
+     */
+    case RoboCssPropertyComputationColumnCount:
+        return ComputedComputeColumnCount(out, specified, diag);
+    /*
+     * And the one numeric shape animations add (18.9): `animation-iteration-count`,
+     * which is `infinite` or a non-negative number, so its floor (a half iteration is
+     * meaningful) is the reason it is a shape of its own.
+     */
+    case RoboCssPropertyComputationAnimationIterationCount:
+        return ComputedComputeAnimationIterationCount(out, specified, diag);
     default:
         return ComputedKeep(out, specified, ComputedFunctionIsUnresolved(
                                              CssValueSingle(specified)),

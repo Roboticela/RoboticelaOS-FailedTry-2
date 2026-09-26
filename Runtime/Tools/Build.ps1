@@ -440,6 +440,36 @@ $ProdSrcs = @(
     # The grid vocabulary (18.4): `grid-auto-flow` as a closed set whose values
     # are two words, read from the component value rather than one identifier.
     (Join-Path $SourceDir "RoboCSS\RoboCSSGrid.c"),
+    # The table vocabulary (18.5): five closed sets -- layout, collapse, caption
+    # side, empty-cells and visibility -- that describe a table box. The family is
+    # the first whose properties are mostly *inherited*, which is the fact that
+    # matters to the cascade.
+    (Join-Path $SourceDir "RoboCSS\RoboCSSTable.c"),
+    # The multi-column vocabulary (18.6): the span and fill closed sets, with the
+    # count, width and rule decoration read through shapes the table already has.
+    (Join-Path $SourceDir "RoboCSS\RoboCSSColumn.c"),
+    # The writing-mode vocabulary (18.13): direction, writing-mode and
+    # text-orientation, the three closed sets that say which physical edge is
+    # inline-start and how a character stands in a vertical line.
+    (Join-Path $SourceDir "RoboCSS\RoboCSSWriting.c"),
+    # The transform vocabulary (18.7): transform-style and backface-visibility
+    # plus the closed set of function names a `transform` list is built from.
+    (Join-Path $SourceDir "RoboCSS\RoboCSSTransform.c"),
+    # The transition vocabulary (18.8): transition-behavior and the keyword half
+    # of the timing-function grammar, with the rest of the family carried.
+    (Join-Path $SourceDir "RoboCSS\RoboCSSTransition.c"),
+    # The animation vocabulary (18.9): four closed sets, the iteration-count shape
+    # and the transition family's timing-function keywords reused.
+    (Join-Path $SourceDir "RoboCSS\RoboCSSAnimation.c"),
+    # Media queries (18.10): the type/feature vocabularies, the context and the
+    # condition/query matcher (yes / no / unknown).
+    (Join-Path $SourceDir "RoboCSS\RoboCSSMedia.c"),
+    # Container queries (18.11): the container-type vocabulary and a size matcher
+    # reusing the media module's condition model.
+    (Join-Path $SourceDir "RoboCSS\RoboCSSContainer.c"),
+    # Logical properties (18.12): the side/axis vocabulary and the resolver that maps
+    # a logical role to a physical box side under a writing mode and direction.
+    (Join-Path $SourceDir "RoboCSS\RoboCSSLogical.c"),
     (Join-Path $SourceDir "RoboLayout\RoboLayout.c"),
     (Join-Path $SourceDir "RoboLayout\RoboLayoutTypes.c"),
     (Join-Path $SourceDir "RoboLayout\RoboLayoutDiagnostics.c"),
@@ -919,6 +949,33 @@ $SuiteSrcs = @(
     # The grid suite (18.4): the flow vocabulary and its two-word reader, plus the
     # gutter length family and the carried declarations the rest of the family is.
     (Join-Path $TestsRoot "Css\SuiteRoboCssGrid.c"),
+    # The table suite (18.5): the five vocabularies, their classifications, the
+    # inherited rows and the carried `border-spacing`.
+    (Join-Path $TestsRoot "Css\SuiteRoboCssTable.c"),
+    # The multi-column suite (18.6): the span and fill vocabularies, the count and
+    # width shapes, and the rule decoration reused from the border family.
+    (Join-Path $TestsRoot "Css\SuiteRoboCssColumn.c"),
+    # The writing-mode suite (18.13): the three vocabularies, the vertical and
+    # sideways classifications, and the `direction` shape upgraded in place.
+    (Join-Path $TestsRoot "Css\SuiteRoboCssWriting.c"),
+    # The transform suite (18.7): the two closed sets, the function-name set and
+    # its 3D/matrix classifications, and the carried declarations.
+    (Join-Path $TestsRoot "Css\SuiteRoboCssTransform.c"),
+    # The transition suite (18.8): the behavior closed set, the timing-function
+    # keyword vocabulary and the carried declarations.
+    (Join-Path $TestsRoot "Css\SuiteRoboCssTransition.c"),
+    # The animation suite (18.9): the four closed sets, their classifications, the
+    # iteration-count shape and the carried declarations.
+    (Join-Path $TestsRoot "Css\SuiteRoboCssAnimation.c"),
+    # The media-query suite (18.10): the vocabularies, the range forms and the
+    # matcher's yes / no / unknown over a context.
+    (Join-Path $TestsRoot "Css\SuiteRoboCssMedia.c"),
+    # The container-query suite (18.11): the container-type vocabulary and the
+    # matcher over a container's size.
+    (Join-Path $TestsRoot "Css\SuiteRoboCssContainer.c"),
+    # The logical-property suite (18.12): the side/axis vocabulary, the resolver over
+    # the writing modes, and the registered logical rows.
+    (Join-Path $TestsRoot "Css\SuiteRoboCssLogical.c"),
     # The selector/DOM integration suite deliberately lives outside css/: it
     # includes both RoboCSS and RoboHTML, and the two are peers whose guards
     # forbid each other's headers. A suite that must see both belongs in neither.

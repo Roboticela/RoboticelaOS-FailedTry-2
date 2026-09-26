@@ -333,6 +333,136 @@ typedef struct CssCapabilities {
      * resolves a line number.
      */
     int grid;
+    /**
+     * The table vocabulary (18.5): the five closed sets a table box is described by —
+     * `table-layout`, `border-collapse`, `caption-side`, `empty-cells` and `visibility`
+     * — each a row per value with the classifications a table layout pass dispatches on,
+     * plus `border-spacing` registered as a carried declaration.
+     *
+     * What it does not claim is table *layout*: nothing measures a column, distributes
+     * a track, collapses two adjoining borders into one, or removes a `visibility:
+     * collapse` row from the layout. The internal table display types (`display:
+     * table`, `table-row`, `table-cell`, …) are **not** rows in this build's display
+     * vocabulary — the internal-box model is the table layout phase's (19.6), which is
+     * why this flag is named for the properties and not for the boxes they describe.
+     * `border-spacing`'s `<length>{1,2}` pair is carried PRESERVED for the same reason.
+     */
+    int tables;
+    /**
+     * The multi-column vocabulary (18.6): the fragmentation container's properties —
+     * `column-count` (`auto` or a positive integer), `column-width` (a length or
+     * `auto`), `column-span` (`none` | `all`), `column-fill` (`auto` | `balance`), the
+     * `column-rule-*` decoration (reusing the border family's width, style and colour
+     * shapes), the two shorthands `column-rule` and `columns` as carried declarations,
+     * and `column-gap` which 18.4 already registered.
+     *
+     * What it does not claim is fragmentation *layout*: nothing splits content into
+     * columns, fills one to its height, balances a height, or decides how many columns
+     * fit. A value here says what rule a fragmentation pass follows.
+     */
+    int multiColumn;
+    /**
+     * The writing-mode vocabulary (18.13): the three closed sets that decide which
+     * physical edge is inline-start and how a character stands in a vertical line —
+     * `direction` (`ltr` | `rtl`), `writing-mode` (`horizontal-tb`, `vertical-rl`,
+     * `vertical-lr`, `sideways-rl`, `sideways-lr`) and `text-orientation` (`mixed` |
+     * `upright` | `sideways`), each a row per value with the classifications a layout
+     * or text pass dispatches on. `direction`'s shape was a bare KEYWORD until this
+     * phase upgraded it in place.
+     *
+     * What it does not claim is a vertical *layout* or a vertical *shaper*: nothing
+     * turns the writing mode into a run, a line, a caret or a fragment, and the two
+     * `sideways-*` values are carried as values the build's text engine does not yet
+     * draw. A value here says which axis is which; the module that has a box reads it.
+     */
+    int writingModes;
+    /**
+     * The transform vocabulary (18.7): the two closed sets a transformed box is
+     * described by — `transform-style` (`flat` | `preserve-3d`) and
+     * `backface-visibility` (`visible` | `hidden`) — each a row per value with the
+     * classification a rendering pass dispatches on, and the closed set of
+     * `<transform-function>` names (`CssTransformFunction`) a `transform` list is
+     * built from, with its 3D and matrix classifications.
+     *
+     * What it does not claim is transform *layout* or a matrix library: nothing
+     * composes a list, multiplies two matrices, resolves an origin or applies a
+     * transform to a box. `transform`, `transform-origin`, `perspective`,
+     * `perspective-origin`, `translate`, `rotate` and `scale` are registered as
+     * carried declarations; the value says what an author wrote.
+     */
+    int transforms;
+    /**
+     * The transition vocabulary (18.8): the closed `transition-behavior` set
+     * (`normal` | `allow-discrete`) and the keyword half of the timing-function
+     * grammar (`ease`, `linear`, `ease-in`, `ease-out`, `ease-in-out`,
+     * `step-start`, `step-end`) with its discrete-step classification.
+     *
+     * What it does not claim is a transition *engine* or a clock: no transition is
+     * started, no easing curve sampled, no value interpolated and no timeline
+     * advanced. `transition`, `transition-property`, `transition-duration`,
+     * `transition-delay` and `transition-timing-function` are registered as carried
+     * declarations, because a property list, a time list and a timing-function list
+     * are grammars this phase names rather than parses.
+     */
+    int transitions;
+    /**
+     * The animation vocabulary (18.9): four closed sets — `animation-direction`
+     * (`normal` | `reverse` | `alternate` | `alternate-reverse`),
+     * `animation-fill-mode` (`none` | `forwards` | `backwards` | `both`),
+     * `animation-play-state` (`running` | `paused`) and `animation-composition`
+     * (`replace` | `add` | `accumulate`) — each a row per value with the
+     * classifications a consumer dispatches on, plus `animation-iteration-count`
+     * (`infinite`, or a non-negative number). The timing-function keywords are the
+     * **transition** family's (§18.8) reused, not a second copy.
+     *
+     * What it does not claim is an animation *engine* or a clock, and it does not
+     * parse `@keyframes`: no animation starts, no keyframe resolves, no curve is
+     * sampled and no value is interpolated. `animation`, `animation-name`,
+     * `animation-duration`, `animation-delay` and `animation-timing-function` are
+     * registered as carried declarations.
+     */
+    int animations;
+    /**
+     * Media queries (18.10): the media-type vocabulary (`all` | `screen` |
+     * `print`), the media-feature vocabulary with its kinds and range forms, the
+     * `CssMediaContext` a caller fills in, and the condition/query matcher whose
+     * answer is yes, no or **unknown** — a feature the context cannot answer is
+     * unknown rather than a silent no.
+     *
+     * What it does not claim is the `@media` grammar: nothing here tokenizes a
+     * prelude or attaches a condition to an at-rule (that is the parser's), and
+     * nothing here owns a viewport — the caller copies its numbers into the context.
+     * `@container` is 18.11's.
+     */
+    int mediaQueries;
+    /**
+     * Container queries (18.11): the `container-type` closed set (`normal` | `size`
+     * | `inline-size`) with its classifications, and a matcher that evaluates a
+     * container query's condition list — the **media-query** module's own
+     * `CssMediaCondition` (§18.10) — against a container's size.
+     *
+     * What it does not claim is the `@container` grammar or an ancestor walk:
+     * nothing here tokenizes a prelude or finds the query container — the caller
+     * that has a box does that and hands the size here. And `inline-size`/`block-size`
+     * as *feature names* are not built (a logical feature needs a writing mode a
+     * container does not carry until 18.12). `container-name` and `container` are
+     * carried declarations.
+     */
+    int containerQueries;
+    /**
+     * Logical properties (18.12): the logical side/axis vocabulary and
+     * `CssLogicalResolveSide`, which maps a role (block-start, inline-start, …) to a
+     * `CssBoxSide` under a `CssWritingMode` and `CssDirection` (§18.13). The box
+     * model's logical longhands and shorthands — `margin-*`, `padding-*`, the insets
+     * and `block-size`/`inline-size` — are registered as the **same shape** their
+     * physical counterparts are.
+     *
+     * What it does not claim is logical-value *use*: nothing here maps an element's
+     * computed style to physical values (that is the phase with an element, 19.10),
+     * and the logical border longhands and logical `min-`/`max-` sizes are named as
+     * not built. `sideways-*` resolves as its vertical counterpart.
+     */
+    int logicalProperties;
 } CssCapabilities;
 
 /** Zero every flag. Safe on NULL. */

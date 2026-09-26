@@ -208,7 +208,91 @@ static const CssConformanceInitial cssConformanceInitials[] = {
     {"grid-template-areas", "preserved", "none"},
     {"grid-template-columns", "preserved", "none"},
     {"grid-template-rows", "preserved", "none"},
-    {"row-gap", "keyword", "normal"}
+    {"row-gap", "keyword", "normal"},
+    /* The table family (18.5), in registry order. Five of its six rows are closed
+     * vocabularies and the sixth is carried: `border-spacing`'s `<length>{1,2}` pair
+     * is a declaration this build holds rather than reads, exactly as the grid track
+     * templates are. */
+    {"border-collapse", "keyword", "separate"},
+    {"border-spacing", "preserved", "0"},
+    {"caption-side", "keyword", "top"},
+    {"empty-cells", "keyword", "show"},
+    {"table-layout", "keyword", "auto"},
+    /* The multi-column family (18.6), in registry order. The count and width are
+     * typed, the span and fill are carried keywords, the rule decoration reuses the
+     * border family's shapes, and the two shorthands are carried. */
+    {"column-count", "keyword", "auto"},
+    {"column-fill", "keyword", "balance"},
+    {"column-rule", "preserved", "medium none currentColor"},
+    {"column-rule-color", "colour", "currentColor"},
+    {"column-rule-style", "border-style", "none"},
+    {"column-rule-width", "keyword", "medium"},
+    {"column-span", "keyword", "none"},
+    {"column-width", "keyword", "auto"},
+    {"columns", "preserved", "auto auto"},
+    /* The writing-mode family (18.13), in registry order. `direction` above is the
+     * row that already existed and whose shape was upgraded in place; its computed
+     * *kind* is still a keyword, which is why its row did not change. The two new
+     * rows are inherited keywords, and `horizontal-tb`/`mixed` are each the zero of
+     * their enumerator. */
+    {"writing-mode", "keyword", "horizontal-tb"},
+    {"text-orientation", "keyword", "mixed"},
+    /* The transform family (18.7), in registry order. The two typed vocabularies
+     * compute to a keyword; the seven carried declarations keep their tokens. */
+    {"transform", "preserved", "none"},
+    {"transform-origin", "preserved", "50% 50%"},
+    {"transform-style", "keyword", "flat"},
+    {"perspective", "preserved", "none"},
+    {"perspective-origin", "preserved", "50% 50%"},
+    {"backface-visibility", "keyword", "visible"},
+    {"translate", "preserved", "none"},
+    {"rotate", "preserved", "none"},
+    {"scale", "preserved", "none"},
+    /* The transition family (18.8), in registry order. One typed keyword and five
+     * carried grammars. */
+    {"transition-behavior", "keyword", "normal"},
+    {"transition-delay", "preserved", "0s"},
+    {"transition-duration", "preserved", "0s"},
+    {"transition-property", "preserved", "all"},
+    {"transition-timing-function", "preserved", "ease"},
+    {"transition", "preserved", "all 0s ease 0s"},
+    /* The animation family (18.9), in registry order. Four typed vocabularies, the
+     * iteration-count shape (`1` is a number) and the five carried grammars. */
+    {"animation", "preserved",
+     "none 0s ease 0s 1 normal none running"},
+    {"animation-composition", "keyword", "replace"},
+    {"animation-delay", "preserved", "0s"},
+    {"animation-direction", "keyword", "normal"},
+    {"animation-duration", "preserved", "0s"},
+    {"animation-fill-mode", "keyword", "none"},
+    {"animation-iteration-count", "number", "1"},
+    {"animation-name", "preserved", "none"},
+    {"animation-play-state", "keyword", "running"},
+    {"animation-timing-function", "preserved", "ease"},
+    /* The container-query family (18.11), in registry order. */
+    {"container-type", "keyword", "normal"},
+    {"container-name", "preserved", "none"},
+    {"container", "preserved", "none / normal"},
+    /* The logical family (18.12), in registry order. The logical longhands compute
+     * exactly as their physical counterparts do. */
+    {"margin-block-start", "length", "0px"},
+    {"margin-block-end", "length", "0px"},
+    {"margin-inline-start", "length", "0px"},
+    {"margin-inline-end", "length", "0px"},
+    {"padding-block-start", "length", "0px"},
+    {"padding-block-end", "length", "0px"},
+    {"padding-inline-start", "length", "0px"},
+    {"padding-inline-end", "length", "0px"},
+    {"inset-block-start", "keyword", "auto"},
+    {"inset-block-end", "keyword", "auto"},
+    {"inset-inline-start", "keyword", "auto"},
+    {"inset-inline-end", "keyword", "auto"},
+    {"block-size", "keyword", "auto"},
+    {"inline-size", "keyword", "auto"},
+    {"margin-block", "preserved", "0"},
+    {"margin-inline", "preserved", "0"},
+    {"padding-block", "preserved", "0"},
+    {"padding-inline", "preserved", "0"}
 };
 
 /**
@@ -1663,7 +1747,15 @@ static void TestCssConformanceCapabilitiesEveryFlag(void)
         {"stylesheet_loading", 0},
         {"custom_properties", 1},   {"variable_substitution", 1},
         {"cssom", 1},               {"flexbox", 1},
-        {"grid", 1}
+        {"grid", 1},                {"tables", 1},
+        {"multi_column", 1},
+        {"writing_modes", 1},
+        {"transforms", 1},
+        {"transitions", 1},
+        {"animations", 1},
+        {"media_queries", 1},
+        {"container_queries", 1},
+        {"logical_properties", 1}
     };
     CssCapabilities caps;
     int *asInts = (int *)&caps;
@@ -1694,7 +1786,7 @@ static void TestCssConformanceCapabilitiesEveryFlag(void)
     /* The frozen-surface flag is a promise about the phase, not a capability. */
     RoboCheckEqInt(RoboCssApiFrozen, 0);
     RoboCheckEqInt(RoboCssVersionMajor, 0);
-    RoboCheckEqInt(RoboCssVersionMinor, 22);
+    RoboCheckEqInt(RoboCssVersionMinor, 31);
 }
 
 void TestRegisterCssConformance(void);

@@ -395,11 +395,29 @@ typedef enum CssDiagnosticDomain {
     /** The flexbox vocabulary: the three closed sets and their classifications (18.3). */
     RoboCssDomainFlex = 22,
     /** The grid vocabulary: `grid-auto-flow` and its classifications (18.4). */
-    RoboCssDomainGrid = 23
+    RoboCssDomainGrid = 23,
+    /** The table vocabulary: layout, collapse, spacing, caption and visibility (18.5). */
+    RoboCssDomainTable = 24,
+    /** The multi-column vocabulary: span, fill, count and width (18.6). */
+    RoboCssDomainColumn = 25,
+    /** The writing-mode vocabulary: direction, writing-mode and text-orientation (18.13). */
+    RoboCssDomainWriting = 26,
+    /** The transform vocabulary: style, backface visibility and the function names (18.7). */
+    RoboCssDomainTransform = 27,
+    /** The transition vocabulary: the timing-function keywords and transition-behavior (18.8). */
+    RoboCssDomainTransition = 28,
+    /** The animation vocabulary: direction, fill mode, play state and composition (18.9). */
+    RoboCssDomainAnimation = 29,
+    /** Media queries: the type/feature vocabularies and the condition matcher (18.10). */
+    RoboCssDomainMedia = 30,
+    /** Container queries: the container-type vocabulary and the size matcher (18.11). */
+    RoboCssDomainContainer = 31,
+    /** Logical properties: the side/axis vocabulary and the physical resolver (18.12). */
+    RoboCssDomainLogical = 32
 } CssDiagnosticDomain;
 
 /** Number of defined diagnostic domains. */
-#define RoboCssDomainCount 24u
+#define RoboCssDomainCount 33u
 
 /** Non-zero if @p domain is a defined diagnostic domain enumerator. */
 int CssDiagnosticDomainIsKnown(CssDiagnosticDomain domain);

@@ -408,6 +408,24 @@ const char *CssDiagnosticDomainName(CssDiagnosticDomain domain)
         return "flex";
     case RoboCssDomainGrid:
         return "grid";
+    case RoboCssDomainTable:
+        return "table";
+    case RoboCssDomainColumn:
+        return "column";
+    case RoboCssDomainWriting:
+        return "writing";
+    case RoboCssDomainTransform:
+        return "transform";
+    case RoboCssDomainTransition:
+        return "transition";
+    case RoboCssDomainAnimation:
+        return "animation";
+    case RoboCssDomainMedia:
+        return "media";
+    case RoboCssDomainContainer:
+        return "container";
+    case RoboCssDomainLogical:
+        return "logical";
     default:
         return "unknown";
     }

@@ -414,11 +414,142 @@ typedef enum CssPropertyComputation {
      * and `margin-top: 1in` normalised by one body rather than two. Both longhands
      * share this one shape.
      */
-    RoboCssPropertyComputationGridGap = 31
+    RoboCssPropertyComputationGridGap = 31,
+    /**
+     * One of the closed `table-layout` vocabulary (18.5) — `auto` or `fixed`.
+     *
+     * The closed-vocabulary decision once more, and the property a table layout pass
+     * dispatches on before it computes a single column: `table-layout: banana` has to
+     * be a mistake rather than a keyword carrying the text `banana`.
+     */
+    RoboCssPropertyComputationTableLayout = 32,
+    /**
+     * One of the closed `border-collapse` vocabulary (18.5) — `separate` or
+     * `collapse`.
+     *
+     * `collapse` is the value that turns a `border-spacing` into a declaration CSS
+     * ignores, so the value is what a table layout pass reads first.
+     */
+    RoboCssPropertyComputationBorderCollapse = 33,
+    /**
+     * One of the closed `caption-side` vocabulary (18.5) — the first vocabulary here
+     * whose members include **logical** values (`block-start`, `inline-start`, …).
+     *
+     * Which physical edge a logical one lands on is a writing-mode question the phase
+     * with one answers; this shape carries the value and its axis, and nothing more.
+     */
+    RoboCssPropertyComputationCaptionSide = 34,
+    /**
+     * One of the closed `empty-cells` vocabulary (18.5) — `show` or `hide`.
+     */
+    RoboCssPropertyComputationEmptyCells = 35,
+    /**
+     * One of the closed `visibility` vocabulary (18.5) — `visible`, `hidden` or
+     * `collapse`.
+     *
+     * A shape of its own rather than a KEYWORD even though visibility is its own
+     * property, for the reason every closed vocabulary here has one: `hidden` takes
+     * space and `collapse` removes a table row from it, which is a distinction a
+     * consumer must read as a value and never as the word an author typed.
+     */
+    RoboCssPropertyComputationVisibility = 36,
+    /**
+     * `column-count`: `auto`, or a positive whole number (18.6).
+     *
+     * A shape of its own rather than the NUMBER family, and the difference is the
+     * bound: a column count is at least one, so `column-count: 0` and a negative or
+     * fractional count are mistakes rather than values to clamp. `auto` is the initial
+     * value and means "as many as fit", which is a different statement from one.
+     */
+    RoboCssPropertyComputationColumnCount = 37,
+    /**
+     * `column-width`: a length, or `auto` (18.6).
+     *
+     * A length family in the shared table rather than a shape of its own, because its
+     * value *is* a length: what is its own is the keyword `auto`, which the grammar
+     * already carries as a parameter.
+     */
+    RoboCssPropertyComputationColumnWidth = 38,
+    /**
+     * One of the closed `column-span` vocabulary (18.6) — `none` or `all`.
+     */
+    RoboCssPropertyComputationColumnSpan = 39,
+    /**
+     * One of the closed `column-fill` vocabulary (18.6) — `auto` or `balance`.
+     *
+     * `balance` is the property's **initial** value, so unlike every other closed
+     * vocabulary here the zero of the enumerator is not the initial. Since the shape
+     * carries the keyword rather than a typed enumerator, the registry writes `balance`
+     * down and a cleared record cannot hold the wrong answer.
+     */
+    RoboCssPropertyComputationColumnFill = 40,
+    /**
+     * One of the closed `direction` vocabulary (18.13) — `ltr` or `rtl`.
+     *
+     * `direction` was registered by 9.7 with the KEYWORD shape, which accepted any
+     * identifier, so `direction: rtl` and `direction: banana` both computed to a
+     * keyword carrying the letters. Its shape is *upgraded in place* here: the row,
+     * its inheritance and its initial value stay, and only the reading of the value
+     * becomes closed. The property's initial is `ltr`, which is the zero of the
+     * enumerator, so the upgrade changes nothing about a cleared record.
+     */
+    RoboCssPropertyComputationDirection = 41,
+    /**
+     * One of the closed `writing-mode` vocabulary (18.13) — `horizontal-tb`,
+     * `vertical-rl`, `vertical-lr`, `sideways-rl` or `sideways-lr`.
+     */
+    RoboCssPropertyComputationWritingMode = 42,
+    /**
+     * One of the closed `text-orientation` vocabulary (18.13) — `mixed`, `upright`
+     * or `sideways`.
+     */
+    RoboCssPropertyComputationTextOrientation = 43,
+    /**
+     * One of the closed `transform-style` vocabulary (18.7) — `flat` or `preserve-3d`.
+     */
+    RoboCssPropertyComputationTransformStyle = 44,
+    /**
+     * One of the closed `backface-visibility` vocabulary (18.7) — `visible` or
+     * `hidden`.
+     */
+    RoboCssPropertyComputationBackfaceVisibility = 45,
+    /**
+     * One of the closed `transition-behavior` vocabulary (18.8) — `normal` or
+     * `allow-discrete`.
+     */
+    RoboCssPropertyComputationTransitionBehavior = 46,
+    /**
+     * One of the closed `animation-direction` vocabulary (18.9).
+     */
+    RoboCssPropertyComputationAnimationDirection = 47,
+    /**
+     * One of the closed `animation-fill-mode` vocabulary (18.9).
+     */
+    RoboCssPropertyComputationAnimationFillMode = 48,
+    /**
+     * One of the closed `animation-play-state` vocabulary (18.9).
+     */
+    RoboCssPropertyComputationAnimationPlayState = 49,
+    /**
+     * One of the closed `animation-composition` vocabulary (18.9).
+     */
+    RoboCssPropertyComputationAnimationComposition = 50,
+    /**
+     * `animation-iteration-count`: `infinite`, or a non-negative number (18.9).
+     *
+     * A shape of its own because a half iteration is meaningful: the bound is a floor,
+     * so a fraction is a value and only a negative count is a mistake. `infinite` is a
+     * keyword and arrives as one -- the NUMBER kind has no infinity.
+     */
+    RoboCssPropertyComputationAnimationIterationCount = 51,
+    /**
+     * `container-type`: `normal`, `size` or `inline-size` (18.11).
+     */
+    RoboCssPropertyComputationContainerType = 52
 } CssPropertyComputation;
 
 /** Number of defined computations. */
-#define RoboCssPropertyComputationCount 32u
+#define RoboCssPropertyComputationCount 53u
 
 /** Non-zero when @p computation is a defined enumerator. */
 int CssPropertyComputationIsKnown(CssPropertyComputation computation);

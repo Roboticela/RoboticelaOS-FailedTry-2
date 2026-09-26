@@ -507,6 +507,254 @@ no item is placed and no line number is resolved.
 One capability joins the table (`grid`), one diagnostic domain
 (`RoboCssDomainGrid`), and the module moves to `0.22.0`.
 
+### The table vocabulary (18.5)
+
+The table family (`RoboCSSTable.h`) is the first in this architecture whose members
+are **mostly inherited** — and that, rather than any one value, is what the module is
+for. CSS gives a table box five properties that describe it before a column is
+measured, and a table's *cells* take four of them from the box: the collapse, the
+spacing, the caption side and the empty-cell rule propagate, while exactly one —
+`table-layout` — is the box's own.
+
+```text
+table-layout      auto | fixed
+  └── content-driven   auto
+border-collapse   separate | collapse
+  └── borders adjoin   collapse
+caption-side      top | bottom | block-start | block-end | inline-start | inline-end
+  └── block / inline axis  the two logical pairs, reported separately
+empty-cells       show | hide
+  └── draws empty      show
+visibility        visible | hidden | collapse
+  └── takes space      visible, hidden   (collapse does not)
+  └── paints           visible
+```
+
+Five closed sets, and none of them needs a computed-value kind of its own: each
+value *is* its keyword, and a typed enumerator with no reader yet would be a second
+copy of a table for the reader table layout (19.6) will bring. So all five are rows
+in the shared closed-vocabulary body the display and position shapes use — the one
+whose make door carries the keyword — and what the closed set buys is the refusal:
+`table-layout: banana` is a mistake, not a keyword carrying `banana`.
+
+`caption-side` is the first vocabulary here whose members are *logical*:
+`block-start` names the block-start edge of whatever writing mode is in force, so
+the module reports the axis and the phase that owns a writing mode resolves the
+physical edge. The physical rows are neither axis, which is why `IsBlockAxis` and
+`IsInlineAxis` are two questions rather than one negation.
+
+`border-spacing` is deliberately **not** a vocabulary. Its grammar is
+`<length>{1,2}` — the shared length grammar with a pair above it — so it is carried
+PRESERVED until the phase that reads it, exactly as the grid track templates are.
+And the internal table display types (`display: table`, `table-row`, `table-cell`,
+…) are **not** rows in this build's display vocabulary: an internal table box is a
+layout fact of its own, and the phase that introduces it is table layout (19.6).
+This phase types the properties a table box is described by and names the boxes it
+does not yet have rather than implying them.
+
+One capability joins the table (`tables`), one diagnostic domain
+(`RoboCssDomainTable`), and the module moves to `0.23.0`.
+
+### The multi-column vocabulary (18.6)
+
+The multi-column family (`RoboCSSColumn.h`) describes a *fragmentation* container,
+and the fact worth reading is how little of it is new. Two properties are closed sets
+of their own:
+
+```text
+column-span   none | all
+  └── spans all   all
+column-fill   auto | balance
+  └── balances    balance
+```
+
+and the rest are shapes that already exist. `column-width` is the shared length
+grammar with the keyword `auto`; `column-rule-width`, `column-rule-style` and
+`column-rule-color` are the *border family's* line width, border style and colour
+shapes, so a column rule is not a second border family; `column-gap` was already a
+row from 18.4, because it is the same gutter `row-gap` is. Only `column-count` adds
+arithmetic, and its bound (at least one) is why it is a shape of its own — zero
+columns is not a smaller count, it is not a count. `column-fill`'s initial value is
+`balance`, which is not the zero of its enumerator; the shape carries the keyword, so
+the registry writes `balance` down and a cleared record cannot hold the wrong answer.
+
+The two shorthands (`column-rule`, `columns`) are carried declarations like every
+other shorthand here. Nothing fragments: no content is split, no height is balanced
+and no column count is derived from a width — that is the phase with a box.
+
+One capability joins the table (`multiColumn`), one diagnostic domain
+(`RoboCssDomainColumn`), and the module moves to `0.24.0`.
+
+### The writing-mode vocabulary (18.13)
+
+The writing-mode family (`RoboCSSWriting.h`) is the three closed sets that together
+decide which physical edge is inline-start and how a character stands in a vertical
+line:
+
+```text
+direction         ltr | rtl
+  └── right-to-left   rtl
+writing-mode      horizontal-tb | vertical-rl | vertical-lr | sideways-rl | sideways-lr
+  └── horizontal      horizontal-tb
+  └── vertical        the four non-horizontal values
+  └── sideways        sideways-rl, sideways-lr
+text-orientation  mixed | upright | sideways
+  └── sideways        sideways
+```
+
+The decision worth reading is that `writing-mode`'s four vertical values are **not**
+a vertical/horizontal pair. `vertical-rl` and `vertical-lr` are vertical and keep the
+characters mixed, while `sideways-rl` and `sideways-lr` are vertical *and* turn the
+text, so the row carries two classification columns and `IsVertical` is **not** the
+negation of `IsSideways` — a build that derived one from the other would answer that
+`vertical-rl` is sideways. `text-orientation` is carried and inert in
+`horizontal-tb`, exactly as `background-attachment: fixed` is a value with no
+scrollport. All three properties are inherited, because a child on axes its parent
+was not on cannot be described otherwise.
+
+`direction` is the one **upgraded in place** rather than added: it has had the bare
+KEYWORD shape since 9.7, so `direction: banana` used to compute to a keyword carrying
+the letters. Its `computation` becomes the closed set, its name, inheritance and `ltr`
+initial are unchanged, and the conformance row did not move — a closed vocabulary of
+keywords still computes to a *keyword*, and the refusal is the only thing that
+changed. This is the same "shape change, not a new property" rule the border family
+recorded for `border-width` and 9.13 for `position`.
+
+What the phase does not claim is vertical *layout* or a vertical *shaper*: no run,
+line, caret or fragment is derived from a writing mode in RoboCSS, and the two
+`sideways-*` values are carried as values the build's text engine does not yet draw.
+The value says *which axis is which*, and the module that has a box reads it.
+
+One capability joins the table (`writingModes`), one diagnostic domain
+(`RoboCssDomainWriting`), and the module moves to `0.25.0`.
+
+### The transform vocabulary (18.7)
+
+The transform family (`RoboCSSTransform.h`) is two ordinary keyword sets and one
+*function-name* set:
+
+```text
+transform-style       flat | preserve-3d
+  └── 3D context        preserve-3d
+backface-visibility   visible | hidden
+  └── shows back face   visible
+<transform-function>  matrix, matrix3d, translate, …, rotate3d, skew, perspective
+  └── is 3D             a per-function column
+  └── is matrix         matrix, matrix3d
+```
+
+The substance is the function-name set, because it is what a `transform` list is
+checked against. `transform` itself is a grammar — an ordered list of functions with
+arguments — so it is registered as a **carried declaration** like the grid track
+templates and `border-spacing`'s pair, and what this phase supplies is the closed set
+of names plus the two classifications a later pass reads: whether a function operates
+in 3D (`Is3D`) and whether one member already fixes the whole transform (`IsMatrix`).
+So `transform: frobnicate(1)` is a mistake rather than a carried token, while
+`transform: translate(1px) rotate(10deg)` is carried until the phase that composes it.
+
+Nothing composes a list, multiplies two matrices, resolves an origin or draws
+a turned box; the value says what an author wrote and what kind of transform the box
+is in. One capability joins the table (`transforms`), one diagnostic domain
+(`RoboCssDomainTransform`), and the module moves to `0.26.0`.
+
+### The transition vocabulary (18.8)
+
+The transition family (`RoboCSSTransition.h`) is mostly *grammar*, so it is mostly
+carried — a property-name list, a time list, a timing-function list and the shorthand
+that concatenates all four. What the phase types is one closed set and one keyword
+vocabulary:
+
+```text
+transition-behavior   normal | allow-discrete
+  └── allows discrete   allow-discrete
+timing-function keywords
+  ease | linear | ease-in | ease-out | ease-in-out | step-start | step-end
+  └── is discrete step  step-start, step-end
+```
+
+The timing-function vocabulary is deliberately the **keyword half** of the property's
+grammar: the property also admits `cubic-bezier()`, `steps()` and `linear()`, and
+those are carried rather than represented. So the set here is what a consumer reads to
+classify an easing (discrete or continuous) — not a claim that the whole grammar is
+parsed. Nothing starts a transition, samples a curve or interpolates a value.One capability joins the table (`transitions`), one diagnostic domain
+(`RoboCssDomainTransition`), and the module moves to `0.27.0`.
+
+### The animation vocabulary (18.9)
+
+The animation family (`RoboCSSAnimation.h`) is four closed sets, one numeric shape and
+the rest carried:
+
+```text
+animation-direction     normal | reverse | alternate | alternate-reverse
+  └── reverses / alternates    two separate answers
+animation-fill-mode     none | forwards | backwards | both
+animation-play-state    running | paused
+animation-composition   replace | add | accumulate
+animation-iteration-count   infinite, or a non-negative number
+```
+
+`animation-direction` carries two classification columns because an alternating
+animation reverses only on the odd iterations, so a consumer must ask both.
+`animation-iteration-count` is a shape of its own because its bound is a *floor*: a
+half iteration is meaningful, so a fraction is a value and only a negative count is a
+mistake, while `infinite` arrives as the keyword it is. `animation-timing-function` is
+not a second copy of the transition family's keyword set (§18.8) — it is that set
+reused, the same reuse `column-rule-*` show for the border shapes. The remaining rows
+are carried grammars, and a `@keyframes` at-rule is the source a name refers to rather
+than a property. Nothing starts an animation, resolves a keyframe or advances a
+timeline. One capability joins the table (`animations`), one diagnostic domain
+(`RoboCssDomainAnimation`), and the module moves to `0.28.0`.
+
+### Media queries (18.10)
+
+Media queries (`RoboCSSMedia.h`) are the first Phase 18 goal that adds no registry
+row: a media query is `@media`'s prelude, not a property. The module owns the
+media-type vocabulary (`all` | `screen` | `print`), the media-feature vocabulary with
+its kinds, a `CssMediaContext` a caller fills in, and the condition/query matcher. A
+feature's **spelling carries its operator** — `min-width` is the feature `width` with a
+floor — so the range forms are not rows of their own and `CssMediaFeatureFromKeyword`
+answers both the feature and the operator.
+
+The matcher's answer has **three** values: yes, no and *unknown*. The third is
+load-bearing: a feature the context cannot answer is `Unknown`, never `No`, because a
+sheet that could not be decided is a different sentence from one that did not match.
+A negated query swaps yes and no and leaves unknown alone. The phase does not parse a
+prelude or attach a condition to an at-rule — that is 18.21's wiring — and does not own
+a viewport: the caller copies numbers into the context. `@container` is 18.11's and
+reuses this condition model. One capability joins the table (`mediaQueries`), one
+diagnostic domain (`RoboCssDomainMedia`), and the module moves to `0.29.0`.
+
+### Container queries (18.11)
+
+Container queries (`RoboCSSContainer.h`) are the second goal to reuse instead of
+reinventing: a container query's condition list is the **media-query** module's own
+`CssMediaCondition` (§18.10), evaluated against a `CssMediaContext` holding the
+*container's* numbers. What the phase adds is the `container-type` closed set
+(`normal` | `size` | `inline-size`) with its two classifications and one matcher,
+`CssContainerQueryMatches`. A `container-type: normal` box answers UNKNOWN rather than
+matching, because a box that never declared itself a container is not a match against
+something. No `@container` grammar is parsed and no ancestor chain is walked — the
+caller that has a box finds its query container and hands the size here. One capability
+joins the table (`containerQueries`), one diagnostic domain (`RoboCssDomainContainer`),
+and the module moves to `0.30.0`.
+
+### Logical properties (18.12)
+
+Logical properties (`RoboCSSLogical.h`) own the logical side/axis vocabulary
+(`block-start` | `block-end` | `inline-start` | `inline-end`) and the one resolver that
+turns a role into a physical `CssBoxSide` under a `CssWritingMode` and `CssDirection`
+(§18.13). The block axis is the mode's; the inline axis is the mode's turned by
+`direction`, so a vertical `rtl` runs its inline axis bottom-to-top while the block axis
+is unchanged, and the two `sideways-*` modes resolve as their vertical counterparts
+because sideways turns the *text*, not the axes. The box model's logical longhands and
+shorthands — `margin-block-start`, `padding-inline-end`, `inset-block-start`,
+`block-size`, `inline-size` and the four axis shorthands — join the table as the **same
+shape** their physical counterparts are, because turning a role into the physical edge
+it names is the resolver's job rather than a second value model. Nothing maps an
+element's *computed* style to physical values — that is the phase with an element
+(19.10). One capability joins the table (`logicalProperties`), one diagnostic domain
+(`RoboCssDomainLogical`), and the module moves to `0.31.0`.
+
 ### Colour
 
 A *colour* is the one shape whose meaning is arithmetic, so since 9.9 it is a type
@@ -950,7 +1198,40 @@ phase that owns them rather than by the layout phase that first needs them. The
 fourth is the grid family (18.4, §5 and `docs/Grid.md`): the `grid-auto-flow` closed
 set — the first vocabulary here whose values are two words — and the gutter length
 family, with the track template and line placement properties registered as carried
-declarations until the track grammar is a phase of its own.
+declarations until the track grammar is a phase of its own. The fifth is the table
+vocabulary (18.5, §5 and `docs/Table.md`): five closed sets describing a table box —
+the first family here whose members are *mostly inherited* — read through the shared
+closed-vocabulary body, with `border-spacing`'s pair grammar carried and the internal
+table display types named as table layout's (19.6). The sixth is the multi-column
+vocabulary (18.6, §5 and `docs/MultiColumn.md`): the two closed sets a fragmentation
+container behaves by, a count and a width read through the shapes every other number
+and length uses, the rule decoration reused from the border family, and the gutter
+18.4 already registered. The seventh is the writing-mode family (18.13, §5 and
+`docs/WritingModes.md`): the three closed sets that say which physical edge is
+inline-start and how a character stands in a vertical line, where vertical and
+sideways are two separate answers, and `direction` is the one shape *upgraded in
+place* from the bare KEYWORD shape it had since 9.7. The eighth is the transform
+family (18.7, §5 and `docs/Transforms.md`): `transform-style` and
+`backface-visibility` as closed sets, and the closed set of `<transform-function>`
+names a `transform` list is built from with its 3D and matrix classifications — the
+list, origin and perspective carried as declarations, and no matrix composed. The
+ninth is the transition family (18.8, §5 and `docs/Transitions.md`): the
+`transition-behavior` closed set and the keyword half of the timing-function grammar,
+with the property/time/function lists carried and no engine or clock. The tenth is
+the animation family (18.9, §5 and `docs/Animations.md`): four closed sets —
+direction, fill mode, play state and composition — the `animation-iteration-count`
+shape (whose bound is a floor, so a fraction is legal), and the transition family's
+timing-function keywords reused rather than copied. The eleventh is media queries
+(18.10, §5 and `docs/MediaQueries.md`): the type and feature vocabularies, the range
+forms of a feature's spelling, and a matcher whose answer is yes, no or *unknown* —
+the first Phase 18 goal that adds no registry row, because a media query is a
+prelude and not a property. The twelfth is container queries (18.11, §5 and
+`docs/ContainerQueries.md`): the `container-type` closed set and a matcher reusing
+the media module's own condition model over a container's numbers, with a `normal`
+box answering unknown. The thirteenth is logical properties (18.12, §5 and
+`docs/LogicalProperties.md`): the logical side/axis vocabulary and the resolver that
+maps a role to a physical `CssBoxSide` under a writing mode and direction, with the box
+model's logical longhands registered as the same shapes their physical counterparts are.
 
 Conformance (9.16) is behind us and it is the one phase that is *not* a subject: it
 adds no production code at all, which is why it is the only entry in this list that

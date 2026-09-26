@@ -128,14 +128,17 @@ static void TestCssRegistryStandardSet(void)
      *
      * A count is asserted rather than a lower bound so that a row added later is a
      * deliberate act rather than an accident. */
-    RoboCheckEqInt((int)CssPropertyRegistryCount(registry), 99);
-    RoboCheckEqInt((int)inherited, 16);
+    RoboCheckEqInt((int)CssPropertyRegistryCount(registry), 161);
+    RoboCheckEqInt((int)inherited, 22);
     /* 18.3's twelve flexbox rows and 18.4's twenty grid rows are all non-inherited,
      * which is why only this half of the count moved: a flex container's direction, a
      * wrap rule, an alignment, a factor, a basis and an order are the box's own, and a
      * grid container's flow, track template, line placements and gutters are too -- a
      * child that inherited a template would place itself into its parent's grid. */
-    RoboCheckEqInt((int)nonInherited, 83);
+    /* 18.5's six table rows are the first family here whose members are *mostly*
+     * inherited: a cell takes the collapse, the spacing, the caption side and the
+     * empty-cell rule from the table box, so only `table-layout` is the box's own. */
+    RoboCheckEqInt((int)nonInherited, 139);
 
     CssPropertyRegistryDestroy(registry);
 }
@@ -153,7 +156,7 @@ static void TestCssRegistryInheritedClassification(void)
         "color", "font-family", "font-size", "font-style", "font-weight",
         "line-height", "text-align", "visibility", "white-space",
         "cursor", "direction", "font-variant", "letter-spacing", "text-indent",
-        "text-transform", "word-spacing"
+        "text-transform", "word-spacing", "writing-mode", "text-orientation"
     };
     /* The eight the phase names as the things that must NOT propagate, plus the
      * box model's fourteen (9.11) — every one of which is the *opposite* of an
@@ -351,7 +354,88 @@ static void TestCssRegistryInitialValues(void)
         {"grid-template-areas", "none"},
         {"grid-template-columns", "none"},
         {"grid-template-rows", "none"},
-        {"row-gap", "normal"}
+        {"row-gap", "normal"},
+        /* 18.5's table family. `visibility` was already a row and is not repeated
+         * here; the five new rows are four inherited vocabularies and the one
+         * non-inherited layout rule. `border-spacing` is carried, so its initial
+         * shape is the author's own tokens PRESERVED (`0`). */
+        {"border-collapse", "separate"},
+        {"border-spacing", "0"},
+        {"caption-side", "top"},
+        {"empty-cells", "show"},
+        {"table-layout", "auto"},
+        /* 18.6's multi-column family: nine non-inherited rows. The two shorthands
+         * carry their halves as PRESERVED tokens, and `column-rule-color` starts at
+         * `currentColor` exactly as the border colours do. */
+        {"column-count", "auto"},
+        {"column-fill", "balance"},
+        {"column-rule", "medium,_,none,_,currentColor"},
+        {"column-rule-color", "currentcolor"},
+        {"column-rule-style", "none"},
+        {"column-rule-width", "medium"},
+        {"column-span", "none"},
+        {"column-width", "auto"},
+        {"columns", "auto,_,auto"},
+        /* 18.13's writing-mode family: the two new inherited rows. `direction` was
+         * already a row above and its initial is unchanged by the shape upgrade. */
+        {"writing-mode", "horizontal-tb"},
+        {"text-orientation", "mixed"},
+        /* 18.7's transform family: two typed vocabularies and seven carried
+         * declarations. The two origins keep their `50% 50%` locals, which is why
+         * they are PRESERVED rather than resolved here. */
+        {"transform", "none"},
+        {"transform-origin", "50%,_,50%"},
+        {"transform-style", "flat"},
+        {"perspective", "none"},
+        {"perspective-origin", "50%,_,50%"},
+        {"backface-visibility", "visible"},
+        {"translate", "none"},
+        {"rotate", "none"},
+        {"scale", "none"},
+        /* 18.8's transition family: one typed shape and five carried grammars. */
+        {"transition-behavior", "normal"},
+        {"transition-delay", "0s"},
+        {"transition-duration", "0s"},
+        {"transition-property", "all"},
+        {"transition-timing-function", "ease"},
+        {"transition", "all,_,0s,_,ease,_,0s"},
+        /* 18.9's animation family: four typed vocabularies, the iteration-count shape
+         * and the five carried grammars (the shorthand's concatenation included). */
+        {"animation",
+         "none,_,0s,_,ease,_,0s,_,1,_,normal,_,none,_,running"},
+        {"animation-composition", "replace"},
+        {"animation-delay", "0s"},
+        {"animation-direction", "normal"},
+        {"animation-duration", "0s"},
+        {"animation-fill-mode", "none"},
+        {"animation-iteration-count", "1"},
+        {"animation-name", "none"},
+        {"animation-play-state", "running"},
+        {"animation-timing-function", "ease"},
+        /* 18.11's container-query family: one typed shape and two carried. */
+        {"container-type", "normal"},
+        {"container-name", "none"},
+        {"container", "none,_,/,_,normal"},
+        /* 18.12's logical family: the box model's logical longhands as the same
+         * shapes their physical counterparts are, plus four carried shorthands. */
+        {"margin-block-start", "0"},
+        {"margin-block-end", "0"},
+        {"margin-inline-start", "0"},
+        {"margin-inline-end", "0"},
+        {"padding-block-start", "0"},
+        {"padding-block-end", "0"},
+        {"padding-inline-start", "0"},
+        {"padding-inline-end", "0"},
+        {"inset-block-start", "auto"},
+        {"inset-block-end", "auto"},
+        {"inset-inline-start", "auto"},
+        {"inset-inline-end", "auto"},
+        {"block-size", "auto"},
+        {"inline-size", "auto"},
+        {"margin-block", "0"},
+        {"margin-inline", "0"},
+        {"padding-block", "0"},
+        {"padding-inline", "0"}
     };
     CssPropertyRegistry *registry = NULL;
     size_t index;
