@@ -834,6 +834,54 @@
  * (`RoboCssDomainLogical`); no new computation is added, because every logical row
  * reads a shape the table already has.
  *
+ * 0.32.0 is Phase 18.14, **CSS fonts**, and it is the first family here whose values
+ * describe a **request rather than a result**: `font-weight: 700` asks for a face,
+ * and which face answers is the font database's business (RoboFont, and 12.17's
+ * selection seam for a shell document). Nothing in the module opens a font file, so
+ * nothing in it can be wrong about which face exists — a value says what an author
+ * asked for, with the classifications a consumer reads.
+ *
+ * Nineteen rows join the table and they split by *grammar*, which is the phase's one
+ * real decision. Six shapes cover nine properties — the four `font-synthesis-*`
+ * longhands take one vocabulary — and each of the six is a genuinely closed set:
+ * `font-kerning`, `font-optical-sizing`, the four `font-synthesis-*` longhands (one
+ * shape, because the four take the same two values), `font-variant-caps` and
+ * `font-variant-position` — plus `font-style`, whose shape is **upgraded in place**
+ * from the bare KEYWORD it had since 9.7, exactly as 18.13 upgraded `direction`. The
+ * rest have a grammar *wider* than any closed set: `font-stretch` admits a
+ * percentage, `font-variant-numeric` and `font-variant-east-asian` are
+ * space-separated sets over independent axes, `font-feature-settings` and
+ * `font-variation-settings` are tag/value lists — so they are registered PRESERVED
+ * and the closed sets *inside* them are typed in RoboCSSFont.h, which is 18.7's
+ * split for `transform` and its function names made again.
+ *
+ * `font-variant-ligatures` is the row deliberately carried *without* a vocabulary
+ * here. Its five tags (`liga`, `clig`, `rlig`, `dlig`, `hlig`) and their policy are
+ * RoboText's (12.12, `RoboTextLigature.h`), and a second copy in RoboCSS is exactly
+ * how the shape a CSS author writes and the policy a shaper reads would come to
+ * disagree.
+ *
+ * The second thing worth reading is `@font-face`, and it is why the phase types a
+ * *descriptor* vocabulary rather than more properties. Inside a `@font-face` block
+ * the same spellings mean something different — `font-weight: 700` *declares the
+ * face's own weight* rather than selecting one — and eight names (`src`,
+ * `unicode-range`, `font-display`, `font-named-instance`, the three metric
+ * overrides and `size-adjust`) exist only there. `font-display` is the one closed set
+ * here that is not a property at all, so no element can inherit it; what it carries
+ * is *time* — whether a block period applies, how long it is, and whether the
+ * fallback is swapped afterwards.
+ *
+ * What the phase does not claim, named rather than implied: a font database (no file
+ * is opened, no family resolved, no coverage walked, no fallback selected), a shaper
+ * or a measurer (no glyph id, no run, no rectangle), **any synthesis**
+ * (`font-synthesis-*` is a permission an author writes; nothing emboldens or slants),
+ * the `font-stretch` percentage form and `font-style: oblique <angle>` as
+ * *values* (both are carried or refused, and the module's own comment says which),
+ * the `font` shorthand's distribution over its seven longhands, and the `@font-face`
+ * grammar itself — the descriptor *names* are typed and the prelude is the parser's.
+ * One capability joins the table (`fonts`) and one diagnostic domain
+ * (`RoboCssDomainFont`).
+ *
  * The surface will keep growing for the whole of Phase 9, so API freeze is
  * NOT claimed here (RoboCssApiFrozen=0).
  */
@@ -842,9 +890,9 @@
 #define ROBO_CSS_VERSION_H
 
 #define RoboCssVersionMajor 0
-#define RoboCssVersionMinor 31
+#define RoboCssVersionMinor 32
 #define RoboCssVersionPatch 0
-#define RoboCssVersionString "0.31.0"
+#define RoboCssVersionString "0.32.0"
 
 /** 1 once the Phase 9 surface is frozen (not yet — see header comment). */
 #define RoboCssApiFrozen 0

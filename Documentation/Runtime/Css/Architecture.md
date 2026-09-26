@@ -755,6 +755,72 @@ element's *computed* style to physical values — that is the phase with an elem
 (19.10). One capability joins the table (`logicalProperties`), one diagnostic domain
 (`RoboCssDomainLogical`), and the module moves to `0.31.0`.
 
+### The font family (18.14)
+
+The font family (`RoboCSSFont.h`) is the first here whose values describe a
+**request rather than a result**: `font-weight: 700` asks for a face, and which face
+answers is the font database's business — RoboFont, and for a shell document the
+resolved font request 12.17 built. Nothing in the module opens a font file, so
+nothing in it can be wrong about which face exists.
+
+The phase's one real decision is that the nineteen rows split by **grammar** rather
+than by importance. Six shapes cover nine properties — the four `font-synthesis-*`
+longhands take the same two values, so a second table would be the same rows under
+a second name — and each of the six is a genuinely closed set:
+
+```text
+font-style              normal | italic | oblique
+  └── slanted / oblique   two answers: an italic is a design, an oblique is a turn
+font-kerning            auto | normal | none
+  └── enables kerning     auto, normal        (auto is "the font decides")
+font-optical-sizing     auto | none
+font-synthesis-*        auto | none           (four longhands, one vocabulary)
+font-variant-caps       seven values
+  └── affects lowercase   the two `all-` rows
+font-variant-position   normal | sub | super
+  └── shifted, superscript   a pair, because the shift has a sign
+```
+
+and nine are registered as **carried declarations** whose closed sets live in the
+header for a consumer to read — `font-stretch`'s nine keywords and their
+percentages, `font-size`'s ten size keywords and their ratios,
+`font-variant-numeric`'s five independent axes and `font-variant-east-asian`'s
+three, over the tag list a `font-feature-settings` is. That is 18.7's split for
+`transform` and its function-name set made again: a grammar wider than any closed
+set is carried, and what is *inside* it is typed.
+
+Two rows are worth reading twice. `font-style` is **upgraded in place** from the
+bare KEYWORD shape it had since 9.7, exactly as 18.13 upgraded `direction` — its
+inheritance and its `normal` initial are unchanged and only the reading of the
+value became closed, so `font-style: banana` stops being a keyword carrying the
+letters. And `font-size` does **not** move: the shared length grammar has carried
+its ten size keywords since 9.10, so a second value model would be the same
+normalisation twice; what the phase adds is the classification — `medium` is not
+sixteen pixels, because the absolute keywords are measured against the reader's
+preferred size and `larger`/`smaller` against the parent's.
+
+The second half of the phase is `@font-face`, and it is why a *descriptor*
+vocabulary exists rather than more properties. Inside that block the same spellings
+mean something different — `font-weight: 700` declares the face's own weight rather
+than selecting one — and eight of the twenty-seven names exist only there.
+`font-display` is the one closed set here that is not a property at all, so nothing
+in the cascade can set it; what it carries is **time** (whether a block period
+applies, how long it is, and whether the fallback is replaced afterwards), which is
+the one thing a consumer needs to decide what to draw on the first frame.
+`font-variant-ligatures` is the row deliberately carried *without* a vocabulary:
+its five tags and their policy are RoboText's (12.12), and a second copy here is
+how the shape a CSS author writes and the policy a shaper reads would come to
+disagree.
+
+What the phase does not claim is a font database, a shaper, a measurer — and **any
+synthesis**: `font-synthesis-*` is a permission an author writes, and this build
+never emboldens or slants a face (12.3's rule). Nor a `font` shorthand distribution
+over its seven longhands, nor the `@font-face` prelude grammar, nor
+`font-style: oblique <angle>` as a value (refused, as it already was), nor
+`font-stretch`'s percentage as a value (carried). One capability joins the table
+(`fonts`), one diagnostic domain (`RoboCssDomainFont`), six computations join the
+closed-vocabulary body, and the module moves to `0.32.0`.
+
 ### Colour
 
 A *colour* is the one shape whose meaning is arithmetic, so since 9.9 it is a type
@@ -1232,6 +1298,14 @@ box answering unknown. The thirteenth is logical properties (18.12, §5 and
 `docs/LogicalProperties.md`): the logical side/axis vocabulary and the resolver that
 maps a role to a physical `CssBoxSide` under a writing mode and direction, with the box
 model's logical longhands registered as the same shapes their physical counterparts are.
+The fourteenth is the font family (18.14, §5 and `docs/Fonts.md`): nineteen rows
+that split by grammar — six closed vocabularies (`font-style`, `font-kerning`,
+`font-optical-sizing`, the four `font-synthesis-*` longhands, `font-variant-caps`
+and `font-variant-position`) with `font-style` upgraded in place, and the rest
+carried with their inner sets typed (`font-stretch`'s keywords-and-percentages,
+`font-size`'s size keywords, `font-variant-numeric`'s and `-east-asian`'s axes) —
+plus the `@font-face` descriptor vocabulary, where the same spelling means a
+different thing and `font-display` is not a property at all.
 
 Conformance (9.16) is behind us and it is the one phase that is *not* a subject: it
 adds no production code at all, which is why it is the only entry in this list that

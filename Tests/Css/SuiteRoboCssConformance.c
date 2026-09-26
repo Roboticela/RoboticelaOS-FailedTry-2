@@ -76,11 +76,51 @@ static const CssConformanceInitial cssConformanceInitials[] = {
     {"cursor", "keyword", "auto"},
     {"direction", "keyword", "ltr"},
     {"font-family", "family-list", "serif"},
+    /*
+     * The font family (18.14), in registry order, and the split in this block is the
+     * phase's one real decision. Nine rows are closed vocabularies and compute to a
+     * keyword; nine are PRESERVED declarations whose grammar is wider than any closed
+     * set — a `font-stretch` percentage, a `font-variant-numeric` axis set, a
+     * `font-feature-settings` tag list — and carry the author's tokens exactly as the
+     * grid track templates and `border-spacing` do.
+     *
+     * `font-size` is the row that did **not** move: the shared length grammar already
+     * carries its ten size keywords (that is why its kind is `keyword` and its text
+     * `medium`), and what 18.14 adds is their classification rather than a second
+     * value model. `font-style` moved in place from the bare KEYWORD shape it had had
+     * since 9.7, and its kind and text are unchanged by that — which is the same
+     * "shape change, not a new property" row 18.13 recorded for `direction`.
+     */
+    {"font-feature-settings", "preserved", "normal"},
+    {"font-kerning", "keyword", "auto"},
+    {"font-language-override", "preserved", "normal"},
+    {"font-optical-sizing", "keyword", "auto"},
+    {"font-palette", "preserved", "normal"},
     /* `medium` is a keyword and not a length: `font-size: medium` is the user
      * agent's default size, which is a different statement from a pixel value. */
     {"font-size", "keyword", "medium"},
+    {"font-stretch", "preserved", "normal"},
     {"font-style", "keyword", "normal"},
+    /* The four `font-synthesis-*` longhands share one shape because they take the
+     * same two values, and the shorthand above them is carried like every shorthand
+     * here. */
+    {"font-synthesis", "preserved", "auto auto auto auto"},
+    {"font-synthesis-position", "keyword", "auto"},
+    {"font-synthesis-small-caps", "keyword", "auto"},
+    {"font-synthesis-style", "keyword", "auto"},
+    {"font-synthesis-weight", "keyword", "auto"},
     {"font-variant", "keyword", "normal"},
+    {"font-variant-alternates", "preserved", "normal"},
+    {"font-variant-caps", "keyword", "normal"},
+    {"font-variant-east-asian", "preserved", "normal"},
+    /* The one row of the family that is carried *without* a vocabulary in RoboCSS:
+     * its five ligature tags and their policy are RoboText's (12.12), and a second
+     * copy here is how the shape a CSS author writes and the policy a shaper reads
+     * would come to disagree. */
+    {"font-variant-ligatures", "preserved", "normal"},
+    {"font-variant-numeric", "preserved", "normal"},
+    {"font-variant-position", "keyword", "normal"},
+    {"font-variation-settings", "preserved", "normal"},
     {"font-weight", "keyword", "normal"},
     {"letter-spacing", "keyword", "normal"},
     {"line-height", "keyword", "normal"},
@@ -138,6 +178,10 @@ static const CssConformanceInitial cssConformanceInitials[] = {
     {"bottom", "keyword", "auto"},
     {"box-sizing", "keyword", "content-box"},
     {"display", "display", "inline"},
+    /* `font` is the family's one non-inherited row, and its carried value is the
+     * concatenation of its seven longhands' initials — the same construction
+     * `border` records as `medium none currentcolor`. */
+    {"font", "preserved", "normal normal normal normal medium/normal serif"},
     {"height", "keyword", "auto"},
     {"left", "keyword", "auto"},
     /* The box model's eight edges: `margin`/`padding` are shorthands (PRESERVED)
@@ -1755,7 +1799,8 @@ static void TestCssConformanceCapabilitiesEveryFlag(void)
         {"animations", 1},
         {"media_queries", 1},
         {"container_queries", 1},
-        {"logical_properties", 1}
+        {"logical_properties", 1},
+        {"fonts", 1}
     };
     CssCapabilities caps;
     int *asInts = (int *)&caps;
@@ -1782,11 +1827,15 @@ static void TestCssConformanceCapabilitiesEveryFlag(void)
      * exercises and the families the build claims are the same set. */
     RoboCheckEqInt(caps.backgrounds, 1);
     RoboCheckEqInt(caps.borders, 1);
+    /* The same habit for 18.14, whose flag is asserted here *and* by its own suite:
+     * two questions, because a flag is a promise about the build and a family is a
+     * promise about a module. */
+    RoboCheckEqInt(caps.fonts, 1);
 
     /* The frozen-surface flag is a promise about the phase, not a capability. */
     RoboCheckEqInt(RoboCssApiFrozen, 0);
     RoboCheckEqInt(RoboCssVersionMajor, 0);
-    RoboCheckEqInt(RoboCssVersionMinor, 31);
+    RoboCheckEqInt(RoboCssVersionMinor, 32);
 }
 
 void TestRegisterCssConformance(void);

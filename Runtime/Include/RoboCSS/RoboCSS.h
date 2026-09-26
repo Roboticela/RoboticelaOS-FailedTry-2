@@ -463,6 +463,27 @@ typedef struct CssCapabilities {
      * not built. `sideways-*` resolves as its vertical counterpart.
      */
     int logicalProperties;
+    /**
+     * The font family (18.14): the twelve closed sets that describe a font *request*
+     * — `font-style`, `font-kerning`, `font-optical-sizing`, the four
+     * `font-synthesis-*` longhands (one vocabulary), `font-variant-caps` and
+     * `font-variant-position` as typed shapes, and `font-stretch`, `font-size`,
+     * `font-variant-numeric` and `font-variant-east-asian` as classified values
+     * inside deliberately carried declarations — plus the `@font-face` descriptor
+     * vocabulary and the `font-display` set, which is a descriptor and not a
+     * property at all.
+     *
+     * What it does not claim is a font database or a text engine: nothing here opens
+     * a font file, resolves a family name to a face, walks a coverage table or selects
+     * a fallback (RoboFont, and 12.17's selection seam, do that), nothing shapes or
+     * measures, and nothing synthesises a weight or a slope — `font-synthesis-*` is a
+     * permission an author writes and RoboText's rule is that no synthesis happens.
+     * `font-variant-ligatures`' five tags are **RoboText's** vocabulary (12.12) and
+     * are registered here as a carried declaration rather than copied. A value in
+     * this family says what an author asked for; the face that answers belongs to the
+     * layer that has one.
+     */
+    int fonts;
 } CssCapabilities;
 
 /** Zero every flag. Safe on NULL. */

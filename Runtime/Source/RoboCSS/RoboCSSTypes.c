@@ -426,6 +426,8 @@ const char *CssDiagnosticDomainName(CssDiagnosticDomain domain)
         return "container";
     case RoboCssDomainLogical:
         return "logical";
+    case RoboCssDomainFont:
+        return "font";
     default:
         return "unknown";
     }

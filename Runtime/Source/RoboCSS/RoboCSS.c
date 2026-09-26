@@ -434,6 +434,15 @@ Result CssGetCapabilities(CssCapabilities *out)
      * no element's computed style is mapped to physical values -- and the logical border
      * longhands and logical min/max sizes are named as not built. */
     out->logicalProperties = 1;
+    /* The font family (18.14): the twelve closed sets that describe a font *request*,
+     * over the registry rows that carry the other half of the family, plus the
+     * `@font-face` descriptor vocabulary and the `font-display` set (a descriptor, not
+     * a property). What it does not claim is a font database or a text engine -- no
+     * font file is opened, no family resolved, no glyph shaped -- and no synthesis:
+     * `font-synthesis-*` is a permission an author writes, and nothing here or
+     * downstream emboldens or slants a face. `font-variant-ligatures`' vocabulary is
+     * RoboText's (12.12). */
+    out->fonts = 1;
     out->defaultStyles = 0;
     out->stylesheetLoading = 0;
     return RoboOk;

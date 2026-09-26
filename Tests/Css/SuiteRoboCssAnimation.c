@@ -373,8 +373,8 @@ static void TestAnimationCapabilities(void)
     RoboCheckEqInt(caps.defaultStyles, 0);
     RoboCheckEqInt(caps.stylesheetLoading, 0);
 
-    RoboCheckEqInt(RoboCssVersionMinor, 31);
-    RoboCheckStrEq(CssVersionString(), "0.31.0");
+    RoboCheckEqInt(RoboCssVersionMinor, 32);
+    RoboCheckStrEq(CssVersionString(), "0.32.0");
 
     RoboCheckStrEq(CssPropertyComputationName(
                           RoboCssPropertyComputationAnimationDirection),

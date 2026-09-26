@@ -89,6 +89,7 @@
 #include "RoboCSS/RoboCSSTransition.h"
 #include "RoboCSS/RoboCSSAnimation.h"
 #include "RoboCSS/RoboCSSContainer.h"
+#include "RoboCSS/RoboCSSFont.h"
 #include "RoboCSS/RoboCSSDiagnostics.h"
 #include "RoboCSS/RoboCSSDisplay.h"
 #include "RoboCSS/RoboCSSPosition.h"

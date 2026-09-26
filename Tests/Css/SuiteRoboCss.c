@@ -14,7 +14,7 @@ static void TestCssVersion(void)
 
     RoboCheckStrEq(CssVersionString(), RoboCssVersionString);
     RoboCheckEqInt(RoboCssVersionMajor, 0);
-    RoboCheckEqInt(RoboCssVersionMinor, 31);
+    RoboCheckEqInt(RoboCssVersionMinor, 32);
     RoboCheckEqInt(RoboCssVersionPatch, 0);
     /* Architecture milestone: the surface grows all through Phase 9. */
     RoboCheckEqInt(RoboCssApiFrozen, 0);
@@ -27,7 +27,7 @@ static void TestCssVersion(void)
                       RoboInvalidArgument);
     RoboCheckEqInt(CssGetVersion(&major, &minor, &patch), RoboOk);
     RoboCheckEqInt(major, 0);
-    RoboCheckEqInt(minor, 31);
+    RoboCheckEqInt(minor, 32);
     RoboCheckEqInt(patch, 0);
 }
 

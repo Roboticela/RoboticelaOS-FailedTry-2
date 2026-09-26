@@ -915,8 +915,13 @@ function Invoke-RoboBuildUserland {
                 if (-not (Test-Path -LiteralPath $modRoot)) {
                     throw ("missing runtime module for guest " + $p.Name + ": " + $modRoot)
                 }
+                # Exclude *relative to the module*, never the absolute path: a repo checked out as
+                # `...\test\...` would otherwise match `tests?` and empty every module.
                 $files = @(Get-ChildItem -LiteralPath $modRoot -Recurse -Filter "*.c" -File |
-                    Where-Object { $_.FullName -notmatch '[\\/](tests?|win32|host)[\\/]' } |
+                    Where-Object {
+                        $rel = $_.FullName.Substring($modRoot.Length)
+                        $rel -notmatch '[\\/](tests?|win32|host)[\\/]'
+                    } |
                     Sort-Object -Property FullName)
                 if ($files.Count -eq 0) {
                     throw ("runtime module " + $mod + " has no sources under " + $modRoot)

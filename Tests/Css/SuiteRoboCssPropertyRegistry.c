@@ -128,8 +128,8 @@ static void TestCssRegistryStandardSet(void)
      *
      * A count is asserted rather than a lower bound so that a row added later is a
      * deliberate act rather than an accident. */
-    RoboCheckEqInt((int)CssPropertyRegistryCount(registry), 161);
-    RoboCheckEqInt((int)inherited, 22);
+    RoboCheckEqInt((int)CssPropertyRegistryCount(registry), 180);
+    RoboCheckEqInt((int)inherited, 40);
     /* 18.3's twelve flexbox rows and 18.4's twenty grid rows are all non-inherited,
      * which is why only this half of the count moved: a flex container's direction, a
      * wrap rule, an alignment, a factor, a basis and an order are the box's own, and a
@@ -138,7 +138,16 @@ static void TestCssRegistryStandardSet(void)
     /* 18.5's six table rows are the first family here whose members are *mostly*
      * inherited: a cell takes the collapse, the spacing, the caption side and the
      * empty-cell rule from the table box, so only `table-layout` is the box's own. */
-    RoboCheckEqInt((int)nonInherited, 139);
+    /*
+     * 18.14's nineteen font rows are the first family here whose members are
+     * *entirely* inherited apart from the `font` shorthand, and the omission is not
+     * an oversight: a `font-style`, a `font-kerning` or a `font-variant-*` that did
+     * not propagate would leave a child unable to be described on axes its parent
+     * was on, while a shorthand's own computed value is the tokens an author wrote
+     * and expansion — not the cascade — is what distributes it. That is why the
+     * inherited half moved by eighteen and the other by exactly one.
+     */
+    RoboCheckEqInt((int)nonInherited, 140);
 
     CssPropertyRegistryDestroy(registry);
 }
@@ -156,7 +165,19 @@ static void TestCssRegistryInheritedClassification(void)
         "color", "font-family", "font-size", "font-style", "font-weight",
         "line-height", "text-align", "visibility", "white-space",
         "cursor", "direction", "font-variant", "letter-spacing", "text-indent",
-        "text-transform", "word-spacing", "writing-mode", "text-orientation"
+        "text-transform", "word-spacing", "writing-mode", "text-orientation",
+        /* 18.14's eighteen inherited font rows. The family is the first here whose
+         * members are *entirely* inherited, because every one of them describes an
+         * axis a child either sits on or does not: a `font-kerning` that did not
+         * propagate would kern a parent's text and not its child's, in the same
+         * paragraph. `font` is deliberately absent — it is a shorthand, and it is
+         * asserted in the non-inherited list below. */
+        "font-feature-settings", "font-kerning", "font-language-override",
+        "font-optical-sizing", "font-palette", "font-stretch", "font-synthesis",
+        "font-synthesis-position", "font-synthesis-small-caps",
+        "font-synthesis-style", "font-synthesis-weight", "font-variant-alternates",
+        "font-variant-caps", "font-variant-east-asian", "font-variant-ligatures",
+        "font-variant-numeric", "font-variant-position", "font-variation-settings"
     };
     /* The eight the phase names as the things that must NOT propagate, plus the
      * box model's fourteen (9.11) — every one of which is the *opposite* of an
@@ -179,7 +200,12 @@ static void TestCssRegistryInheritedClassification(void)
         "border-left-style", "border-style",
         "border-top-color", "border-right-color", "border-bottom-color",
         "border-left-color", "border-color",
-        "border-top", "border-right", "border-bottom", "border-left"
+        "border-top", "border-right", "border-bottom", "border-left",
+        /* `font` (18.14) is the family's one non-inherited row: a shorthand's own
+         * computed value is the tokens an author wrote, and a shorthand marked
+         * inherited would propagate a concatenation where CSS propagates each
+         * longhand by its own rule. */
+        "font"
     };
     CssPropertyRegistry *registry = NULL;
     size_t index;
@@ -435,7 +461,35 @@ static void TestCssRegistryInitialValues(void)
         {"margin-block", "0"},
         {"margin-inline", "0"},
         {"padding-block", "0"},
-        {"padding-inline", "0"}
+        {"padding-inline", "0"},
+        /* 18.14's font family: nineteen rows, and the split in this list is the
+         * phase's one decision. Nine take a closed vocabulary (a typed shape) and the
+         * rest are carried declarations whose grammar is wider than any closed set —
+         * a `font-stretch` percentage, a `font-variant-numeric` axis set — and whose
+         * closed sets live in RoboCSSFont.h instead. `font-size` stays on the shared
+         * LENGTH grammar it has had since 9.10, and `font-family` above is unchanged.
+         * The two shorthands (`font-synthesis`, `font`) carry the concatenation of
+         * their halves, exactly as `border` and `flex` do. */
+        {"font-feature-settings", "normal"},
+        {"font-kerning", "auto"},
+        {"font-language-override", "normal"},
+        {"font-optical-sizing", "auto"},
+        {"font-palette", "normal"},
+        {"font-stretch", "normal"},
+        {"font-synthesis", "auto,_,auto,_,auto,_,auto"},
+        {"font-synthesis-position", "auto"},
+        {"font-synthesis-small-caps", "auto"},
+        {"font-synthesis-style", "auto"},
+        {"font-synthesis-weight", "auto"},
+        {"font-variant-alternates", "normal"},
+        {"font-variant-caps", "normal"},
+        {"font-variant-east-asian", "normal"},
+        {"font-variant-ligatures", "normal"},
+        {"font-variant-numeric", "normal"},
+        {"font-variant-position", "normal"},
+        {"font-variation-settings", "normal"},
+        {"font",
+         "normal,_,normal,_,normal,_,normal,_,medium,/,normal,_,serif"}
     };
     CssPropertyRegistry *registry = NULL;
     size_t index;

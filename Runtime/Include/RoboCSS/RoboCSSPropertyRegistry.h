@@ -545,11 +545,67 @@ typedef enum CssPropertyComputation {
     /**
      * `container-type`: `normal`, `size` or `inline-size` (18.11).
      */
-    RoboCssPropertyComputationContainerType = 52
+    RoboCssPropertyComputationContainerType = 52,
+    /**
+     * One of the closed `font-style` vocabulary (18.14) — `normal`, `italic` or
+     * `oblique`.
+     *
+     * `font-style` had the bare KEYWORD shape since 9.7, and the upgrade is the same
+     * move 18.13 made for `direction`: the row, its inheritance and its `normal`
+     * initial value are unchanged and only the reading of the value becomes closed.
+     * What changed for an author is that `font-style: banana` is now a mistake rather
+     * than a keyword carrying the letters, which is what every closed vocabulary here
+     * exists for. CSS's `oblique <angle>{0,2}` form is a second grammar this build
+     * does not read — and the KEYWORD shape it replaces refused it too, because that
+     * shape accepts one identifier and that form is two tokens.
+     */
+    RoboCssPropertyComputationFontStyle = 53,
+    /**
+     * One of the closed `font-kerning` vocabulary (18.14) — `auto`, `normal` or
+     * `none`.
+     *
+     * The value worth reading is the initial: `auto` means *whatever the font says*,
+     * which is neither "kern" nor "do not kern", so a consumer that read the initial
+     * as "kerning is on" would apply kerning to the faces that disable it by default.
+     */
+    RoboCssPropertyComputationFontKerning = 54,
+    /**
+     * One of the closed `font-optical-sizing` vocabulary (18.14) — `auto` or `none`.
+     */
+    RoboCssPropertyComputationFontOpticalSizing = 55,
+    /**
+     * One of the closed `font-synthesis-*` vocabulary (18.14) — `auto` or `none`,
+     * shared by the four longhands `font-synthesis-weight`, `…-style`,
+     * `…-small-caps` and `…-position`.
+     *
+     * One shape for four properties because the four take the *same* two values, which
+     * is 18.3's alignment decision made again from the other side: there the
+     * vocabulary was one and the shapes four because each property admitted a
+     * different subset; here the values are identical, so a second row would be the
+     * same fact twice. `font-synthesis`'s own shorthand is PRESERVE like every other
+     * shorthand in this build, because no phase here expands one.
+     */
+    RoboCssPropertyComputationFontSynthesis = 56,
+    /**
+     * One of the closed `font-variant-caps` vocabulary (18.14) — seven values, of
+     * which the two `all-` rows apply the variant to lowercase letters too.
+     */
+    RoboCssPropertyComputationFontVariantCaps = 57,
+    /**
+     * One of the closed `font-variant-position` vocabulary (18.14) — `normal`, `sub`
+     * or `super`.
+     *
+     * Its two classifications are a pair for the reason the table's `visibility` pair
+     * is: a build that asked only "is it shifted" would place a subscript where a
+     * superscript goes and both would answer yes. This is not `vertical-align` — the
+     * property moves the glyphs a font supplies for it, while `vertical-align` moves
+     * the box, and the latter belongs to 18.15.
+     */
+    RoboCssPropertyComputationFontVariantPosition = 58
 } CssPropertyComputation;
 
 /** Number of defined computations. */
-#define RoboCssPropertyComputationCount 53u
+#define RoboCssPropertyComputationCount 59u
 
 /** Non-zero when @p computation is a defined enumerator. */
 int CssPropertyComputationIsKnown(CssPropertyComputation computation);

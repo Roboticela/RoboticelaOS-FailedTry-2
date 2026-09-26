@@ -326,19 +326,23 @@ static void TestMediaCapabilities(void)
     RoboCheckEqInt(caps.defaultStyles, 0);
     RoboCheckEqInt(caps.stylesheetLoading, 0);
 
-    RoboCheckEqInt(RoboCssVersionMinor, 31);
-    RoboCheckStrEq(CssVersionString(), "0.31.0");
+    RoboCheckEqInt(RoboCssVersionMinor, 32);
+    RoboCheckStrEq(CssVersionString(), "0.32.0");
     RoboCheckStrEq(CssDiagnosticDomainName(RoboCssDomainMedia), "media");
     RoboCheckEqInt(CssDiagnosticDomainIsKnown(RoboCssDomainMedia), 1);
     RoboCheckStrEq(CssMediaMatchName(RoboCssMediaMatchUnknown), "unknown");
 
-    /* Media queries add no registry row: the registry count is unchanged. */
+    /* Media queries add no registry row, so the count is the one the family before
+     * the phase left -- and it moves only when a phase adds rows, which 18.14's
+     * nineteen font rows did. The assertion is deliberately the *whole* registry
+     * rather than "no new row": it is the one number that says whether a phase
+     * touched the table at all. */
     {
         CssPropertyRegistry *registry = NULL;
 
         RoboCheckEqInt(CssPropertyRegistryCreateStandard(&registry, NULL),
                        RoboOk);
-        RoboCheckEqInt((int)CssPropertyRegistryCount(registry), 161);
+        RoboCheckEqInt((int)CssPropertyRegistryCount(registry), 180);
         CssPropertyRegistryDestroy(registry);
     }
 }

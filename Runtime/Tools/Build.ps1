@@ -470,6 +470,13 @@ $ProdSrcs = @(
     # Logical properties (18.12): the side/axis vocabulary and the resolver that maps
     # a logical role to a physical box side under a writing mode and direction.
     (Join-Path $SourceDir "RoboCSS\RoboCSSLogical.c"),
+    # The font vocabulary (18.14): twelve closed sets over the font family and the
+    # @font-face descriptors -- the typed shapes (font-style, font-kerning,
+    # font-optical-sizing, font-synthesis-*, font-variant-caps and -position), the
+    # classified values inside carried declarations (font-stretch, font-size,
+    # font-variant-numeric and -east-asian), and the descriptor vocabulary with
+    # font-display. It opens no font and shapes no text.
+    (Join-Path $SourceDir "RoboCSS\RoboCSSFont.c"),
     (Join-Path $SourceDir "RoboLayout\RoboLayout.c"),
     (Join-Path $SourceDir "RoboLayout\RoboLayoutTypes.c"),
     (Join-Path $SourceDir "RoboLayout\RoboLayoutDiagnostics.c"),
@@ -976,6 +983,9 @@ $SuiteSrcs = @(
     # The logical-property suite (18.12): the side/axis vocabulary, the resolver over
     # the writing modes, and the registered logical rows.
     (Join-Path $TestsRoot "Css\SuiteRoboCssLogical.c"),
+    # The font suite (18.14): the twelve vocabularies, their classifications, the
+    # inherited rows, the @font-face descriptors and the carried half of the family.
+    (Join-Path $TestsRoot "Css\SuiteRoboCssFont.c"),
     # The selector/DOM integration suite deliberately lives outside css/: it
     # includes both RoboCSS and RoboHTML, and the two are peers whose guards
     # forbid each other's headers. A suite that must see both belongs in neither.

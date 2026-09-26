@@ -1996,6 +1996,47 @@ static int ComputedVocabularyContainerTypeKnown(CssSlice keyword)
     return CssContainerTypeSliceIsKnown(keyword);
 }
 
+/*
+ * The font vocabularies (18.14): six predicates and the same make body.
+ *
+ * Six rows because six properties have a grammar that *is* their closed set. The
+ * other half of the family — `font-stretch`'s percentage, `font-variant-numeric`'s
+ * space-separated axes, `font-feature-settings`' tag/value list — is carried
+ * PRESERVED, and the closed sets inside those declarations live in RoboCSSFont.h
+ * where a consumer can reach them without this table having to pretend the whole
+ * grammar is closed. That division is 18.7's: `transform` is carried and the
+ * function-name set is typed.
+ */
+static int ComputedVocabularyFontStyleKnown(CssSlice keyword)
+{
+    return CssFontStyleSliceIsKnown(keyword);
+}
+
+static int ComputedVocabularyFontKerningKnown(CssSlice keyword)
+{
+    return CssFontKerningSliceIsKnown(keyword);
+}
+
+static int ComputedVocabularyFontOpticalSizingKnown(CssSlice keyword)
+{
+    return CssFontOpticalSizingSliceIsKnown(keyword);
+}
+
+static int ComputedVocabularyFontSynthesisKnown(CssSlice keyword)
+{
+    return CssFontSynthesisSliceIsKnown(keyword);
+}
+
+static int ComputedVocabularyFontVariantCapsKnown(CssSlice keyword)
+{
+    return CssFontVariantCapsSliceIsKnown(keyword);
+}
+
+static int ComputedVocabularyFontVariantPositionKnown(CssSlice keyword)
+{
+    return CssFontVariantPositionSliceIsKnown(keyword);
+}
+
 /**
  * A closed vocabulary whose value *is* its keyword, carried as one.
  *
@@ -2127,7 +2168,36 @@ static const ComputedVocabularyGrammar computedVocabularyGrammars[] = {
     /* The container-query vocabulary (18.11) is one more row in the same table. */
     { RoboCssPropertyComputationContainerType,
       ComputedVocabularyContainerTypeKnown, ComputedVocabularyKeywordMake,
-      "not a single container-type keyword", "not a container-type value" }
+      "not a single container-type keyword", "not a container-type value" },
+    /*
+     * The font vocabularies (18.14) are six more rows, and their make door is the
+     * keyword-carrying one for the reason 18.5's five recorded: nothing has a *typed
+     * representation* of a kerning or a caps variant yet, so an enumerator in the
+     * computed value would be a second copy of a table for a reader that arrives with
+     * the text phase (18.15). What the closed set buys is the refusal —
+     * `font-kerning: banana` is a mistake rather than a keyword carrying the letters —
+     * and what arrives is already the canonical spelling.
+     */
+    { RoboCssPropertyComputationFontStyle, ComputedVocabularyFontStyleKnown,
+      ComputedVocabularyKeywordMake, "not a single font-style keyword",
+      "not a font-style value" },
+    { RoboCssPropertyComputationFontKerning, ComputedVocabularyFontKerningKnown,
+      ComputedVocabularyKeywordMake, "not a single font-kerning keyword",
+      "not a font-kerning value" },
+    { RoboCssPropertyComputationFontOpticalSizing,
+      ComputedVocabularyFontOpticalSizingKnown, ComputedVocabularyKeywordMake,
+      "not a single font-optical-sizing keyword",
+      "not a font-optical-sizing value" },
+    { RoboCssPropertyComputationFontSynthesis,
+      ComputedVocabularyFontSynthesisKnown, ComputedVocabularyKeywordMake,
+      "not a single font-synthesis keyword", "not a font-synthesis value" },
+    { RoboCssPropertyComputationFontVariantCaps,
+      ComputedVocabularyFontVariantCapsKnown, ComputedVocabularyKeywordMake,
+      "not a single font-variant-caps keyword", "not a font-variant-caps value" },
+    { RoboCssPropertyComputationFontVariantPosition,
+      ComputedVocabularyFontVariantPositionKnown, ComputedVocabularyKeywordMake,
+      "not a single font-variant-position keyword",
+      "not a font-variant-position value" }
 };
 
 /** The vocabulary grammar for @p computation, or NULL when it is not one. */
@@ -3001,6 +3071,19 @@ Result CssComputedValueCompute(
     case RoboCssPropertyComputationAnimationComposition:
     /* And the container-query vocabulary (18.11) is one more row. */
     case RoboCssPropertyComputationContainerType:
+    /*
+     * And the font vocabularies (18.14) are six more rows — the half of the font
+     * family whose grammar *is* a closed set. The other half is not here at all: a
+     * `font-stretch` percentage, a `font-variant-numeric` axis set and a
+     * `font-feature-settings` tag list are PRESERVED declarations, which is a
+     * different *row* in a different table rather than another case in this switch.
+     */
+    case RoboCssPropertyComputationFontStyle:
+    case RoboCssPropertyComputationFontKerning:
+    case RoboCssPropertyComputationFontOpticalSizing:
+    case RoboCssPropertyComputationFontSynthesis:
+    case RoboCssPropertyComputationFontVariantCaps:
+    case RoboCssPropertyComputationFontVariantPosition:
         return ComputedComputeVocabulary(
             ComputedVocabularyGrammarFor(computation), out, specified, diag);
     case RoboCssPropertyComputationBackgroundImage:

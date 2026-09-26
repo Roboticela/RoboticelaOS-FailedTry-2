@@ -253,6 +253,18 @@ const char *CssPropertyComputationName(
         return "animation-iteration-count";
     case RoboCssPropertyComputationContainerType:
         return "container-type";
+    case RoboCssPropertyComputationFontStyle:
+        return "font-style";
+    case RoboCssPropertyComputationFontKerning:
+        return "font-kerning";
+    case RoboCssPropertyComputationFontOpticalSizing:
+        return "font-optical-sizing";
+    case RoboCssPropertyComputationFontSynthesis:
+        return "font-synthesis";
+    case RoboCssPropertyComputationFontVariantCaps:
+        return "font-variant-caps";
+    case RoboCssPropertyComputationFontVariantPosition:
+        return "font-variant-position";
     default:
         return "unknown";
     }
@@ -561,12 +573,75 @@ static const RegistryStandardEntry registryStandardEntries[] = {
       RoboCssPropertyComputationDirection,  "ltr",        0 },
     { "font-family",   RoboCssPropertyInheritanceInherited,
       RoboCssPropertyComputationFontFamily,"serif",      0 },
+    /*
+     * --- the font family (18.14) ---
+     *
+     * Eighteen rows, all inherited, and the family they belong to is the first in
+     * this table whose values describe a *request* rather than a result: `font-weight:
+     * 700` asks for a face, and which face answers is the font database's business
+     * (RoboFont, and 12.17's selection seam for a shell document). Nothing here reads
+     * a font file, so nothing here can be wrong about which face exists.
+     *
+     * Two kinds of row sit in this block and the difference is the *grammar*, not the
+     * importance. Six properties have a genuinely closed set and take a typed shape:
+     * `font-kerning`, `font-optical-sizing`, the four `font-synthesis-*` longhands (one
+     * shape, because the four take the same two values), `font-variant-caps` and
+     * `font-variant-position` — plus `font-style`, whose shape is *upgraded in place*
+     * from the bare KEYWORD it had since 9.7. The rest have a grammar wider than any
+     * closed set — `font-stretch` admits a percentage, `font-variant-numeric` is a
+     * space-separated set of independent axes, `font-feature-settings` is a list of
+     * tag/value pairs — so they are registered PRESERVED and the closed sets *inside*
+     * them live in RoboCSSFont.h, exactly as 18.7 typed the names inside a `transform`
+     * list while carrying the list.
+     *
+     * `font-variant-ligatures` is the row that is deliberately carried without a
+     * vocabulary in this module: its five tags and their policy are RoboText's (12.12,
+     * `RoboTextLigature.h`), and a second copy here is how the shape a CSS author
+     * writes and the policy a shaper reads would come to disagree.
+     */
+    { "font-feature-settings", RoboCssPropertyInheritanceInherited,
+      RoboCssPropertyComputationPreserve,   "normal",     0 },
+    { "font-kerning",  RoboCssPropertyInheritanceInherited,
+      RoboCssPropertyComputationFontKerning,"auto",       0 },
+    { "font-language-override", RoboCssPropertyInheritanceInherited,
+      RoboCssPropertyComputationPreserve,   "normal",     0 },
+    { "font-optical-sizing", RoboCssPropertyInheritanceInherited,
+      RoboCssPropertyComputationFontOpticalSizing, "auto", 0 },
+    { "font-palette",  RoboCssPropertyInheritanceInherited,
+      RoboCssPropertyComputationPreserve,   "normal",     0 },
     { "font-size",     RoboCssPropertyInheritanceInherited,
       RoboCssPropertyComputationLength,     "medium",     0 },
+    { "font-stretch",  RoboCssPropertyInheritanceInherited,
+      RoboCssPropertyComputationPreserve,   "normal",     0 },
     { "font-style",    RoboCssPropertyInheritanceInherited,
-      RoboCssPropertyComputationKeyword,    "normal",     0 },
+      RoboCssPropertyComputationFontStyle,  "normal",     0 },
+    { "font-synthesis", RoboCssPropertyInheritanceInherited,
+      RoboCssPropertyComputationPreserve,   "auto auto auto auto",
+      RoboCssPropertyFlagShorthand },
+    { "font-synthesis-position", RoboCssPropertyInheritanceInherited,
+      RoboCssPropertyComputationFontSynthesis, "auto",     0 },
+    { "font-synthesis-small-caps", RoboCssPropertyInheritanceInherited,
+      RoboCssPropertyComputationFontSynthesis, "auto",     0 },
+    { "font-synthesis-style", RoboCssPropertyInheritanceInherited,
+      RoboCssPropertyComputationFontSynthesis, "auto",     0 },
+    { "font-synthesis-weight", RoboCssPropertyInheritanceInherited,
+      RoboCssPropertyComputationFontSynthesis, "auto",     0 },
     { "font-variant",  RoboCssPropertyInheritanceInherited,
       RoboCssPropertyComputationKeyword,    "normal",     0 },
+    { "font-variant-alternates", RoboCssPropertyInheritanceInherited,
+      RoboCssPropertyComputationPreserve,   "normal",     0 },
+    { "font-variant-caps", RoboCssPropertyInheritanceInherited,
+      RoboCssPropertyComputationFontVariantCaps, "normal", 0 },
+    { "font-variant-east-asian", RoboCssPropertyInheritanceInherited,
+      RoboCssPropertyComputationPreserve,   "normal",     0 },
+    { "font-variant-ligatures", RoboCssPropertyInheritanceInherited,
+      RoboCssPropertyComputationPreserve,   "normal",     0 },
+    { "font-variant-numeric", RoboCssPropertyInheritanceInherited,
+      RoboCssPropertyComputationPreserve,   "normal",     0 },
+    { "font-variant-position", RoboCssPropertyInheritanceInherited,
+      RoboCssPropertyComputationFontVariantPosition, "normal", 0 },
+    { "font-variation-settings", RoboCssPropertyInheritanceInherited,
+      RoboCssPropertyComputationPreserve,   "normal",     0 },
     { "font-weight",   RoboCssPropertyInheritanceInherited,
       RoboCssPropertyComputationFontWeight,"normal",     0 },
     { "letter-spacing",RoboCssPropertyInheritanceInherited,
@@ -782,6 +857,20 @@ static const RegistryStandardEntry registryStandardEntries[] = {
      */
     { "display",       RoboCssPropertyInheritanceNonInherited,
       RoboCssPropertyComputationDisplay,    "inline",     0 },
+    /*
+     * `font` is the one row of 18.14's family that is **not inherited**, and the
+     * omission is not an oversight: a shorthand's own computed value is the tokens
+     * an author wrote (PRESERVE), the distribution over its longhands is expansion's
+     * job, and a shorthand that *were* marked inherited would propagate a whole
+     * concatenation where CSS propagates each longhand by its own rule. So this row
+     * carries `normal normal normal normal medium/normal serif` — the concatenation
+     * of the seven longhands' initial values, the same construction `border` records
+     * as `medium none currentcolor`.
+     */
+    { "font",          RoboCssPropertyInheritanceNonInherited,
+      RoboCssPropertyComputationPreserve,
+      "normal normal normal normal medium/normal serif",
+      RoboCssPropertyFlagShorthand },
     { "height",        RoboCssPropertyInheritanceNonInherited,
       RoboCssPropertyComputationLength,     "auto",       0 },
     { "left",          RoboCssPropertyInheritanceNonInherited,
