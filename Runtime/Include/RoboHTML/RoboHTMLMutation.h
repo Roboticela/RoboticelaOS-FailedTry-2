@@ -186,6 +186,35 @@ Result HtmlNodeReplaceChild(
     HtmlDiag *diag);
 
 /**
+ * Insert the children of @p fragment into @p parent — the DOM's
+ * `parent.appendChild(fragment)` (Phase 17.7).
+ *
+ * Each child is **moved**: removed from the fragment and appended to
+ * @p parent, in order. A move, rather than a copy, is what the DOM specifies
+ * and what a caller cloning a template needs — `template.content.cloneNode(1)`
+ * produces a fragment whose children already have a parent, so appending them
+ * one at a time is refused by the one-parent invariant; this is the operation
+ * that makes insert-after-clone one call.
+ *
+ * @p fragment is left empty and is not destroyed. The move is not atomic: a
+ * failure part-way leaves the children moved so far in place rather than
+ * silently rolled back, because a rollback would itself be a second tree
+ * mutation that could fail.
+ *
+ * @return RoboOk with @c *outInserted set (0 for an empty fragment);
+ *         RoboInvalidArgument (NULL argument, or @p fragment is not a
+ *         fragment, or @p parent cannot hold children); RoboNotFound (either
+ *         handle does not resolve); RoboAlreadyExists (a child already has a
+ *         parent — impossible for a fragment's own child, so this is a
+ *         corrupted link); RoboOutOfMemory.
+ */
+Result HtmlNodeAppendFragmentChildren(
+    const HtmlNodeHandle *parent,
+    const HtmlNodeHandle *fragment,
+    size_t *outInserted,
+    HtmlDiag *diag);
+
+/**
  * Detach every child of @p parent, leaving it valid and childless.
  *
  * The nodes are detached, never destroyed, and keep their own subtrees; a

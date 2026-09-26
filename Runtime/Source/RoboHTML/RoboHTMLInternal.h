@@ -10,12 +10,15 @@
 #include "RoboHTML/RoboHTMLDocument.h"
 #include "RoboHTML/RoboHTMLDom.h"
 #include "RoboHTML/RoboHTMLDomQuery.h"
+#include "RoboHTML/RoboHTMLFormTree.h"
+#include "RoboHTML/RoboHTMLNavigation.h"
 #include "RoboHTML/RoboHTMLEncoding.h"
 #include "RoboHTML/RoboHTMLElement.h"
 #include "RoboHTML/RoboHTMLLifecycle.h"
 #include "RoboHTML/RoboHTMLNode.h"
 #include "RoboHTML/RoboHTMLParser.h"
 #include "RoboHTML/RoboHTMLResource.h"
+#include "RoboHTML/RoboHTMLSecurity.h"
 #include "RoboHTML/RoboHTMLSource.h"
 #include "RoboHTML/RoboHTMLTypes.h"
 
@@ -149,6 +152,70 @@ typedef struct HtmlDocumentSlot {
      */
     HtmlSelectorMatchFn selectorMatch;
     void *selectorUserdata;
+
+    /** Form submission handler (Phase 17.2); NULL when none installed. */
+    HtmlFormSubmitFn formSubmit;
+    void *formSubmitUserdata;
+
+    /**
+     * Template content fragments (Phase 17.7), one entry per `<template>`
+     * whose content has been created or adopted.
+     *
+     * Keyed by node identity, like the image and control tables, and for the
+     * same reason: a moved element keeps its content and a recycled node id
+     * cannot inherit one. The fragment itself is a registered node, so this
+     * table holds identity, not ownership — freeing it forgets which fragment
+     * belongs to which template, and the fragment's nodes go with the document
+     * like every other node.
+     */
+    struct HtmlTemplateEntry *templates;
+    size_t templateCount;
+    size_t templateCapacity;
+
+    /**
+     * Shadow roots (Phase 17.8), one entry per element that has attached one.
+     *
+     * Keyed by node identity like the other element-attached tables. The root
+     * is a registered fragment node, so this holds the (host, root, mode)
+     * relation and no ownership: freeing it forgets which tree belongs to
+     * which host, and the tree's nodes go with the document.
+     */
+    struct HtmlShadowEntry *shadows;
+    size_t shadowCount;
+    size_t shadowCapacity;
+
+    /**
+     * Custom element registry (Phase 17.9), one entry per defined name.
+     *
+     * Per document rather than per module, because the spec's registry is
+     * per window: two documents may define the same name with different
+     * callbacks, and a document's death frees exactly its own definitions.
+     * `customDispatchDepth` guards a callback that re-enters the registry,
+     * which is legal but cannot be allowed to recurse without bound.
+     */
+    struct HtmlCustomEntry *customs;
+    size_t customCount;
+    size_t customCapacity;
+    size_t customDispatchDepth;
+
+    /**
+     * Capability set (Phase 17.10). `capabilitiesSet` is separate from the
+     * record because "never narrowed" is not "narrowed to nothing": the
+     * default is *granted*, and a zeroed record would silently deny every
+     * existing caller. A document that never set one grants every capability.
+     */
+    HtmlDocumentCapabilities capabilities;
+    int capabilitiesSet;
+
+    /**
+     * Navigation controller (Phase 17.4): the document-scoped handler and the
+     * current location. The handler is copied by value (two fields, no
+     * ownership); `navigationHasHandler` is separate from a NULL function
+     * pointer because a handler struct can legitimately be zeroed.
+     */
+    HtmlNavigationHandler navigationHandler;
+    int navigationHasHandler;
+    HtmlNavigationLocation navigationLocation;
 } HtmlDocumentSlot;
 
 /**
@@ -165,6 +232,13 @@ Result HtmlDocumentRegisterNodeLive(
     HtmlNodeOrigin origin,
     HtmlNodeHandle *outHandle,
     HtmlDiag *diag);
+
+/**
+ * Parse @p length bytes of @p text as a decimal number (Phase 17.2/17.3).
+ * One parser, shared by form validation and number-input stepping, so a value
+ * the validator accepts is a value the stepper can step. Non-zero on success.
+ */
+int HtmlParseNumber(const char *text, size_t length, double *out);
 
 /** One image resource attached to one node of one document. */
 typedef struct HtmlImageAttachment {
@@ -210,6 +284,45 @@ void HtmlDocumentControlsFree(HtmlDocumentSlot *slot);
  * refers to are gone.
  */
 void HtmlDocumentImagesFree(HtmlDocumentSlot *slot);
+
+/** Release the document's template-content table (Phase 17.7). */
+void HtmlDocumentTemplatesFree(HtmlDocumentSlot *slot);
+
+/** Release the document's shadow-root table (Phase 17.8). */
+void HtmlDocumentShadowsFree(HtmlDocumentSlot *slot);
+
+/** Release the document's custom element registry (Phase 17.9). */
+void HtmlDocumentCustomsFree(HtmlDocumentSlot *slot);
+
+/**
+ * Refuse @p what unless @p documentId was granted @p capability (Phase 17.10).
+ *
+ * The gates call this rather than reading the flag, so every refusal is one
+ * code (RoboPermissionDenied) with one domain and a message naming the
+ * operation that was refused.
+ */
+Result HtmlSecurityRequireCapability(HtmlDocumentId documentId,
+                                     HtmlSecurityCapability capability,
+                                     const char *what,
+                                     HtmlDiag *diag);
+
+/*
+ * Custom element lifecycle dispatch (Phase 17.9).
+ *
+ * These are the notifications the tree and attribute layers call; they are
+ * internal because a caller never "sends" a lifecycle callback — it mutates
+ * the tree and the callback happens. Each is a no-op for a document with no
+ * definitions, which is every document until one is defined.
+ */
+void HtmlCustomElementNotifyInserted(HtmlDocumentId documentId,
+                                     const HtmlNodeHandle *node);
+void HtmlCustomElementNotifyRemoving(HtmlDocumentId documentId,
+                                     const HtmlNodeHandle *node);
+void HtmlCustomElementNotifyAttributeChanged(HtmlDocumentId documentId,
+                                             const HtmlNodeHandle *element,
+                                             const char *name,
+                                             const char *oldValue,
+                                             const char *newValue);
 
 /** Parser object (heap-allocated; layout private to RoboHTML sources). */
 struct HtmlParser {

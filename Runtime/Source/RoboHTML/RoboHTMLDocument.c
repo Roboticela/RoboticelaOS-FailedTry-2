@@ -190,6 +190,13 @@ Result HtmlDocumentClearTree(HtmlDocumentSlot *slot,
      * node ids and generations it was written against are being retired, so
      * the overrides they describe no longer describe anything. */
     HtmlDocumentControlsFree(slot);
+    /* Template content is a set of node identities in the same registry, so
+     * it is forgotten with them rather than kept pointing at retired ids. */
+    HtmlDocumentTemplatesFree(slot);
+    /* Shadow roots are keyed the same way, and for the same reason. */
+    HtmlDocumentShadowsFree(slot);
+    /* The custom element registry belongs to this document alone. */
+    HtmlDocumentCustomsFree(slot);
 
     /* Is the document's own root node still usable? */
     if (HtmlNodeHandleIsWellformed(&slot->root)) {
@@ -828,6 +835,9 @@ Result HtmlDocumentDestroy(HtmlDocumentId documentId,
     HtmlDocumentArenaFree(slot);
     HtmlDocumentImagesFree(slot);
     HtmlDocumentControlsFree(slot);
+    HtmlDocumentTemplatesFree(slot);
+    HtmlDocumentShadowsFree(slot);
+    HtmlDocumentCustomsFree(slot);
     HtmlNodeRegistryInit(&slot->nodes);
     HtmlNodeHandleClear(&slot->root);
     slot->lifecycle = RoboHtmlDocumentLifecycleDestroyed;

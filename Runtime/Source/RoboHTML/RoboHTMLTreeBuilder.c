@@ -30,6 +30,8 @@
 #include "RoboHTML/RoboHTMLTokenizerStates.h"
 #include "RoboHTML/RoboHTMLTraversal.h"
 #include "RoboHTML/RoboHTMLTreeBuilder.h"
+#include "RoboHTML/RoboHTMLCustomElements.h"
+#include "RoboHTML/RoboHTMLTemplate.h"
 
 #include "RoboHTML/RoboHTMLTag.h"
 #include "RoboHTMLInternal.h"
@@ -2126,6 +2128,40 @@ Result HtmlBuildTree(HtmlDocumentId documentId,
         return r;
     }
     r = HtmlTreeBuilderBuild(builder, src, diag);
+    if (r == RoboOk) {
+        /*
+         * Phase 17.7: a parsed `<template>`'s children belong in
+         * `template.content`, not in the light tree. This builder nests them
+         * under the element as it parses (it has no "in template" insertion
+         * mode); the adoption pass afterwards is what makes the finished tree
+         * the standard shape, and it is deliberately *after* the build so no
+         * insertion-mode behaviour changes. The count is not read here: the
+         * pass reports what it did through its own door for callers that want
+         * it, and a parse's job is the tree it produced.
+         */
+        Result adopt = HtmlDocumentAdoptTemplates(documentId, NULL, diag);
+
+        if (adopt != RoboOk) {
+            r = adopt;
+        }
+        /*
+         * Phase 17.9: parsed markup that names a defined custom element is
+         * already custom, and the tree builder links nodes through the
+         * construction path rather than the mutation one — so the lifecycle
+         * notifications a DOM insert would raise never happen during a parse.
+         * One upgrade pass at the end is the same result: an
+         * `attributeChanged` for each observed attribute the source gave the
+         * element, then `connected` because the parse put it in the document.
+         */
+        if (r == RoboOk) {
+            Result upgraded =
+                HtmlDocumentUpgradeCustomElements(documentId, NULL, diag);
+
+            if (upgraded != RoboOk) {
+                r = upgraded;
+            }
+        }
+    }
     if (r == RoboOk && outResult) {
         *outResult = builder->result;
     }

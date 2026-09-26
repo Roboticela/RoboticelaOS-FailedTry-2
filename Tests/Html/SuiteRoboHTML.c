@@ -28,9 +28,11 @@ static void TestHtmlVersion(void)
 
     RoboCheckStrEq(HtmlVersionString(), RoboHtmlVersionString);
     RoboCheckEqInt(RoboHtmlVersionMajor, 0);
-    RoboCheckEqInt(RoboHtmlVersionMinor, 14);
+    /* Phase 17's DOM batch: the version moves with the surface, and this is
+     * the one place that pins it, so a bump is a deliberate edit here too. */
+    RoboCheckEqInt(RoboHtmlVersionMinor, 16);
     RoboCheckEqInt(RoboHtmlVersionPatch, 0);
-    /* Forms milestone: API not frozen until later Phase 8 goals. */
+    /* The API is still growing through Phase 17, so it is not frozen. */
     RoboCheckEqInt(RoboHtmlApiFrozen, 0);
 
     RoboCheckEqInt(HtmlGetVersion(NULL, &minor, &patch),
@@ -41,7 +43,7 @@ static void TestHtmlVersion(void)
                       RoboInvalidArgument);
     RoboCheckEqInt(HtmlGetVersion(&major, &minor, &patch), RoboOk);
     RoboCheckEqInt(major, 0);
-    RoboCheckEqInt(minor, 14);
+    RoboCheckEqInt(minor, 16);
     RoboCheckEqInt(patch, 0);
 }
 

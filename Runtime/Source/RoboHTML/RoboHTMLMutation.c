@@ -125,6 +125,19 @@ static HtmlDocumentId AnchorDocument(
                : RoboHtmlDocumentIdNone;
 }
 
+/*
+ * The capability gate (Phase 17.10). Checked before operand resolution so a
+ * document that did not grant mutation refuses *every* edit with one code —
+ * and, because the parser links through the construction primitive rather
+ * than through this file, parsing is unaffected by the capability.
+ */
+static Result MutationGate(HtmlDocumentId documentId, HtmlDiag *diag)
+{
+    return HtmlSecurityRequireCapability(
+        documentId, RoboHtmlCapabilityDomMutation,
+        "the document was not granted DOM mutation", diag);
+}
+
 /** Emit the structural-change hook event for @p node. */
 static void AnnounceMutation(HtmlDocumentId documentId,
                               const HtmlNodeHandle *node)
@@ -156,6 +169,10 @@ Result HtmlNodeAppendChild(const HtmlNodeHandle *parent,
     Result r;
 
     doc = AnchorDocument(parent);
+    r = MutationGate(doc, diag);
+    if (r != RoboOk) {
+        return r;
+    }
     r = MutationEntry(parent, doc, &p, diag);
     if (r != RoboOk) {
         return r;
@@ -174,6 +191,10 @@ Result HtmlNodeAppendChild(const HtmlNodeHandle *parent,
         return r;
     }
     AnnounceMutation(doc, child);
+    /* Phase 17.9: a custom element that just became connected hears about it.
+     * The dispatch asks the tree, so inserting into a detached subtree is
+     * correctly silent. */
+    HtmlCustomElementNotifyInserted(doc, child);
     return RoboOk;
 }
 
@@ -190,6 +211,10 @@ Result HtmlNodeInsertBefore(
     Result r;
 
     doc = AnchorDocument(parent);
+    r = MutationGate(doc, diag);
+    if (r != RoboOk) {
+        return r;
+    }
     r = MutationEntry(parent, doc, &p, diag);
     if (r != RoboOk) {
         return r;
@@ -222,6 +247,7 @@ Result HtmlNodeInsertBefore(
         return r;
     }
     AnnounceMutation(doc, newChild);
+    HtmlCustomElementNotifyInserted(doc, newChild);
     return RoboOk;
 }
 
@@ -235,6 +261,10 @@ Result HtmlNodeRemoveChild(const HtmlNodeHandle *parent,
     Result r;
 
     doc = AnchorDocument(parent);
+    r = MutationGate(doc, diag);
+    if (r != RoboOk) {
+        return r;
+    }
     r = MutationEntry(parent, doc, &p, diag);
     if (r != RoboOk) {
         return r;
@@ -247,6 +277,9 @@ Result HtmlNodeRemoveChild(const HtmlNodeHandle *parent,
         return RoboHtmlDiag(diag, RoboHtmlDomainMutation, RoboNotFound,
                               "node is not a child of the given parent");
     }
+    /* Before the unlink, while the subtree is still connected — which is the
+     * only moment "was this element connected?" can be answered. */
+    HtmlCustomElementNotifyRemoving(doc, child);
     r = HtmlNodeUnlink(doc, c->id, diag);
     if (r != RoboOk) {
         return r;
@@ -269,6 +302,10 @@ Result HtmlNodeReplaceChild(
     Result r;
 
     doc = AnchorDocument(parent);
+    r = MutationGate(doc, diag);
+    if (r != RoboOk) {
+        return r;
+    }
     r = MutationEntry(parent, doc, &p, diag);
     if (r != RoboOk) {
         return r;
@@ -303,6 +340,9 @@ Result HtmlNodeReplaceChild(
     /* Captured before the detach: unlink clears the old node's own links. */
     successor = o->NextSibling;
 
+    /* The replacement is a removal and an insertion, in that order, so a
+     * custom element learns both. */
+    HtmlCustomElementNotifyRemoving(doc, oldChild);
     r = HtmlNodeUnlink(doc, o->id, diag);
     if (r != RoboOk) {
         return r;
@@ -318,6 +358,7 @@ Result HtmlNodeReplaceChild(
         return r;
     }
     AnnounceMutation(doc, newChild);
+    HtmlCustomElementNotifyInserted(doc, newChild);
     return RoboOk;
 }
 
@@ -336,6 +377,10 @@ Result HtmlNodeRemoveChildren(
         *outRemoved = 0u;
     }
     doc = AnchorDocument(parent);
+    r = MutationGate(doc, diag);
+    if (r != RoboOk) {
+        return r;
+    }
     r = MutationEntry(parent, doc, &p, diag);
     if (r != RoboOk) {
         return r;
@@ -368,6 +413,11 @@ Result HtmlNodeRemoveChildren(
             /* A handle needs the generation too, and only the entry has it. */
             first = HtmlNodeHandleMake(doc, child);
         }
+        /* Each detached subtree is a removal, so each is announced as one
+         * before it goes — the parents that stay connected are not part of
+         * the notification, which is why this is per child and not per
+         * parent. */
+        HtmlCustomElementNotifyRemoving(doc, &first);
         r = HtmlNodeUnlink(doc, first.nodeId, diag);
         if (r != RoboOk) {
             return r;
@@ -378,6 +428,108 @@ Result HtmlNodeRemoveChildren(
         *outRemoved = removed;
     }
     if (removed > 0u) {
+        AnnounceMutation(doc, parent);
+    }
+    return RoboOk;
+}
+
+/*
+ * Insert a fragment's children into a parent (Phase 17.7).
+ *
+ * The loop re-reads the fragment's first child each time — the same shape as
+ * HtmlNodeRemoveChildren — because each unlink repairs the fragment's list, so
+ * "the first child" is always the next node to move. Nothing here is a new
+ * tree rule: an unlink followed by the one linking primitive is exactly what
+ * remove-then-append means, and it keeps the one-parent invariant enforced by
+ * the same code every other mutation uses.
+ */
+Result HtmlNodeAppendFragmentChildren(
+    const HtmlNodeHandle *parent,
+    const HtmlNodeHandle *fragment,
+    size_t *outInserted,
+    HtmlDiag *diag)
+{
+    HtmlDocumentId doc;
+    const HtmlNodeEntry *p;
+    const HtmlNodeEntry *f;
+    size_t inserted = 0u;
+    Result r;
+
+    if (outInserted) {
+        *outInserted = 0u;
+    }
+    doc = AnchorDocument(parent);
+    r = MutationGate(doc, diag);
+    if (r != RoboOk) {
+        return r;
+    }
+    r = MutationEntry(parent, doc, &p, diag);
+    if (r != RoboOk) {
+        return r;
+    }
+    r = MutationEntry(fragment, doc, &f, diag);
+    if (r != RoboOk) {
+        return r;
+    }
+    if (f->kind != RoboHtmlNodeKindFragment) {
+        return RoboHtmlDiag(diag, RoboHtmlDomainMutation,
+                              RoboInvalidArgument,
+                              "only a fragment's children can be inserted");
+    }
+    if (parent->nodeId == fragment->nodeId) {
+        return RoboHtmlDiag(diag, RoboHtmlDomainMutation,
+                              RoboInvalidArgument,
+                              "a fragment cannot receive its own children");
+    }
+    if (!HtmlNodeKindCanHoldChildren(p->kind)) {
+        return RoboHtmlDiag(diag, RoboHtmlDomainMutation,
+                              RoboNotSupported,
+                              "node kind cannot have children");
+    }
+    if (HtmlNodeIsAncestorOf(doc, fragment->nodeId, p->id)) {
+        /* Inserting a fragment's children beneath the fragment's own
+         * descendant would strand the fragment's remaining nodes behind a
+         * cycle; refused before the first move, like every other operation
+         * here. */
+        return RoboHtmlDiag(diag, RoboHtmlDomainMutation,
+                              RoboInvalidArgument,
+                              "a fragment cannot be inserted beneath its own "
+                              "descendant");
+    }
+
+    while (inserted < (size_t)RoboHtmlMaxNodesPerDocument) {
+        const HtmlNodeEntry *live = HtmlNodeEntryGet(doc, f->id);
+        const HtmlNodeEntry *child;
+        HtmlNodeHandle move;
+
+        if (!live || live->firstChild == RoboHtmlNodeIdNone) {
+            break;
+        }
+        child = HtmlNodeEntryGet(doc, live->firstChild);
+        if (!child) {
+            break;
+        }
+        move = HtmlNodeHandleMake(doc, child);
+        r = HtmlNodeUnlink(doc, move.nodeId, diag);
+        if (r != RoboOk) {
+            return r;
+        }
+        r = HtmlNodeInsertRelative(doc, p->id, move.nodeId,
+                                            RoboHtmlNodeIdNone, diag);
+        if (r != RoboOk) {
+            return r;
+        }
+        /* Per child, not per parent: walking the parent's whole subtree
+         * would re-notify custom elements that were already there. */
+        HtmlCustomElementNotifyInserted(doc, &move);
+        inserted++;
+    }
+    if (outInserted) {
+        *outInserted = inserted;
+    }
+    if (inserted > 0u) {
+        /* One announcement for the whole insert, so a consumer that
+         * invalidates does so once rather than per child. */
         AnnounceMutation(doc, parent);
     }
     return RoboOk;

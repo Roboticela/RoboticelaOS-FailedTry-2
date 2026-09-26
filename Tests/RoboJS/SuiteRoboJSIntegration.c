@@ -55,7 +55,10 @@
 #include "RoboHTMLDomTestSupport.h"
 #include "RoboJSTestSupport.h"
 
+#include "RoboHTML/RoboHTMLDomQuery.h"
 #include "RoboHTML/RoboHTMLMutation.h"
+#include "RoboHTML/RoboHTMLSecurity.h"
+#include "RoboHTML/RoboHTMLShadow.h"
 #include "RoboHTML/RoboHTMLText.h"
 
 /* ------------------------------------------------------------------ */
@@ -1375,6 +1378,174 @@ static void TestIntegrationLifecycle(void)
 }
 
 /* ------------------------------------------------------------------ */
+/* The DOM capability gate, reached from a script                        */
+/* ------------------------------------------------------------------ */
+
+/*
+ * Phase 17.10's capability set is a property of the *document*, and a page's script is one more client
+ * of the same doors the shell uses. That is what makes it useful: a host that embeds untrusted markup
+ * can parse it, let a runtime attach to it, and still refuse every mutation the script attempts — with
+ * the refusal arriving as the interpreter's own error path rather than as a silent no-op.
+ *
+ * The write itself is `HtmlElementSetAttribute` at the bottom, so this case is an assertion about the
+ * *seam*, not a second implementation of it. What it adds is the wiring: refusal -> exception, no
+ * partial change, and a re-grant that makes the same script succeed.
+ */
+static void TestIntegrationCapabilityGate(void)
+{
+    JsRuntimeConfig config;
+    JsRuntime *runtime;
+    HtmlDocumentId document;
+    HtmlDocumentCapabilities caps;
+    HtmlNodeHandle root;
+    HtmlNodeHandle app;
+
+    DomFixtureBegin();
+    document = DomDocumentOf(JsIntegrationPage());
+    runtime = JsTestRuntimeCreate(&config);
+    RoboCheck(runtime != NULL);
+    RoboCheck(JsDomHtmlAttach(runtime, document) == RoboOk);
+    root = DomRoot(document);
+    app = DomFindId(&root, "app");
+
+    /* Narrowing the document after the attach is deliberate: the document is the thing with the
+     * capability, not the runtime, so there is no attach-time snapshot to go stale. */
+    HtmlDocumentCapabilitiesDefault(&caps);
+    caps.domMutation = 0;
+    RoboCheckEqInt(HtmlDocumentSetCapabilities(document, &caps, NULL), RoboOk);
+
+    /* Reading is untouched by the mutation capability. */
+    RoboCheckEqInt(JsTestGlobalNumber(runtime,
+                                      "var gateApp = document.getElementById(\"app\");\n"
+                                      "var gateOk = (gateApp !== null && gateApp.nodeName === \"div\") ? 1 : 0;",
+                                      "gateOk"), 1);
+
+    /* The write is refused, and it is refused *as an exception*: a caller that swallowed it would
+     * otherwise believe the attribute landed. */
+    RoboCheck(JsTestEvalExpectError(runtime,
+                                    "gate-set",
+                                    "gateApp.setAttribute(\"data-blocked\", \"yes\");") != RoboOk);
+    JsRuntimeClearException(runtime);
+    /* The refusal is RoboHTML's, so it is read where RoboHTML records it: nothing landed in the
+     * attribute storage, and the adapter is still attached and live. */
+    RoboCheck(HtmlElementAttributeValue(&app, "data-blocked", NULL) == NULL);
+    RoboCheck(JsDomHtmlIsLive(runtime) == 1);
+
+    /* A structural mutation is the same answer, and the tree is untouched. */
+    {
+        uint32_t version = 0u;
+
+        RoboCheckEqInt(HtmlNodeTreeVersion(document, &version, NULL), RoboOk);
+        RoboCheck(JsTestEvalExpectError(runtime,
+                                        "gate-remove",
+                                        "document.body.removeChild(gateApp);") != RoboOk);
+        JsRuntimeClearException(runtime);
+        {
+            uint32_t now = 0u;
+
+            RoboCheckEqInt(HtmlNodeTreeVersion(document, &now, NULL), RoboOk);
+            RoboCheckEqInt(now, version);
+        }
+        RoboCheck(JsDomHtmlIsLive(runtime) == 1);
+        DomExpectCleanTree(document);
+    }
+
+    /* Granted again, the same script succeeds and RoboHTML's own storage agrees — the attribute is read
+     * back through the document, not through a JavaScript shadow. */
+    HtmlDocumentCapabilitiesDefault(&caps);
+    RoboCheckEqInt(HtmlDocumentSetCapabilities(document, &caps, NULL), RoboOk);
+    RoboCheck(JsTestEvalNamed(runtime,
+                              "gate-open",
+                              "gateApp.setAttribute(\"data-allowed\", \"yes\");",
+                              NULL) == RoboOk);
+    RoboCheckStrEq(HtmlElementAttributeValue(&app, "data-allowed", NULL),
+                   "yes");
+
+    RoboCheck(JsDomHtmlDetach(runtime) > 0);
+    JsRuntimeDestroy(runtime);
+    DomExpectCleanTree(document);
+    RoboCheck(HtmlDocumentDestroy(document, NULL) == RoboOk);
+}
+
+/* ------------------------------------------------------------------ */
+/* The DOM's own boundaries, seen from a script                         */
+/* ------------------------------------------------------------------ */
+
+/*
+ * A template's content and a shadow root are RoboHTML's boundaries, and a script is subject to them
+ * because its lookups are RoboHTML's lookups. A binding that had kept its own node table would find
+ * these nodes and the boundary would be a sentence in a header rather than a fact.
+ */
+static void TestIntegrationDomBoundaries(void)
+{
+    static const char *page =
+        "<html><body>"
+        "<template id=\"tpl\"><p id=\"templated\">inert</p></template>"
+        "<div id=\"host\"><span id=\"light\">light</span></div>"
+        "<p id=\"live\">live</p>"
+        "</body></html>";
+    JsRuntimeConfig config;
+    JsRuntime *runtime;
+    HtmlDocumentId document;
+    HtmlNodeHandle root;
+    HtmlNodeHandle host;
+    HtmlNodeHandle shadow;
+    HtmlNodeHandle inner;
+
+    DomFixtureBegin();
+    document = DomDocumentOf(page);
+    root = DomRoot(document);
+    host = DomFindId(&root, "host");
+
+    runtime = JsTestRuntimeCreate(&config);
+    RoboCheck(runtime != NULL);
+    RoboCheck(JsDomHtmlAttach(runtime, document) == RoboOk);
+
+    /* The template's children are in its content fragment, so the script's lookup misses them; the
+     * live paragraph beside them is found. */
+    RoboCheckEqInt(JsTestGlobalNumber(runtime,
+                                      "var templated = document.getElementById(\"templated\");\n"
+                                      "var templateMissed = (templated === null) ? 1 : 0;",
+                                      "templateMissed"), 1);
+    RoboCheckEqInt(JsTestGlobalNumber(runtime,
+                                      "var live = document.getElementById(\"live\");\n"
+                                      "var liveFound = (live !== null) ? 1 : 0;",
+                                      "liveFound"), 1);
+
+    /* A node the *host* puts inside the shadow root is invisible to the script's document lookup,
+     * while the host's own light child is still visible. */
+    RoboCheckEqInt(HtmlElementAttachShadow(&host, RoboHtmlShadowModeOpen,
+                                          &shadow, NULL),
+                   RoboOk);
+    RoboCheckEqInt(HtmlDocumentCreateElement(document, "b", &inner, NULL),
+                   RoboOk);
+    RoboCheckEqInt(HtmlElementSetAttribute(&inner, "id", "shadowed", NULL),
+                   RoboOk);
+    RoboCheckEqInt(HtmlNodeAppendChild(&shadow, &inner, NULL), RoboOk);
+
+    RoboCheckEqInt(JsTestGlobalNumber(runtime,
+                                      "var shadowed = document.getElementById(\"shadowed\");\n"
+                                      "var shadowMissed = (shadowed === null) ? 1 : 0;",
+                                      "shadowMissed"), 1);
+    RoboCheckEqInt(JsTestGlobalNumber(runtime,
+                                      "var light = document.getElementById(\"light\");\n"
+                                      "var lightFound = (light !== null && light.nodeName === \"span\") ? 1 : 0;",
+                                      "lightFound"), 1);
+
+    /* And the shadow root itself is not an element in the document: a lookup for the host finds the
+     * host, which is the same retargeting rule the shadow module states. */
+    RoboCheckEqInt(JsTestGlobalNumber(runtime,
+                                      "var host = document.getElementById(\"host\");\n"
+                                      "var hostOk = (host !== null && host.nodeName === \"div\") ? 1 : 0;",
+                                      "hostOk"), 1);
+
+    RoboCheck(JsDomHtmlDetach(runtime) > 0);
+    JsRuntimeDestroy(runtime);
+    DomExpectCleanTree(document);
+    RoboCheck(HtmlDocumentDestroy(document, NULL) == RoboOk);
+}
+
+/* ------------------------------------------------------------------ */
 /* Determinism                                                         */
 /* ------------------------------------------------------------------ */
 
@@ -1449,5 +1620,7 @@ void TestRegisterRoboJSIntegration(void)
     TestRegister("js.integration.demo", TestIntegrationDemo);
     TestRegister("js.integration.steps", TestIntegrationSteps);
     TestRegister("js.integration.lifecycle", TestIntegrationLifecycle);
+    TestRegister("js.integration.capability_gate", TestIntegrationCapabilityGate);
+    TestRegister("js.integration.dom_boundaries", TestIntegrationDomBoundaries);
     TestRegister("js.integration.determinism", TestIntegrationDeterminism);
 }

@@ -349,6 +349,17 @@ static Result MutateAttribute(const HtmlNodeHandle *element,
     HtmlNodeEntry *e;
     char normalized[RoboHtmlNameMax];
     HtmlDiag local;
+    /*
+     * Phase 17.9: the old value is captured *before* the rewrite, in a local
+     * buffer, because the payload the borrowed pointer names is about to be
+     * rewritten and a custom element's callback is told both sides of the
+     * change. `add` reports the value it is shadowing (if any) as the old
+     * one, which is what makes a duplicate add visible rather than silent.
+     */
+    char oldValue[RoboHtmlAttrValueMax];
+    const char *oldValueOut = NULL;
+    const char *newValueOut = NULL;
+    Result mutated;
     /* The strict normalizer reports why a name was refused through the diag
      * only, so give it one to write into even when the caller passed none —
      * otherwise every refusal collapses to INVALID_ARGUMENT and a caller
@@ -361,6 +372,28 @@ static Result MutateAttribute(const HtmlNodeHandle *element,
     }
     if (HtmlElementNameNormalize(name, normalized, where) != RoboOk) {
         return where->code;
+    }
+    /*
+     * Phase 17.10: an attribute write is part of the DOM edit surface, so it
+     * is gated with structural mutation — and, like structural mutation, the
+     * *parser* path is untouched, because the tree builder writes attributes
+     * through the payload rather than through these verbs.
+     */
+    {
+        /*
+         * The gate's own Result is propagated rather than folded into one
+         * code: PermissionDenied means "this document was not granted it",
+         * while NotFound means the document is gone — and a caller that
+         * cannot tell a lifetime bug from a policy refusal will chase the
+         * wrong one.
+         */
+        Result gate = HtmlSecurityRequireCapability(
+            element->documentId, RoboHtmlCapabilityDomMutation,
+            "the document was not granted DOM mutation", diag);
+
+        if (gate != RoboOk) {
+            return gate; /* the gate's own diag is already the right one */
+        }
     }
     slot = HtmlDocumentSlotFind(element->documentId);
     if (!slot) {
@@ -375,8 +408,34 @@ static Result MutateAttribute(const HtmlNodeHandle *element,
         return RoboHtmlDiag(diag, RoboHtmlDomainElement, RoboNotFound,
                               "handle does not resolve to a live element");
     }
-    return HtmlPayloadMutateAttributes(slot, e, mutation, normalized,
-                                               value ? value : "", diag);
+    {
+        size_t oldLength = 0u;
+        const char *existing =
+            HtmlElementAttributeValue(element, normalized, &oldLength);
+
+        /* Read for every verb — `remove` reports the value it took away and
+         * `set` the value it replaced, so neither can be inferred later. */
+        if (existing) {
+            size_t copy = oldLength < (RoboHtmlAttrValueMax - 1u)
+                              ? oldLength
+                              : (RoboHtmlAttrValueMax - 1u);
+
+            memcpy(oldValue, existing, copy);
+            oldValue[copy] = '\0';
+            oldValueOut = oldValue;
+        }
+    }
+    mutated = HtmlPayloadMutateAttributes(slot, e, mutation, normalized,
+                                          value ? value : "", diag);
+    if (mutated == RoboOk) {
+        if (mutation != RoboHtmlAttrMutationRemove) {
+            newValueOut = value ? value : "";
+        }
+        HtmlCustomElementNotifyAttributeChanged(element->documentId, element,
+                                                normalized, oldValueOut,
+                                                newValueOut);
+    }
+    return mutated;
 }
 
 Result HtmlElementSetAttribute(
