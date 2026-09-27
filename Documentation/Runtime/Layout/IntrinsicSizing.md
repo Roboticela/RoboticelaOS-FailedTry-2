@@ -190,9 +190,11 @@ look for it:
   document records them as **not built** rather than implying they are.
 - **Grid and table intrinsic sizing.** Those are 19.4 and 19.6; each *consumes*
   these two numbers and adds its own track arithmetic, and neither belongs beside the
-  measurement. **Flex** was 19.3 and now consumes them — an item with no
+  measurement. **Flex** was 19.3 and now consumes them both ways — an item with no
   `flex-basis` and no definite main size takes its measured content size as its flex
-  base (`FlexLayout.md`) — so what remains absent here is grid and table, not flex.
+  base, and an item whose `min-width`/`min-height` is `auto` takes its **min-content**
+  size as its automatic minimum (`FlexLayout.md`) — so what remains absent here is
+  grid and table, not flex.
 - **`shrink-to-fit` as a placement rule.** `fit-content`'s arithmetic is here; the
   decision to apply it to a float or an absolutely positioned box is the placement
   goal's (14.0 sizes an out-of-flow box between two opposing insets, which is a

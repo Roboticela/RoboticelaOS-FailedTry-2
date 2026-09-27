@@ -25,6 +25,9 @@
 
 #include "RoboLayoutTestSupport.h"
 
+#include "RoboLayout/RoboLayoutIntrinsic.h"
+#include "RoboLayout/RoboLayoutText.h"
+
 #include <string.h>
 
 /* ------------------------------------------------------------------ */
@@ -140,6 +143,12 @@ static void LayoutFlexRuleAlign(LayoutFlexRule *rule, const char *property,
 {
     LayoutFlexRuleAdd(rule, property, LAYOUT_FLEX_DECL_ALIGN, 0.0, (int)value,
                       NULL);
+}
+
+static void LayoutFlexRuleKeyword(LayoutFlexRule *rule, const char *property,
+                                  const char *keyword)
+{
+    LayoutFlexRuleAdd(rule, property, LAYOUT_FLEX_DECL_KEYWORD, 0.0, 0, keyword);
 }
 
 static void LayoutFlexStyleAdd(LayoutFlexSource *source,
@@ -262,6 +271,44 @@ static const CssComputedStyle *LayoutFlexStyleLookup(void *userdata,
 }
 
 /* ------------------------------------------------------------------ */
+/* A scripted text measurer                                            */
+/* ------------------------------------------------------------------ */
+
+/*
+ * The pass measures an item's content three times over -- for its flex base size,
+ * for the automatic minimum's floor, and for its cross extent -- so a case about
+ * *content* sizing needs a measurer rather than a document. This one is arithmetic
+ * rather than a font: every code point is `perCodePoint` wide and every run is
+ * `height` tall, so a case can say "a four-letter word is 40 wide" without
+ * depending on a face, and `minContent` (the widest word) differs from `maxContent`
+ * (the whole line) exactly when the text has a space in it.
+ */
+typedef struct layoutFlexScript {
+    int32_t perCodePoint;
+    int32_t height;
+} LayoutFlexScript;
+
+static Result LayoutFlexScriptMeasure(void *userdata,
+                                      const LayoutTextRequest *request,
+                                      LayoutTextRun *outRun)
+{
+    LayoutFlexScript *script = (LayoutFlexScript *)userdata;
+
+    if (!script || !request || !outRun || !request->style) {
+        return RoboInvalidArgument;
+    }
+    outRun->source = request->textNode;
+    outRun->range = request->range;
+    outRun->direction = request->style->direction;
+    outRun->codePoints = LayoutTextRangeLength(request->range);
+    outRun->width = (int32_t)outRun->codePoints * script->perCodePoint;
+    outRun->height = script->height;
+    outRun->ascent = script->height;
+    outRun->descent = 0;
+    return RoboOk;
+}
+
+/* ------------------------------------------------------------------ */
 /* The fixture                                                         */
 /* ------------------------------------------------------------------ */
 
@@ -270,6 +317,9 @@ typedef struct layoutFlexFixture {
     LayoutFlexSource source;
     LayoutStyleSource styles;
     LayoutTree *tree;
+    LayoutFlexScript script;
+    LayoutTextMetrics metrics;
+    int useScript;
 } LayoutFlexFixture;
 
 static void LayoutFlexBegin(LayoutFlexFixture *fixture,
@@ -314,6 +364,20 @@ static void LayoutFlexEnd(LayoutFlexFixture *fixture)
 #define LAYOUT_FLEX_VIEWPORT_WIDTH 800
 #define LAYOUT_FLEX_VIEWPORT_HEIGHT 600
 
+/** Install the scripted measurer: @p perCodePoint px per code point, @p height px
+ *  tall. Called after the tree is built and before the pass. */
+static void LayoutFlexScriptUse(LayoutFlexFixture *fixture,
+                                int32_t perCodePoint,
+                                int32_t height)
+{
+    fixture->script.perCodePoint = perCodePoint;
+    fixture->script.height = height;
+    LayoutTextMetricsInit(&fixture->metrics);
+    fixture->metrics.userdata = &fixture->script;
+    fixture->metrics.measure = LayoutFlexScriptMeasure;
+    fixture->useScript = 1;
+}
+
 static void LayoutFlexPass(LayoutFlexFixture *fixture,
                            int32_t viewportWidth,
                            LayoutStats *outStats)
@@ -326,6 +390,10 @@ static void LayoutFlexPass(LayoutFlexFixture *fixture,
     viewport.height = LAYOUT_FLEX_VIEWPORT_HEIGHT;
     RoboCheckEqInt(LayoutContextCreate(&context, NULL), RoboOk);
     RoboCheckEqInt(LayoutContextSetViewport(context, viewport, NULL), RoboOk);
+    if (fixture->useScript) {
+        RoboCheckEqInt(LayoutContextSetTextMetrics(context, &fixture->metrics),
+                       RoboOk);
+    }
     RoboCheckEqInt(LayoutContextRun(context, fixture->tree, NULL), RoboOk);
     LayoutContextStats(context, &stats);
     LayoutContextDestroy(context);
@@ -784,6 +852,394 @@ static void TestFlexAllocatorBalance(void)
 }
 
 /* ------------------------------------------------------------------ */
+/* Content sizing: the automatic minimum, the measured base size        */
+/* ------------------------------------------------------------------ */
+
+static void TestFlexAutoMinimum(void)
+{
+    LayoutFlexFixture fixture;
+    LayoutFlexRule rules[3];
+    LayoutStats stats;
+
+    LayoutFlexRuleInit(&rules[0], "body", 0, RoboCssDisplayFlex);
+    LayoutFlexRulePx(&rules[0], "width", 100.0);
+    LayoutFlexRuleInit(&rules[1], "div", 0, RoboCssDisplayBlock);
+    LayoutFlexRulePx(&rules[1], "flex-basis", 0.0);
+    LayoutFlexRuleInit(&rules[2], "div", 1, RoboCssDisplayBlock);
+    LayoutFlexRulePx(&rules[2], "flex-basis", 0.0);
+
+    LayoutFlexBegin(&fixture,
+                    "<html><body><div>wwww wwww</div><div></div></body></html>",
+                    rules, 3u);
+    LayoutFlexScriptUse(&fixture, 10, 16);
+    LayoutFlexPass(&fixture, LAYOUT_FLEX_VIEWPORT_WIDTH, &stats);
+
+    /*
+     * The first item asked for `flex-basis: 0` and declared no minimum, so its used
+     * minimum is the **automatic** one: its content's *min-content* size, which is
+     * the widest word -- four code points at ten pixels each. A build without the
+     * automatic minimum would leave it at zero and the item would vanish, which is
+     * exactly the failure the rule exists to prevent.
+     */
+    RoboCheckEqInt(LayoutFlexSizeOf(&fixture, LayoutFlexBoxNth(&fixture, "div", 0u)).width,
+                   40);
+    RoboCheckEqInt(LayoutFlexSizeOf(&fixture, LayoutFlexBoxNth(&fixture, "div", 1u)).width,
+                   0);
+    RoboCheckEqInt(LayoutFlexPositionOf(&fixture, LayoutFlexBoxNth(&fixture, "div", 1u)).x,
+                   40);
+    RoboCheckEqInt(stats.block.flex.contentMinItems, 1u);
+
+    LayoutFlexEnd(&fixture);
+}
+
+static void TestFlexTextIntrinsic(void)
+{
+    LayoutFlexFixture fixture;
+    LayoutFlexRule rules[3];
+
+    LayoutFlexRuleInit(&rules[0], "body", 0, RoboCssDisplayFlex);
+    LayoutFlexRulePx(&rules[0], "width", 300.0);
+    LayoutFlexRuleInit(&rules[1], "div", 0, RoboCssDisplayBlock);
+    LayoutFlexRuleInit(&rules[2], "div", 1, RoboCssDisplayBlock);
+
+    LayoutFlexBegin(&fixture, "<html><body><div>aa</div><div>bbbb</div></body></html>",
+                    rules, 3u);
+    LayoutFlexScriptUse(&fixture, 10, 16);
+    LayoutFlexPass(&fixture, LAYOUT_FLEX_VIEWPORT_WIDTH, NULL);
+
+    /*
+     * With neither `flex-basis` nor a main-size property, the base size is the
+     * measured content -- so the widths are the *shaped* run widths and not character
+     * counts, and the cross size is the content's own extent.
+     */
+    RoboCheckEqInt(LayoutFlexSizeOf(&fixture, LayoutFlexBoxNth(&fixture, "div", 0u)).width,
+                   20);
+    RoboCheckEqInt(LayoutFlexSizeOf(&fixture, LayoutFlexBoxNth(&fixture, "div", 1u)).width,
+                   40);
+    RoboCheckEqInt(LayoutFlexSizeOf(&fixture, LayoutFlexBoxNth(&fixture, "div", 0u)).height,
+                   16);
+    RoboCheckEqInt(LayoutFlexPositionOf(&fixture, LayoutFlexBoxNth(&fixture, "div", 1u)).x,
+                   20);
+
+    LayoutFlexEnd(&fixture);
+}
+
+/* ------------------------------------------------------------------ */
+/* Min/max clamping and freezing                                       */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Grow until a maximum stops one item, then redistribute among the rest.
+ *
+ * Three items at `flex-basis: 100` in a 600-wide container: the free space of 300
+ * splits three ways, which takes the first item to 200 -- past its `max-width: 60`.
+ * That item freezes at 60 and the remaining 340 splits two ways, so 270 each. The
+ * numbers are chosen so every step is exact.
+ */
+static void TestFlexMinMaxClamp(void)
+{
+    LayoutFlexFixture fixture;
+    LayoutFlexRule rules[4];
+    int i;
+
+    LayoutFlexRuleInit(&rules[0], "body", 0, RoboCssDisplayFlex);
+    LayoutFlexRulePx(&rules[0], "width", 600.0);
+    for (i = 0; i < 3; i++) {
+        LayoutFlexRuleInit(&rules[1 + i], "div", i, RoboCssDisplayBlock);
+        LayoutFlexRulePx(&rules[1 + i], "flex-basis", 100.0);
+        LayoutFlexRuleNumber(&rules[1 + i], "flex-grow", 1.0);
+    }
+    LayoutFlexRulePx(&rules[1], "max-width", 60.0);
+
+    LayoutFlexBegin(&fixture, "<html><body><div></div><div></div><div></div></body></html>",
+                    rules, 4u);
+    LayoutFlexPass(&fixture, LAYOUT_FLEX_VIEWPORT_WIDTH, NULL);
+
+    RoboCheckEqInt(LayoutFlexSizeOf(&fixture, LayoutFlexBoxNth(&fixture, "div", 0u)).width,
+                   60);
+    RoboCheckEqInt(LayoutFlexSizeOf(&fixture, LayoutFlexBoxNth(&fixture, "div", 1u)).width,
+                   270);
+    RoboCheckEqInt(LayoutFlexSizeOf(&fixture, LayoutFlexBoxNth(&fixture, "div", 2u)).width,
+                   270);
+    RoboCheckEqInt(LayoutFlexPositionOf(&fixture, LayoutFlexBoxNth(&fixture, "div", 1u)).x,
+                   60);
+    RoboCheckEqInt(LayoutFlexPositionOf(&fixture, LayoutFlexBoxNth(&fixture, "div", 2u)).x,
+                   330);
+
+    LayoutFlexEnd(&fixture);
+}
+
+/** A declared `min-width` is the used minimum and overrides the automatic floor. */
+static void TestFlexMinWidthClamp(void)
+{
+    LayoutFlexFixture fixture;
+    LayoutFlexRule rules[3];
+
+    LayoutFlexRuleInit(&rules[0], "body", 0, RoboCssDisplayFlex);
+    LayoutFlexRulePx(&rules[0], "width", 300.0);
+    LayoutFlexRuleInit(&rules[1], "div", 0, RoboCssDisplayBlock);
+    LayoutFlexRulePx(&rules[1], "flex-basis", 50.0);
+    LayoutFlexRulePx(&rules[1], "min-width", 100.0);
+    LayoutFlexRuleInit(&rules[2], "div", 1, RoboCssDisplayBlock);
+    LayoutFlexRulePx(&rules[2], "flex-basis", 50.0);
+
+    LayoutFlexBegin(&fixture, "<html><body><div></div><div></div></body></html>", rules,
+                    3u);
+    LayoutFlexPass(&fixture, LAYOUT_FLEX_VIEWPORT_WIDTH, NULL);
+
+    /* Nothing grows (no `flex-grow`), so each item is its clamped base: the declared
+     * minimum takes the first to 100 and the second stays at 50. */
+    RoboCheckEqInt(LayoutFlexSizeOf(&fixture, LayoutFlexBoxNth(&fixture, "div", 0u)).width,
+                   100);
+    RoboCheckEqInt(LayoutFlexSizeOf(&fixture, LayoutFlexBoxNth(&fixture, "div", 1u)).width,
+                   50);
+    RoboCheckEqInt(LayoutFlexPositionOf(&fixture, LayoutFlexBoxNth(&fixture, "div", 1u)).x,
+                   100);
+
+    LayoutFlexEnd(&fixture);
+}
+
+/* ------------------------------------------------------------------ */
+/* Auto margins                                                        */
+/* ------------------------------------------------------------------ */
+
+static void TestFlexAutoMargins(void)
+{
+    LayoutFlexFixture fixture;
+    LayoutFlexRule rules[3];
+    LayoutStats stats;
+
+    LayoutFlexRuleInit(&rules[0], "body", 0, RoboCssDisplayFlex);
+    LayoutFlexRulePx(&rules[0], "width", 200.0);
+    LayoutFlexRuleInit(&rules[1], "div", 0, RoboCssDisplayBlock);
+    LayoutFlexRulePx(&rules[1], "flex-basis", 40.0);
+    LayoutFlexRuleKeyword(&rules[1], "margin-left", "auto");
+    LayoutFlexRuleInit(&rules[2], "div", 1, RoboCssDisplayBlock);
+    LayoutFlexRulePx(&rules[2], "flex-basis", 40.0);
+    LayoutFlexRuleKeyword(&rules[2], "margin-right", "auto");
+
+    LayoutFlexBegin(&fixture, "<html><body><div></div><div></div></body></html>", rules,
+                    3u);
+    LayoutFlexPass(&fixture, LAYOUT_FLEX_VIEWPORT_WIDTH, &stats);
+
+    /*
+     * Two auto margins share the 120px of free space, 60 each. The first item's is
+     * on the *left*, so its margin box starts at 0 and its border box 60 in; the
+     * second's is on the right, so its border box sits at the start of its own
+     * margin box, 100 in. `justify-content` is not consulted at all.
+     */
+    RoboCheckEqInt(LayoutFlexPositionOf(&fixture, LayoutFlexBoxNth(&fixture, "div", 0u)).x,
+                   60);
+    RoboCheckEqInt(LayoutFlexPositionOf(&fixture, LayoutFlexBoxNth(&fixture, "div", 1u)).x,
+                   100);
+    RoboCheckEqInt(stats.block.flex.autoMargins, 2u);
+
+    LayoutFlexEnd(&fixture);
+}
+
+static void TestFlexAutoMarginsCross(void)
+{
+    LayoutFlexFixture fixture;
+    LayoutFlexRule rules[3];
+
+    /* One auto margin: the item is pushed to the cross end of its line. */
+    LayoutFlexRuleInit(&rules[0], "body", 0, RoboCssDisplayFlex);
+    LayoutFlexRulePx(&rules[0], "width", 200.0);
+    LayoutFlexRulePx(&rules[0], "height", 200.0);
+    LayoutFlexRuleInit(&rules[1], "div", 0, RoboCssDisplayBlock);
+    LayoutFlexRulePx(&rules[1], "flex-basis", 50.0);
+    LayoutFlexRulePx(&rules[1], "height", 30.0);
+    LayoutFlexRuleKeyword(&rules[1], "margin-top", "auto");
+    LayoutFlexRuleInit(&rules[2], "div", 1, RoboCssDisplayBlock);
+    LayoutFlexRulePx(&rules[2], "flex-basis", 50.0);
+    LayoutFlexRulePx(&rules[2], "height", 30.0);
+
+    LayoutFlexBegin(&fixture, "<html><body><div></div><div></div></body></html>", rules,
+                    3u);
+    LayoutFlexPass(&fixture, LAYOUT_FLEX_VIEWPORT_WIDTH, NULL);
+
+    RoboCheckEqInt(LayoutFlexPositionOf(&fixture, LayoutFlexBoxNth(&fixture, "div", 0u)).y,
+                   170);
+    /* The item that asked for nothing keeps its `flex-start` place. */
+    RoboCheckEqInt(LayoutFlexPositionOf(&fixture, LayoutFlexBoxNth(&fixture, "div", 1u)).y,
+                   0);
+
+    LayoutFlexEnd(&fixture);
+
+    /* Both auto margins: the free space is halved and the item is centred. */
+    LayoutFlexRuleInit(&rules[0], "body", 0, RoboCssDisplayFlex);
+    LayoutFlexRulePx(&rules[0], "width", 200.0);
+    LayoutFlexRulePx(&rules[0], "height", 200.0);
+    LayoutFlexRuleInit(&rules[1], "div", 0, RoboCssDisplayBlock);
+    LayoutFlexRulePx(&rules[1], "flex-basis", 50.0);
+    LayoutFlexRulePx(&rules[1], "height", 30.0);
+    LayoutFlexRuleKeyword(&rules[1], "margin-top", "auto");
+    LayoutFlexRuleKeyword(&rules[1], "margin-bottom", "auto");
+
+    LayoutFlexBegin(&fixture, "<html><body><div></div></body></html>", rules, 2u);
+    LayoutFlexPass(&fixture, LAYOUT_FLEX_VIEWPORT_WIDTH, NULL);
+
+    RoboCheckEqInt(LayoutFlexPositionOf(&fixture, LayoutFlexBoxNth(&fixture, "div", 0u)).y,
+                   85);
+
+    LayoutFlexEnd(&fixture);
+}
+
+/* ------------------------------------------------------------------ */
+/* Baseline alignment                                                  */
+/* ------------------------------------------------------------------ */
+
+static void TestFlexBaseline(void)
+{
+    LayoutFlexFixture fixture;
+    LayoutFlexRule rules[3];
+    LayoutStats stats;
+    LayoutBaselineMetrics metrics;
+
+    LayoutFlexRuleInit(&rules[0], "body", 0, RoboCssDisplayFlex);
+    LayoutFlexRulePx(&rules[0], "width", 300.0);
+    LayoutFlexRuleAlign(&rules[0], "align-items", RoboCssFlexAlignBaseline);
+    LayoutFlexRuleInit(&rules[1], "div", 0, RoboCssDisplayBlock);
+    LayoutFlexRulePx(&rules[1], "flex-basis", 60.0);
+    LayoutFlexRulePx(&rules[1], "height", 20.0);
+    LayoutFlexRuleInit(&rules[2], "div", 1, RoboCssDisplayBlock);
+    LayoutFlexRulePx(&rules[2], "flex-basis", 60.0);
+    LayoutFlexRulePx(&rules[2], "height", 40.0);
+
+    LayoutFlexBegin(&fixture, "<html><body><div></div><div></div></body></html>", rules,
+                    3u);
+    LayoutFlexPass(&fixture, LAYOUT_FLEX_VIEWPORT_WIDTH, &stats);
+
+    /*
+     * Neither item has a baseline-bearing child, so each takes the documented
+     * bottom-edge fallback: its own cross extent. The line's baseline is therefore
+     * the deepest of them, 40, and the 20-tall item drops by 20 so the two baselines
+     * coincide -- which is the whole of the alignment.
+     */
+    RoboCheckEqInt(LayoutFlexPositionOf(&fixture, LayoutFlexBoxNth(&fixture, "div", 0u)).y,
+                   20);
+    RoboCheckEqInt(LayoutFlexPositionOf(&fixture, LayoutFlexBoxNth(&fixture, "div", 1u)).y,
+                   0);
+    RoboCheckEqInt(stats.block.flex.baselineItems, 2u);
+
+    /* And the baseline the item was *placed* with is readable off the object. */
+    RoboCheckEqInt(LayoutObjectBaseline(fixture.tree,
+                                        LayoutFlexBoxNth(&fixture, "div", 0u), &metrics,
+                                        NULL),
+                   RoboOk);
+    RoboCheckEqInt((int)metrics.kind, (int)RoboLayoutBaselineBox);
+    RoboCheckEqInt(metrics.ascent, 20);
+    RoboCheckEqInt(metrics.descent, 0);
+
+    LayoutFlexEnd(&fixture);
+}
+
+/* ------------------------------------------------------------------ */
+/* RTL                                                                 */
+/* ------------------------------------------------------------------ */
+
+static void TestFlexRtl(void)
+{
+    LayoutFlexFixture fixture;
+    LayoutFlexRule rules[3];
+    LayoutStats stats;
+
+    LayoutFlexRuleInit(&rules[0], "body", 0, RoboCssDisplayFlex);
+    LayoutFlexRulePx(&rules[0], "width", 300.0);
+    LayoutFlexRuleKeyword(&rules[0], "direction", "rtl");
+    LayoutFlexRuleInit(&rules[1], "div", 0, RoboCssDisplayBlock);
+    LayoutFlexRulePx(&rules[1], "flex-basis", 40.0);
+    LayoutFlexRuleInit(&rules[2], "div", 1, RoboCssDisplayBlock);
+    LayoutFlexRulePx(&rules[2], "flex-basis", 60.0);
+
+    LayoutFlexBegin(&fixture, "<html><body><div></div><div></div></body></html>", rules,
+                    3u);
+    LayoutFlexPass(&fixture, LAYOUT_FLEX_VIEWPORT_WIDTH, &stats);
+
+    /*
+     * `direction: rtl` puts the inline axis's start on the right, so a row packs from
+     * the right: the first item's margin box ends at the container's right edge and
+     * the second sits immediately to its left.
+     */
+    RoboCheckEqInt(LayoutFlexPositionOf(&fixture, LayoutFlexBoxNth(&fixture, "div", 0u)).x,
+                   260);
+    RoboCheckEqInt(LayoutFlexPositionOf(&fixture, LayoutFlexBoxNth(&fixture, "div", 1u)).x,
+                   200);
+    RoboCheckEqInt(stats.block.flex.reversed, 1u);
+
+    LayoutFlexEnd(&fixture);
+}
+
+static void TestFlexRtlCompose(void)
+{
+    LayoutFlexFixture fixture;
+    LayoutFlexRule rules[3];
+    LayoutStats stats;
+
+    /* `row-reverse` in an RTL container: two reversals compose back to `row`. */
+    LayoutFlexRuleInit(&rules[0], "body", 0, RoboCssDisplayFlex);
+    LayoutFlexRulePx(&rules[0], "width", 300.0);
+    LayoutFlexRuleKeyword(&rules[0], "direction", "rtl");
+    LayoutFlexRuleDirection(&rules[0], RoboCssFlexDirectionRowReverse);
+    LayoutFlexRuleInit(&rules[1], "div", 0, RoboCssDisplayBlock);
+    LayoutFlexRulePx(&rules[1], "flex-basis", 40.0);
+    LayoutFlexRuleInit(&rules[2], "div", 1, RoboCssDisplayBlock);
+    LayoutFlexRulePx(&rules[2], "flex-basis", 60.0);
+
+    LayoutFlexBegin(&fixture, "<html><body><div></div><div></div></body></html>", rules,
+                    3u);
+    LayoutFlexPass(&fixture, LAYOUT_FLEX_VIEWPORT_WIDTH, &stats);
+
+    RoboCheckEqInt(LayoutFlexPositionOf(&fixture, LayoutFlexBoxNth(&fixture, "div", 0u)).x,
+                   0);
+    RoboCheckEqInt(LayoutFlexPositionOf(&fixture, LayoutFlexBoxNth(&fixture, "div", 1u)).x,
+                   40);
+    RoboCheckEqInt(stats.block.flex.reversed, 0u);
+
+    LayoutFlexEnd(&fixture);
+}
+
+/* ------------------------------------------------------------------ */
+/* Nested flex containers                                              */
+/* ------------------------------------------------------------------ */
+
+static void TestFlexNested(void)
+{
+    LayoutFlexFixture fixture;
+    LayoutFlexRule rules[4];
+    LayoutStats stats;
+
+    LayoutFlexRuleInit(&rules[0], "body", 0, RoboCssDisplayFlex);
+    LayoutFlexRulePx(&rules[0], "width", 200.0);
+    LayoutFlexRuleInit(&rules[1], "div", 0, RoboCssDisplayFlex);
+    LayoutFlexRulePx(&rules[1], "width", 100.0);
+    LayoutFlexRuleInit(&rules[2], "div", 1, RoboCssDisplayBlock);
+    LayoutFlexRulePx(&rules[2], "flex-basis", 50.0);
+    LayoutFlexRuleInit(&rules[3], "div", 2, RoboCssDisplayBlock);
+    LayoutFlexRulePx(&rules[3], "flex-basis", 50.0);
+
+    LayoutFlexBegin(&fixture,
+                    "<html><body><div><div></div><div></div></div></body></html>",
+                    rules, 4u);
+    LayoutFlexPass(&fixture, LAYOUT_FLEX_VIEWPORT_WIDTH, &stats);
+
+    /*
+     * The outer container's child is itself a flex container, and its own items are
+     * placed inside *its* content box -- so the two inner boxes' positions are 0 and
+     * 50, not the outer container's coordinates. Both contexts ran.
+     */
+    RoboCheckEqInt(LayoutFlexSizeOf(&fixture, LayoutFlexBoxNth(&fixture, "div", 0u)).width,
+                   100);
+    RoboCheckEqInt(LayoutFlexPositionOf(&fixture, LayoutFlexBoxNth(&fixture, "div", 1u)).x,
+                   0);
+    RoboCheckEqInt(LayoutFlexPositionOf(&fixture, LayoutFlexBoxNth(&fixture, "div", 2u)).x,
+                   50);
+    RoboCheckEqInt(stats.block.flex.containers, 2u);
+
+    LayoutFlexEnd(&fixture);
+}
+
+/* ------------------------------------------------------------------ */
 /* Registration                                                        */
 /* ------------------------------------------------------------------ */
 
@@ -805,4 +1261,14 @@ void TestRegisterLayoutFlex(void)
     TestRegister("layout.flex.item_children", TestFlexItemChildren);
     TestRegister("layout.flex.counters", TestFlexCounters);
     TestRegister("layout.flex.allocator_balance", TestFlexAllocatorBalance);
+    TestRegister("layout.flex.auto_minimum", TestFlexAutoMinimum);
+    TestRegister("layout.flex.text_intrinsic", TestFlexTextIntrinsic);
+    TestRegister("layout.flex.min_max_clamp", TestFlexMinMaxClamp);
+    TestRegister("layout.flex.min_width_clamp", TestFlexMinWidthClamp);
+    TestRegister("layout.flex.auto_margins", TestFlexAutoMargins);
+    TestRegister("layout.flex.auto_margins_cross", TestFlexAutoMarginsCross);
+    TestRegister("layout.flex.baseline", TestFlexBaseline);
+    TestRegister("layout.flex.rtl", TestFlexRtl);
+    TestRegister("layout.flex.rtl_compose", TestFlexRtlCompose);
+    TestRegister("layout.flex.nested", TestFlexNested);
 }

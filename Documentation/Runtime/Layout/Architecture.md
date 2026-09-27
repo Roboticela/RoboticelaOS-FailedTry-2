@@ -903,15 +903,18 @@ definite (`FlexLayout.md`).
 `flex_layout` is 19.3's field, and its wording is as narrow as the two above: it says a
 box whose **inner** display is `flex` (`display: flex` or `display: inline-flex`) lays
 its in-flow children out as **flex items** along a main axis — the direction from
-`flex-direction`, the base size from `flex-basis`/the main-size property/the measured
-content, `flex-grow`/`flex-shrink` distributing free space with the min/max clamp,
-`flex-wrap` breaking lines, and `justify-content`/`align-items`/`align-self`/
-`align-content` positioning them — and establishes a `RoboLayoutFcFlex` context of its
-own. It does **not** say "flexbox is finished": there is no flex **root** box (the tree
-root establishes the initial block context whatever it computes to), no baseline
-alignment (a baseline value is treated as `flex-start`), no automatic minimum size, no
-`gap`, no shorthand expansion, no auto-margin absorption, no replaced elements and no
-vertical writing mode (`FlexLayout.md`).
+`flex-direction` and the inherited `direction`, the base size from `flex-basis`/the
+main-size property/the measured content, the **automatic minimum** from the item's
+content when `min-width`/`min-height` is `auto`, `flex-grow`/`flex-shrink` distributing
+free space with the min/max clamp and freezing, `flex-wrap` breaking lines, an `auto`
+margin absorbing free space on its axis, and `justify-content`/`align-items`/
+`align-self`/`align-content` positioning them (with `baseline` lining a row's first
+baselines up and `stretch` growing an `auto` cross size) — and establishes a
+`RoboLayoutFcFlex` context of its own. It does **not** say "flexbox is finished": there
+is no flex **root** box (the tree root establishes the initial block context whatever
+it computes to), no `baseline` or reversed inline axis on a **`column`**, no content
+floor for a **scroll container**, no `gap`, no shorthand expansion, no replaced
+elements and no vertical writing mode (`FlexLayout.md`).
 
 A caller that checked only the version string would conclude that 0.1.0 lays boxes
 out. The three doors §1 lists answer that together: `geometry` says **the build**

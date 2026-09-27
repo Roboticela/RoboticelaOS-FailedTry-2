@@ -399,15 +399,20 @@ typedef struct LayoutCapabilities {
      *
      * **1** since 19.3. A box whose inner display is `flex` (`display: flex` or
      * `display: inline-flex`) lays its in-flow children out as flex items: the main
-     * axis from `flex-direction`, the base size from `flex-basis`/the main-size
-     * property/the content, `flex-grow`/`flex-shrink` distributing free space,
-     * `flex-wrap` breaking lines, and `justify-content`/`align-items`/`align-self`/
-     * `align-content` positioning them.
+     * axis from `flex-direction` and the inherited `direction`, the base size from
+     * `flex-basis`/the main-size property/the content, `flex-grow`/`flex-shrink`
+     * distributing free space with the min/max clamp and freezing, `flex-wrap`
+     * breaking lines, an `auto` margin absorbing free space on its axis, and
+     * `justify-content`/`align-items`/`align-self`/`align-content` positioning them
+     * (with `baseline` lining a `row`'s first baselines up and `stretch` growing an
+     * item with an `auto` cross size). An item whose `min-width`/`min-height` is
+     * `auto` takes the **automatic minimum size** from its content.
      *
-     * **Not** "flexbox is finished": no flex **root** box, no baseline alignment (a
-     * baseline value is treated as `flex-start`), no automatic minimum size, no
-     * `gap` and no shorthand expansion, no auto-margin absorption, and no vertical
-     * writing mode. See `RoboLayoutFlexLayoutImplemented`.
+     * **Not** "flexbox is finished": no flex **root** box, no `baseline` on a
+     * `column` (its cross axis is the inline one), no reversed inline axis on a
+     * `column`, no `gap` and no shorthand expansion, no content floor for a scroll
+     * container, no replaced elements and no vertical writing mode. See
+     * `RoboLayoutFlexLayoutImplemented`.
      */
     int flexLayout;
     /** Painting a box. **0**: Phase 11. */

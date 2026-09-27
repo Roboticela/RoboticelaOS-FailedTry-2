@@ -240,6 +240,16 @@ build that carried a maximum forward across passes would fail on the second one.
 
 ## 11. What is deliberately missing
 
+One consumer arrived after the phase and is worth naming here rather than only in its
+own document: **19.3's flex pass aligns a `row`'s items on this baseline.** It reads the
+item's first baseline-bearing direct child (whose `y` the inline pass wrote so that
+`position.y + ascent` *is* the line's baseline) or takes this phase's **bottom-edge
+fallback**, and it writes the metrics back to the item, because a baseline is a
+placement fact and the flex pass is what placed the item. A `column`'s cross axis is the
+inline one, so `align-self: baseline` resolves as `flex-start` there — the value's
+absence is recorded in `FlexLayout.md` §6 rather than implied.
+
+
 * CSS `vertical-align` in any of its forms, including the inline-box and
   `sub`/`super`/length cases.
 * `line-height` as a resolved used value: a line's height is `ascent + descent`, which

@@ -323,4 +323,7 @@ Each a named later goal:
   keyword other than `auto` as unusable, which is the honest answer until the
   computed layer resolves it). **Flex** margin distribution was 19.3's: the flex pass
   resolves each item's four margins with the container's content width as the
-  percentage base and uses an `auto` as zero (`FlexLayout.md`).
+  percentage base, and an `auto` there **absorbs** the free space on its own axis,
+  ahead of `justify-content` and `align-items` — which is a flex rule rather than a
+  margin rule, and the reason those margins are resolved by that pass and not here
+  (`FlexLayout.md` §5).

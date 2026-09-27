@@ -815,7 +815,8 @@
  * as zero, which is 10.8's rule kept for the one case it still reaches.
  *
  * What it does **not** claim, and each of these is a feature a later phase owns: no percentage on a
- * **grid track** or a **flex basis** (19.4 and 19.3), no percentage `min-width`/`max-width` bound, no
+ * **grid track** (19.4) -- a percentage **flex basis** is 19.3's, resolved against the container's
+ * content width, and is named where that phase is -- no percentage `min-width`/`max-width` bound, no
  * percentage **inset on an out-of-flow box** (14.0's `RoboLayoutAbsolute*` states its own contract, and
  * a percentage there stays `UNRESOLVED` until that phase is revisited), no `calc()` and no viewport
  * unit, and no percentage on a **transparent inline box**. `percentage-resolution` would be claiming
@@ -833,17 +834,22 @@
  * What it claims, exactly: `display: flex` and `display: inline-flex` are real display values each
  * establishing a flex formatting context; the in-flow children are flex **items** ordered by `order`;
  * each item's flex base size comes from `flex-basis`, the main-size property or the measured content
- * size; `flex-grow`/`flex-shrink` distribute free space with min/max clamping; `flex-wrap` breaks the
- * items into lines; `justify-content` positions them along the main axis, `align-items`/`align-self`
- * align them across it (stretching an `auto` cross size), and `align-content` distributes the lines.
+ * size; an item whose `min-width`/`min-height` is `auto` takes the **automatic minimum size** (a
+ * content floor, clamped by its maximum); `flex-grow`/`flex-shrink` distribute free space with min/max
+ * clamping and freezing; `flex-wrap` breaks the items into lines; `justify-content` positions them
+ * along the main axis, `align-items`/`align-self` align them across it (stretching an `auto` cross
+ * size, and **`baseline`** lining a `row`'s first baselines up), and `align-content` distributes the
+ * lines; an `auto` margin **absorbs** free space on its own axis ahead of the alignment properties;
+ * and `direction: rtl` reverses a `row`'s main axis, composing with `*-reverse`.
  *
  * What it does **not** claim, each a feature a later goal owns: no flex **root** box (the tree root
- * establishes the initial block context whatever it computes to), no **baseline alignment** (treated as
- * `flex-start`), no **automatic minimum size** (`min-width: auto` is a declared bound or zero), no
- * `gap`/`row-gap`/`column-gap` and no `flex`/`flex-flow` shorthand expansion, no `auto` margins that
- * absorb free space (an `auto` margin is zero), no percentage `flex-basis` against an indefinite main
- * size, no replaced elements or `aspect-ratio`, and no vertical writing mode. `flex-layout` would be
- * claiming those if it were named for "flexbox is finished".
+ * establishes the initial block context whatever it computes to), no `baseline` on a **`column`**
+ * (its cross axis is the inline one, so the value resolves as `flex-start`), no reversed inline axis
+ * on a `column` (19.10), no `gap`/`row-gap`/`column-gap` and no `flex`/`flex-flow` shorthand
+ * expansion, no content floor for a **scroll container** (the item's `overflow` is not consulted), no
+ * percentage `flex-basis` against an indefinite main size, no replaced elements or `aspect-ratio`, and
+ * no vertical writing mode. `flex-layout` would be claiming those if it were named for "flexbox is
+ * finished".
  */
 #define RoboLayoutFlexLayoutImplemented 1
 

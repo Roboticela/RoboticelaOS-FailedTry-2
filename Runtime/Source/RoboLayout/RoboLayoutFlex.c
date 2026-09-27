@@ -18,8 +18,9 @@
  *      size is definite;
  *   4. resolve the flexible lengths per line (grow/shrink with freezing);
  *   5. lay the items' contents out at their resolved main size, which is what the
- *      cross sizes are a function of;
- *   6. size the lines, stretch the items that stretch, and align everything.
+ *      cross sizes -- and the items' baselines -- are a function of;
+ *   6. size the lines (including a baseline-aligned line's own baseline), stretch
+ *      the items that stretch, absorb `auto` margins, and align everything.
  *
  * The two axes are a *flag* (`rowMain`) rather than two code paths, and that is a
  * decision worth keeping: every position below is computed once in main/cross terms
@@ -27,9 +28,9 @@
  * `row` cannot disagree about `justify-content` or about `flex-grow`.
  *
  * What this file deliberately does not do is named in RoboLayoutFlex.h and in
- * `Documentation/Runtime/Layout/FlexLayout.md` §6: no flex root, no baseline
- * alignment, no automatic minimum size, no `gap`, no shorthand expansion, no
- * auto-margin distribution, no vertical writing mode.
+ * `Documentation/Runtime/Layout/FlexLayout.md` §6: no flex root, no baseline for a
+ * `column`'s inline axis, no `gap`, no shorthand expansion, no reversed inline axis
+ * on a `column`, and no vertical writing mode.
  */
 
 #include "RoboLayout/RoboLayoutFlex.h"
@@ -37,7 +38,9 @@
 #include "RoboCSS/RoboCSSComputedValue.h"
 #include "RoboCSS/RoboCSSDisplay.h"
 #include "RoboCSS/RoboCSSFlex.h"
+#include "RoboCSS/RoboCSSTypes.h"
 
+#include "RoboLayout/RoboLayoutBaseline.h"
 #include "RoboLayout/RoboLayoutBorder.h"
 #include "RoboLayout/RoboLayoutFormattingContext.h"
 #include "RoboLayout/RoboLayoutIntrinsic.h"
@@ -95,7 +98,10 @@ int LayoutFlexCountersEqual(const LayoutFlexCounters *a,
            a->growItems == b->growItems &&
            a->stretched == b->stretched &&
            a->reordered == b->reordered &&
-           a->reversed == b->reversed;
+           a->reversed == b->reversed &&
+           a->contentMinItems == b->contentMinItems &&
+           a->autoMargins == b->autoMargins &&
+           a->baselineItems == b->baselineItems;
 }
 
 /* ------------------------------------------------------------------ */
@@ -119,6 +125,24 @@ static CssFlexDirection LayoutFlexDirectionOf(const CssComputedStyle *style)
         return RoboCssFlexDirectionRow;
     }
     return CssComputedValueFlexDirection(value);
+}
+
+/**
+ * Whether the container's inline axis runs right-to-left (`direction: rtl`).
+ *
+ * Read from the same computed keyword the text layer reads
+ * (`LayoutTextStyleResolve`), so a container's flex direction and its text's
+ * direction can never disagree: one property, one door. An absent or unknown value
+ * answers left-to-right, which is the property's initial value.
+ */
+static int LayoutFlexDirectionIsRtl(const CssComputedStyle *style)
+{
+    const CssComputedValue *value = LayoutFlexProperty(style, "direction");
+
+    if (!value || value->kind != RoboCssComputedValueKeyword) {
+        return 0;
+    }
+    return CssSliceEqualsAsciiCi(CssComputedValueText(value), "rtl");
 }
 
 static CssFlexWrap LayoutFlexWrapOf(const CssComputedStyle *style)
@@ -180,15 +204,22 @@ static int32_t LayoutFlexPercentagePx(double percentage, int32_t base)
 /**
  * Resolve the four margins of a flex item.
  *
- * The one policy this phase adds to 10.9's two: an `auto` is **zero** here, because
- * an `auto` margin on a flex item absorbs free space and this build does not
- * distribute that (RoboLayoutFlex.h says so). A percentage resolves against the
+ * The one policy this phase adds to 10.9's two: an `auto` is a used value of
+ * **zero here**, and the side it was on is reported through @p outAuto so the
+ * alignment step can hand it the free space instead (CSS Flexbox §8.1: "Prior to
+ * alignment via justify-content and align-self, any positive free space is
+ * distributed to auto margins in that axis"). A percentage resolves against the
  * containing block's **width** (the flex container's content width), which is CSS's
  * rule for every side and the same rule 19.2 gave a block box.
+ *
+ * @p outAuto is a bitmask over @ref CssBoxSide -- one bit per side whose declared
+ * margin was `auto` -- so the caller can tell "no free space was claimed" from "a
+ * margin was willing to claim it" without a second read of the style.
  */
 static void LayoutFlexMarginsOf(const CssComputedStyle *style,
                                 int32_t containingWidth,
-                                LayoutMarginEdges *out)
+                                LayoutMarginEdges *out,
+                                uint32_t *outAuto)
 {
     LayoutMargins declared;
     CssBoxSide sides[RoboCssBoxSideCount] = {
@@ -196,6 +227,7 @@ static void LayoutFlexMarginsOf(const CssComputedStyle *style,
         RoboCssBoxSideBottom, RoboCssBoxSideLeft
     };
     GfxPixelX used[RoboCssBoxSideCount] = { 0, 0, 0, 0 };
+    uint32_t autoMask = 0u;
     size_t index;
 
     memset(out, 0, sizeof(*out));
@@ -217,14 +249,20 @@ static void LayoutFlexMarginsOf(const CssComputedStyle *style,
             out->resolved++;
         } else if (margin.kind == RoboLayoutMarginUnresolved) {
             out->unresolved++;
+        } else if (margin.kind == RoboLayoutMarginAuto) {
+            /* A used value of zero -- until the alignment step finds free space to
+             * give it -- and recorded so that step can. */
+            autoMask |= (uint32_t)1u << (uint32_t)sides[index];
         }
-        /* ABSENT and AUTO are a used value of zero; AUTO is not counted as a use,
-         * because it distributes nothing here. */
+        /* ABSENT is a used value of zero and claims nothing. */
     }
     out->top = used[RoboCssBoxSideTop];
     out->right = used[RoboCssBoxSideRight];
     out->bottom = used[RoboCssBoxSideBottom];
     out->left = used[RoboCssBoxSideLeft];
+    if (outAuto) {
+        *outAuto = autoMask;
+    }
 }
 
 /* ------------------------------------------------------------------ */
@@ -253,6 +291,37 @@ typedef struct LayoutFlexItem {
     int32_t outerCross;
     int stretch;
     size_t line;
+
+    /*
+     * The `auto` margins, mapped onto the two axes' **flow-relative** sides: the
+     * `*Before` flag is the main-start (or cross-start) margin, whichever physical
+     * side the reversal flags made that. The alignment step reads only these, so a
+     * `row-reverse` or RTL container cannot give an auto margin the wrong side.
+     */
+    int autoMainBefore;
+    int autoMainAfter;
+    int autoCrossBefore;
+    int autoCrossAfter;
+    /* Set when an `auto` margin actually **absorbed** free space, which is what
+     * the counter and the box-model bookkeeping want to know. */
+    int autoAbsorbed;
+
+    /*
+     * The item's **baseline**, as a distance along the cross axis from the item's
+     * cross-start margin edge. Only a `row` consults it (a column's cross axis is
+     * the inline one). `baselineFromChild` says whether it came from a
+     * baseline-bearing child rather than the bottom-edge fallback.
+     */
+    int32_t baseline;
+    int baselineFromChild;
+
+    /* The item's resolved cross alignment (`align-self` over `align-items`), read
+     * once so the line sizing, the baseline pass and the placement cannot disagree. */
+    CssFlexAlign align;
+    int baselineAligned;
+
+    /* The used minimum main size came from the automatic (content) floor. */
+    int contentMin;
 
     /* The item's own content box and where its border box goes (container space). */
     int32_t contentW;
@@ -308,6 +377,129 @@ static void LayoutFlexIntrinsic(const LayoutTree *tree,
     (void)LayoutIntrinsicMeasureObject(tree, id, metrics, out, NULL);
 }
 
+/**
+ * The item's **baseline**, as a distance along the cross axis from its cross-start
+ * margin edge.
+ *
+ * The item's baseline is its first baseline-bearing **direct child**'s, which is
+ * the item's first baseline at the depth this build places text: an item that
+ * establishes an inline formatting context has its measured runs as direct
+ * children, and that child's baseline is exactly the run's font baseline
+ * (`LayoutInlineFinalizeLine` writes each member's `y` so that this holds). An item
+ * with no such child -- an empty box, or a box whose text sits deeper than one
+ * level -- takes the documented **bottom-edge fallback** (`RoboLayoutBaseline.h`'s
+ * BOX rule), which puts the item on its line by its feet.
+ *
+ * The offset is measured from the item's cross-start *margin* edge, because that
+ * edge is what the cross-axis placement positions: `item->baseline` and a
+ * candidate `crossPos` share an origin, so "the baseline sits at `crossPos +
+ * baseline`" needs no third term.
+ */
+static int32_t LayoutFlexItemBaseline(const LayoutWalk *walk,
+                                     const LayoutFlexItem *item,
+                                     int rowMain,
+                                     int *outFromChild)
+{
+    const LayoutObject *itemObject = LayoutObjectSlotConst(walk->tree, item->id);
+    int32_t crossStart;
+    LayoutNodeId child;
+
+    if (outFromChild) {
+        *outFromChild = 0;
+    }
+    if (!itemObject) {
+        return item->outerCross;
+    }
+    crossStart = rowMain
+                     ? item->margins.top + item->borders.top.width +
+                           item->padding.top
+                     : item->margins.left + item->borders.left.width +
+                           item->padding.left;
+
+    child = itemObject->firstChild;
+    while (child != RoboLayoutNodeIdNone) {
+        const LayoutObject *childObject = LayoutObjectSlotConst(walk->tree, child);
+
+        if (!childObject) {
+            break;
+        }
+        if (LayoutResultIsComputed(&childObject->result) &&
+            LayoutBaselineKindIsUsable(childObject->baseline.kind)) {
+            int32_t along = rowMain ? childObject->result.position.y
+                                    : childObject->result.position.x;
+
+            if (outFromChild) {
+                *outFromChild = 1;
+            }
+            return crossStart + along + childObject->baseline.ascent;
+        }
+        child = childObject->NextSibling;
+    }
+    return item->outerCross;
+}
+
+/**
+ * Give an absorbed `auto` margin its free space, on the physical side the author
+ * wrote it on.
+ *
+ * The inverse of the mapping the collection loop made from physical sides to
+ * flow-relative flags, and it lives here rather than at each call site because
+ * that is the whole point of the mapping: `margin-left: auto` keeps its physical
+ * meaning whatever `row-reverse` or `direction: rtl` did to the axis, and only the
+ * *question* "is this the before-margin?" is directional.
+ */
+static void LayoutFlexAbsorbMargin(LayoutFlexItem *item,
+                                   int rowMain,
+                                   int mainReversed,
+                                   int before,
+                                   int32_t amount)
+{
+    if (amount <= 0) {
+        return;
+    }
+    /* The before-margin is on the axis's *start* side, which the reversal flag moves
+     * from left/top to right/bottom. */
+    if (before != mainReversed) {
+        if (rowMain) {
+            item->margins.left += amount;
+        } else {
+            item->margins.top += amount;
+        }
+    } else {
+        if (rowMain) {
+            item->margins.right += amount;
+        } else {
+            item->margins.bottom += amount;
+        }
+    }
+}
+
+/** The same for the cross axis, whose before side is the top of a `row` and the
+ *  left of a `column` (a column's reversed inline axis is 19.10's --
+ *  RoboLayoutFlex.h). */
+static void LayoutFlexAbsorbCrossMargin(LayoutFlexItem *item,
+                                        int rowMain,
+                                        int before,
+                                        int32_t amount)
+{
+    if (amount <= 0) {
+        return;
+    }
+    if (rowMain) {
+        if (before) {
+            item->margins.top += amount;
+        } else {
+            item->margins.bottom += amount;
+        }
+    } else {
+        if (before) {
+            item->margins.left += amount;
+        } else {
+            item->margins.right += amount;
+        }
+    }
+}
+
 /* ------------------------------------------------------------------ */
 /* The pass                                                            */
 /* ------------------------------------------------------------------ */
@@ -326,7 +518,8 @@ Result LayoutFlexWalkContents(LayoutWalk *walk,
     CssFlexAlign itemsAlign;
     CssFlexAlign contentAlign;
     int rowMain;
-    int reversed;
+    int mainReversed;
+    int crossReversed;
     int mainDefinite;
     int32_t containerMain;
     int32_t containerCross;
@@ -336,6 +529,7 @@ Result LayoutFlexWalkContents(LayoutWalk *walk,
     size_t lineStart[LAYOUT_FLEX_MAX_ITEMS + 1u];
     int32_t lineCross[LAYOUT_FLEX_MAX_ITEMS];
     int32_t lineOffset[LAYOUT_FLEX_MAX_ITEMS];
+    int32_t lineBaseline[LAYOUT_FLEX_MAX_ITEMS];
     size_t lineCount = 0u;
     size_t index;
     LayoutNodeId child;
@@ -366,7 +560,23 @@ Result LayoutFlexWalkContents(LayoutWalk *walk,
                                      RoboCssFlexAlignNormal);
 
     rowMain = CssFlexDirectionIsRow(direction);
-    reversed = CssFlexDirectionIsReversed(direction);
+
+    /*
+     * Which physical direction each axis runs in, and the two flags that follow
+     * from it. The **main** axis's start is the inline-start edge, so a
+     * `direction: rtl` container reverses a row's main axis exactly as
+     * `row-reverse` does -- and the two compose by exclusive-or, which is what makes
+     * `row-reverse` inside an RTL container read left-to-right. A column's main axis
+     * is the block one, which `direction` does not touch. The **cross** axis is
+     * swapped by `wrap-reverse`; a column's cross axis is the inline one, and
+     * reversing that is 19.10's, so it is deliberately not folded in here
+     * (RoboLayoutFlex.h states the non-claim).
+     */
+    mainReversed = CssFlexDirectionIsReversed(direction) ? 1 : 0;
+    if (rowMain && LayoutFlexDirectionIsRtl(container->style)) {
+        mainReversed = !mainReversed;
+    }
+    crossReversed = CssFlexWrapIsReversed(wrap) ? 1 : 0;
 
     /* The main size is the container's content width for a row and its definite
      * content height for a column; the cross is the other. A row's main size is
@@ -381,7 +591,7 @@ Result LayoutFlexWalkContents(LayoutWalk *walk,
                          : contentWidth;
 
     walk->block->flex.containers++;
-    if (reversed) {
+    if (mainReversed) {
         walk->block->flex.reversed++;
     }
 
@@ -441,7 +651,37 @@ Result LayoutFlexWalkContents(LayoutWalk *walk,
             item->shrink = 0.0;
         }
 
-        LayoutFlexMarginsOf(childObject->style, contentWidth, &item->margins);
+        {
+            uint32_t autoMask = 0u;
+            int autoTop;
+            int autoRight;
+            int autoBottom;
+            int autoLeft;
+
+            /*
+             * The `auto` margins, mapped onto the two axes once and for all. Which
+             * physical side is "before" is a fact about the reversal flags, and every
+             * later step reads only the flow-relative flags -- so a `row-reverse` or
+             * RTL container cannot hand an `auto` margin the wrong side.
+             */
+            LayoutFlexMarginsOf(childObject->style, contentWidth, &item->margins,
+                                &autoMask);
+            autoTop = (autoMask & ((uint32_t)1u << RoboCssBoxSideTop)) != 0u;
+            autoRight = (autoMask & ((uint32_t)1u << RoboCssBoxSideRight)) != 0u;
+            autoBottom = (autoMask & ((uint32_t)1u << RoboCssBoxSideBottom)) != 0u;
+            autoLeft = (autoMask & ((uint32_t)1u << RoboCssBoxSideLeft)) != 0u;
+            if (rowMain) {
+                item->autoMainBefore = mainReversed ? autoRight : autoLeft;
+                item->autoMainAfter = mainReversed ? autoLeft : autoRight;
+                item->autoCrossBefore = autoTop;
+                item->autoCrossAfter = autoBottom;
+            } else {
+                item->autoMainBefore = mainReversed ? autoBottom : autoTop;
+                item->autoMainAfter = mainReversed ? autoTop : autoBottom;
+                item->autoCrossBefore = autoLeft;
+                item->autoCrossAfter = autoRight;
+            }
+        }
         {
             LayoutPaddings declaredPadding = LayoutPaddingsOf(childObject->style);
             LayoutBorders declaredBorders = LayoutBordersOf(childObject->style);
@@ -493,10 +733,36 @@ Result LayoutFlexWalkContents(LayoutWalk *walk,
         }
         item->baseMain = mainBase;
 
-        declared = LayoutFlexDeclared(&declaredMin, containerMain, mainDefinite);
-        item->minMain = declared >= 0 ? declared : 0;
         declared = LayoutFlexDeclared(&declaredMax, containerMain, mainDefinite);
         item->maxMain = declared >= 0 ? declared : LAYOUT_FLEX_SIZE_MAX;
+
+        /*
+         * The used minimum along the main axis: the declared one, or -- when
+         * `min-width`/`min-height` is `auto` -- **the automatic minimum size**,
+         * which CSS takes from the item's own content (Flexbox §4.5: the
+         * content-based minimum size, clamped up to at most the item's maximum).
+         * The floor is the *min-content* size, so an item does not shrink past its
+         * longest unbreakable piece by accident, which is the whole point of the
+         * rule. A document with no metrics measures it as zero, the same degradation
+         * every other measurement here has. The one part of §4.5 this build cannot
+         * honour is the `overflow: visible` exception, and RoboLayoutFlex.h names it.
+         */
+        declared = LayoutFlexDeclared(&declaredMin, containerMain, mainDefinite);
+        if (declared >= 0) {
+            item->minMain = declared;
+        } else {
+            int32_t contentMin = rowMain ? (int32_t)intrinsic.minContent
+                                         : (int32_t)intrinsic.minContentHeight;
+
+            if (contentMin < 0) {
+                contentMin = 0;
+            }
+            item->minMain = LayoutFlexClamp(contentMin, 0, item->maxMain);
+            /* Counted only when the floor was above zero, because the interesting
+             * fact is whether the automatic minimum *bit*, not how many items were
+             * eligible for it. */
+            item->contentMin = item->minMain > 0 ? 1 : 0;
+        }
 
         item->mainSize = LayoutFlexClamp(item->baseMain, item->minMain,
                                          item->maxMain);
@@ -675,7 +941,18 @@ Result LayoutFlexWalkContents(LayoutWalk *walk,
                     target = (int32_t)LayoutPxRound((double)item->baseMain + share);
                     clamped = LayoutFlexClamp(target, item->minMain, item->maxMain);
                     if (clamped != target) {
+                        /*
+                         * A clamped item is **frozen** at its bound, and the freeze is
+                         * the whole of CSS's "fix min/max violations" step: it leaves
+                         * the redistribution, and the next pass divvies the remaining
+                         * free space among the items that did not reach a bound. A
+                         * build that only *counted* the violation -- as this one did
+                         * before the min/max case existed -- would recompute the same
+                         * clamped target every pass and never redistribute at all,
+                         * which is a wrong answer that looks like a right one.
+                         */
                         item->mainSize = clamped;
+                        item->frozen = 1;
                         violations++;
                     } else {
                         item->mainSize = target;
@@ -695,6 +972,9 @@ Result LayoutFlexWalkContents(LayoutWalk *walk,
         items[index].outerMain = items[index].mainSize + items[index].mainInsets;
         if (items[index].grow > 0.0) {
             walk->block->flex.growItems++;
+        }
+        if (items[index].contentMin) {
+            walk->block->flex.contentMinItems++;
         }
     }
 
@@ -766,6 +1046,41 @@ Result LayoutFlexWalkContents(LayoutWalk *walk,
         }
     }
 
+    /* ---- 5b. each item's resolved alignment and baseline ----------- */
+
+    /*
+     * One read of `align-self` per item, here, so that the line sizing below, the
+     * baseline pass and the placement all consult the same answer -- the item's
+     * alignment is a fact about the item, and reading it three times in three
+     * places is three chances to disagree.
+     *
+     * The baseline itself comes now, and now is forced: a baseline is a statement
+     * about the item's contents, and the contents were laid out in step 5. A `row`
+     * alone consults it -- its cross axis is the block one, which is where a
+     * baseline lives.
+     */
+    for (index = 0u; index < itemCount; index++) {
+        LayoutFlexItem *item = &items[index];
+        const LayoutObject *itemObject =
+            LayoutObjectSlotConst(walk->tree, item->id);
+        CssFlexAlign self = RoboCssFlexAlignAuto;
+
+        item->align = itemsAlign;
+        if (itemObject) {
+            self = LayoutFlexAlignOf(itemObject->style, "align-self",
+                                     RoboCssFlexAlignAuto);
+        }
+        if (self != RoboCssFlexAlignAuto) {
+            item->align = self;
+        }
+        if (rowMain && item->align == RoboCssFlexAlignBaseline) {
+            item->baselineAligned = 1;
+            walk->block->flex.baselineItems++;
+            item->baseline = LayoutFlexItemBaseline(walk, item, rowMain,
+                                                    &item->baselineFromChild);
+        }
+    }
+
     /* ---- 6. line cross sizes, align-content, stretch -------------- */
 
     for (index = 0u; index < lineCount; index++) {
@@ -773,13 +1088,35 @@ Result LayoutFlexWalkContents(LayoutWalk *walk,
         size_t last = lineStart[index + 1u];
         size_t i;
         int32_t cross = 0;
+        int32_t baselineMax = 0;
+        int32_t descentMax = 0;
 
         for (i = first; i < last; i++) {
             if (items[i].outerCross > cross) {
                 cross = items[i].outerCross;
             }
+            /*
+             * A baseline-aligned line has to be tall enough for the line's own
+             * baseline plus the deepest descent below it, and that can exceed every
+             * item's cross size: two items whose baselines line up occupy more room
+             * than either alone whenever their cross sizes differ.
+             */
+            if (items[i].baselineAligned) {
+                int32_t descent = items[i].outerCross - items[i].baseline;
+
+                if (items[i].baseline > baselineMax) {
+                    baselineMax = items[i].baseline;
+                }
+                if (descent > descentMax) {
+                    descentMax = descent;
+                }
+            }
+        }
+        if (baselineMax + descentMax > cross) {
+            cross = baselineMax + descentMax;
         }
         lineCross[index] = cross;
+        lineBaseline[index] = baselineMax;
     }
 
     {
@@ -842,7 +1179,7 @@ Result LayoutFlexWalkContents(LayoutWalk *walk,
 
         /* `wrap-reverse` swaps the cross-axis start and end: the line order is
          * mirrored within the cross extent, and the items are untouched. */
-        if (CssFlexWrapIsReversed(wrap) && lineCount > 0u) {
+        if (crossReversed && lineCount > 0u) {
             int32_t extent = totalCross + gap * (int32_t)(lineCount - 1u);
 
             for (index = 0u; index < lineCount; index++) {
@@ -854,7 +1191,6 @@ Result LayoutFlexWalkContents(LayoutWalk *walk,
     for (index = 0u; index < itemCount; index++) {
         LayoutFlexItem *item = &items[index];
         const LayoutObject *itemObject = LayoutObjectSlotConst(walk->tree, item->id);
-        CssFlexAlign align;
         LayoutDimension declaredCross = LayoutDimensionAuto();
         int32_t declared;
 
@@ -863,19 +1199,20 @@ Result LayoutFlexWalkContents(LayoutWalk *walk,
                                   "a flex item vanished under the pass");
         }
 
-        align = LayoutFlexAlignOf(itemObject->style, "align-self",
-                                  RoboCssFlexAlignAuto);
-        if (align == RoboCssFlexAlignAuto) {
-            align = itemsAlign;
-        }
-
         (void)LayoutSizingReadDimension(itemObject->style,
                                         rowMain ? "height" : "width",
                                         &declaredCross);
         declared = LayoutFlexDeclared(&declaredCross, containerCross, crossDefinite);
 
-        if ((align == RoboCssFlexAlignNormal || align == RoboCssFlexAlignStretch) &&
-            declared < 0) {
+        /*
+         * An `auto` cross margin claims the free space, so the item must not also
+         * stretch into it: CSS Flexbox §8.1 puts auto margins *ahead* of the
+         * alignment properties, and `stretch` is one of them. An item that asked
+         * for the space gets its hypothetical size and the margin does the rest.
+         */
+        if ((item->align == RoboCssFlexAlignNormal ||
+             item->align == RoboCssFlexAlignStretch) &&
+            declared < 0 && !item->autoCrossBefore && !item->autoCrossAfter) {
             int32_t stretched = lineCross[item->line] - item->crossInsets;
 
             if (stretched < 0) {
@@ -901,6 +1238,8 @@ Result LayoutFlexWalkContents(LayoutWalk *walk,
         int32_t free;
         int32_t start = 0;
         int32_t gap = 0;
+        int32_t autoCount = 0;
+        int32_t autoExtra = 0;
         int32_t cursor;
 
         for (i = first; i < last; i++) {
@@ -908,7 +1247,29 @@ Result LayoutFlexWalkContents(LayoutWalk *walk,
         }
         free = (mainDefinite ? containerMain : usedMain) - usedMain;
 
+        /*
+         * An `auto` main-axis margin absorbs the free space **before**
+         * `justify-content` is consulted -- that *is* the alignment step's first
+         * sub-step (Flexbox §8.1), and the reason an `auto` margin on a flex item is
+         * not the same thing as one on a block box. The space is split evenly
+         * between the auto margins that asked for it, and `justify-content` is then
+         * not consulted at all.
+         */
         if (free > 0) {
+            for (i = first; i < last; i++) {
+                if (items[i].autoMainBefore) {
+                    autoCount++;
+                }
+                if (items[i].autoMainAfter) {
+                    autoCount++;
+                }
+            }
+            if (autoCount > 0) {
+                autoExtra = free / autoCount;
+            }
+        }
+
+        if (free > 0 && autoCount == 0) {
             switch (justify) {
             case RoboCssFlexAlignFlexEnd:
             case RoboCssFlexAlignEnd:
@@ -939,39 +1300,81 @@ Result LayoutFlexWalkContents(LayoutWalk *walk,
         cursor = start;
         for (i = first; i < last; i++) {
             LayoutFlexItem *item = &items[i];
-            const LayoutObject *itemObject =
-                LayoutObjectSlotConst(walk->tree, item->id);
-            CssFlexAlign align = RoboCssFlexAlignNormal;
             int32_t itemFree;
             int32_t crossPos;
-            int32_t mainPos = cursor;
+            int32_t mainPos;
 
-            if (reversed) {
+            /*
+             * The absorbed space belongs **inside** the item's margin box -- that is
+             * what an `auto` margin is -- so it grows the item's outer main size
+             * rather than moving the cursor past any extra room, and the position the
+             * cursor reports is the margin box's origin either way. The border box
+             * lands `margins.start` further in, because step 8 adds the start margin.
+             */
+            if (autoExtra > 0) {
+                if (item->autoMainBefore) {
+                    LayoutFlexAbsorbMargin(item, rowMain, mainReversed, 1, autoExtra);
+                    item->outerMain += autoExtra;
+                    item->autoAbsorbed = 1;
+                }
+                if (item->autoMainAfter) {
+                    LayoutFlexAbsorbMargin(item, rowMain, mainReversed, 0, autoExtra);
+                    item->outerMain += autoExtra;
+                    item->autoAbsorbed = 1;
+                }
+            }
+            mainPos = cursor;
+            cursor += item->outerMain + gap;
+
+            if (mainReversed) {
                 int32_t total = mainDefinite ? containerMain : usedMain;
 
                 mainPos = total - mainPos - item->outerMain;
             }
 
-            if (itemObject) {
-                align = LayoutFlexAlignOf(itemObject->style, "align-self",
-                                          RoboCssFlexAlignAuto);
-                if (align == RoboCssFlexAlignAuto) {
-                    align = itemsAlign;
-                }
-            }
             itemFree = lineCross[item->line] - item->outerCross;
-            switch (align) {
-            case RoboCssFlexAlignCenter:
-                crossPos = lineOffset[item->line] + itemFree / 2;
-                break;
-            case RoboCssFlexAlignFlexEnd:
-            case RoboCssFlexAlignEnd:
-            case RoboCssFlexAlignRight:
-                crossPos = lineOffset[item->line] + itemFree;
-                break;
-            default:
+            if (itemFree > 0 &&
+                (item->autoCrossBefore || item->autoCrossAfter)) {
+                /*
+                 * The cross-axis half of the same rule: the free space along the
+                 * item's line goes to its `auto` cross margins, so the item sits at
+                 * the line's cross start and its margin box grows to fill the line.
+                 * `align-self` is not consulted, which is what "auto margins take
+                 * precedence over the alignment properties" means concretely.
+                 */
+                int32_t share = (item->autoCrossBefore && item->autoCrossAfter)
+                                    ? itemFree / 2
+                                    : itemFree;
+
                 crossPos = lineOffset[item->line];
-                break;
+                if (item->autoCrossBefore) {
+                    LayoutFlexAbsorbCrossMargin(item, rowMain, 1, share);
+                }
+                if (item->autoCrossAfter) {
+                    LayoutFlexAbsorbCrossMargin(
+                        item, rowMain, 0,
+                        item->autoCrossBefore ? itemFree - share : share);
+                }
+                item->autoAbsorbed = 1;
+            } else if (item->baselineAligned) {
+                /* The line's baseline is the deepest one on it, and every
+                 * baseline-aligned item sits so that its own baseline lands there. */
+                crossPos = lineOffset[item->line] +
+                           (lineBaseline[item->line] - item->baseline);
+            } else {
+                switch (item->align) {
+                case RoboCssFlexAlignCenter:
+                    crossPos = lineOffset[item->line] + itemFree / 2;
+                    break;
+                case RoboCssFlexAlignFlexEnd:
+                case RoboCssFlexAlignEnd:
+                case RoboCssFlexAlignRight:
+                    crossPos = lineOffset[item->line] + itemFree;
+                    break;
+                default:
+                    crossPos = lineOffset[item->line];
+                    break;
+                }
             }
 
             if (rowMain) {
@@ -981,7 +1384,17 @@ Result LayoutFlexWalkContents(LayoutWalk *walk,
                 item->positionX = crossPos;
                 item->positionY = mainPos;
             }
-            cursor += item->outerMain + gap;
+        }
+    }
+
+    /*
+     * The counter is per **item**, not per absorbed side, so it is totalled once
+     * here rather than incremented at each of the three places an `auto` margin can
+     * claim its space.
+     */
+    for (index = 0u; index < itemCount; index++) {
+        if (items[index].autoAbsorbed) {
+            walk->block->flex.autoMargins++;
         }
     }
 
@@ -1025,6 +1438,36 @@ Result LayoutFlexWalkContents(LayoutWalk *walk,
         itemObject->padding = item->padding;
         itemObject->borders = item->borders;
         LayoutPositionOffsetInit(&itemObject->positionOffset);
+
+        /*
+         * The baseline the item was **placed** with, recorded here because this is
+         * where the placement happens and because a baseline is by definition a
+         * placement fact (RoboLayoutBaseline.h). It is a `row`'s vertical quantity,
+         * so a column records none -- a horizontal "ascent" would be a second
+         * convention for one word, and 19.9/19.10 own the inline axis.
+         *
+         * The extent is the item's outer cross size: TEXT when it came from a
+         * measured child run's font baseline, BOX (the bottom-edge fallback) when it
+         * did not, which are the two kinds this module's baseline model has.
+         */
+        if (rowMain) {
+            int32_t ascent = item->baseline;
+            int32_t descent = item->outerCross - item->baseline;
+
+            if (ascent < 0) {
+                ascent = 0;
+            }
+            if (descent < 0) {
+                descent = 0;
+            }
+            itemObject->baseline.kind = item->baselineFromChild
+                                            ? RoboLayoutBaselineText
+                                            : RoboLayoutBaselineBox;
+            itemObject->baseline.ascent = ascent;
+            itemObject->baseline.descent = descent;
+        } else {
+            LayoutBaselineMetricsInit(&itemObject->baseline);
+        }
 
         if (LayoutResultSetGeometry(&itemObject->result, origin, size,
                                     walk->diag) != RoboOk) {
