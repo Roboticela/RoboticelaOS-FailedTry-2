@@ -285,6 +285,10 @@ const char *CssPropertyComputationName(
         return "hyphens";
     case RoboCssPropertyComputationTextDecorationStyle:
         return "text-decoration-style";
+    case RoboCssPropertyComputationImageRendering:
+        return "image-rendering";
+    case RoboCssPropertyComputationObjectFit:
+        return "object-fit";
     default:
         return "unknown";
     }
@@ -691,6 +695,37 @@ static const RegistryStandardEntry registryStandardEntries[] = {
      */
     { "hyphens",       RoboCssPropertyInheritanceInherited,
       RoboCssPropertyComputationHyphens,    "manual",     0 },
+    /*
+     * --- the image family (18.16) ---
+     *
+     * Three rows join the inherited block and two the non-inherited one, and the
+     * split is the family's home stated as a count: how a chosen image is *rendered*
+     * and how a file's own orientation is *read* are settings of the element that
+     * holds the image, so `image-rendering`, `image-orientation` and
+     * `image-resolution` propagate to a child that displays the same image; how a
+     * replaced element's content is *fitted to its box* is the box's own business, so
+     * `object-fit` and `object-position` do not.
+     *
+     * Two rows take a closed shape. `image-rendering`'s five words are not two
+     * algorithms (see the shape above), and `object-fit`'s five are not one scale
+     * factor. `image-orientation` is carried because its grammar is
+     * `from-image | none | <angle>` with an optional `flip`, and its keyword pair is
+     * typed inside the declaration in RoboCSSImage.h; `image-resolution` is carried
+     * because its grammar is `[ from-image || <resolution> ] && snap`; and
+     * `object-position` is carried because it is the position *pair* the background
+     * module owns rather than a second copy of that grammar here.
+     *
+     * `image-orientation: from-image` is the family's `from-font`: a fact about the
+     * *file* rather than a policy of the user agent, which is why it is the initial
+     * and why discarding it is the answer a build that cannot read the value must not
+     * give.
+     */
+    { "image-orientation", RoboCssPropertyInheritanceInherited,
+      RoboCssPropertyComputationPreserve,  "from-image", 0 },
+    { "image-rendering", RoboCssPropertyInheritanceInherited,
+      RoboCssPropertyComputationImageRendering, "auto",   0 },
+    { "image-resolution", RoboCssPropertyInheritanceInherited,
+      RoboCssPropertyComputationPreserve,  "1dppx",      0 },
     { "letter-spacing",RoboCssPropertyInheritanceInherited,
       RoboCssPropertyComputationLength,     "normal",     0 },
     { "line-break",    RoboCssPropertyInheritanceInherited,
@@ -979,6 +1014,18 @@ static const RegistryStandardEntry registryStandardEntries[] = {
       RoboCssPropertyComputationEdgeOffset, "0",         0 },
     { "margin-top",    RoboCssPropertyInheritanceNonInherited,
       RoboCssPropertyComputationEdgeOffset, "0",         0 },
+    /*
+     * --- the non-inherited half of the image family (18.16) ---
+     *
+     * How a replaced element's content is fitted to its box belongs to the box, not
+     * to the content: a child of a `cover`-fitting element that displayed the same
+     * image is not itself `cover`. So `object-fit` takes the closed shape and
+     * `object-position` is carried as the position pair the background module owns.
+     */
+    { "object-fit",    RoboCssPropertyInheritanceNonInherited,
+      RoboCssPropertyComputationObjectFit, "fill",        0 },
+    { "object-position", RoboCssPropertyInheritanceNonInherited,
+      RoboCssPropertyComputationPreserve,  "50% 50%",     0 },
     /*
      * 11.9 adds `opacity`, the first property here registered by a phase of the *paint*
      * stack -- and therefore the first whose row a phase added without that phase having any

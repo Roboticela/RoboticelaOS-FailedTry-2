@@ -503,6 +503,19 @@ typedef struct CssCapabilities {
      * layer that has a shaped line.
      */
     int text;
+    /**
+     * The image family (18.16): the `<image>` function vocabulary and the three
+     * properties that control a chosen image — `image-rendering` and `object-fit` as
+     * typed shapes, and `image-orientation`'s keyword pair inside a deliberately
+     * carried declaration (`image-resolution` and `object-position` are carried too).
+     *
+     * What it does not claim is a loader, a decoder, a renderer, a gradient sampler
+     * or a layout pass: no function here opens a file, resolves a URL, samples a
+     * colour stop, scales a pixel or measures a box. A value in this family says
+     * *which image* and *what rule* a renderer follows; the pixels belong to the phase
+     * that draws them.
+     */
+    int images;
 } CssCapabilities;
 
 /** Zero every flag. Safe on NULL. */

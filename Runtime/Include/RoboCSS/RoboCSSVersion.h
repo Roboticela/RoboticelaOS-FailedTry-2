@@ -921,6 +921,47 @@
  * One capability joins the table (`text`) and one diagnostic domain
  * (`RoboCssDomainText`).
  *
+ * 0.34.0 is Phase 18.16, **CSS images**, and it is the family whose central fact is
+ * that **an `<image>` is not a file**. A `url("a.png")` names one, a
+ * `linear-gradient(...)` computes one, an `image-set(...)` chooses between several,
+ * and `cross-fade(...)` composes them; what they have in common is not a byte stream
+ * but a *description of where pixels come from*, and the one fact the value itself
+ * carries is the name of the function that describes it. So the family's largest
+ * table is the function vocabulary — thirteen functions (`url`, `src`, `image`,
+ * `image-set`, `cross-fade`, `element`, `paint` and the six gradient spellings) with
+ * the classifications a consumer switches on: is this a gradient, is it repeating,
+ * which of the three axes does it run on, does the value itself state an intrinsic
+ * size, and does it name a resource outside the stylesheet. None of those is the
+ * negation of another: a non-gradient is on no axis, and `image-set()` inherits the
+ * chosen alternative's size rather than stating one.
+ *
+ * Three more facts are the properties' rather than the value's. `object-fit`'s five
+ * words are not one scale factor — `fill` stretches and loses the ratio, `none` does
+ * not scale and clips, `contain` and `cover` preserve the ratio and differ only in
+ * which side fills first, and `scale-down` is the one value whose answer depends on
+ * comparing the image's intrinsic size with the box. `image-rendering: auto` is not
+ * `smooth`: it leaves the algorithm to the user agent, while `crisp-edges` and
+ * `pixelated` are two different promises ("do not blur" against "show the source's
+ * pixels"). And `image-orientation: from-image` is a *file* fact — the image's own
+ * EXIF orientation — rather than a policy, exactly as `text-decoration-thickness`'s
+ * `from-font` is.
+ *
+ * Five rows join the table and two take a closed shape of their own: `image-rendering`
+ * and `object-fit` compute to their keywords, while `image-orientation`'s keyword pair
+ * is typed inside a carried declaration, and `image-resolution` and `object-position`
+ * are carried whole — the first because its grammar is `[ from-image || <resolution> ]
+ * && snap`, the second because it is the position *pair* the background module owns.
+ * A gradient has no intrinsic size, so nothing here may assume one.
+ *
+ * The boundary is stated rather than implied, and it is `font-variant-ligatures`'
+ * precedent once more: nothing here opens a file, reads a header, resolves a URL,
+ * samples a colour stop, interpolates a gradient, scales or filters a pixel, or
+ * measures a box. A value says *which image* and *what rule* a renderer follows; the
+ * pixels belong to the phase that draws them.
+ *
+ * One capability joins the table (`images`) and one diagnostic domain
+ * (`RoboCssDomainImage`).
+ *
  * The surface will keep growing for the whole of Phase 9, so API freeze is
  * NOT claimed here (RoboCssApiFrozen=0).
  */
@@ -929,9 +970,9 @@
 #define ROBO_CSS_VERSION_H
 
 #define RoboCssVersionMajor 0
-#define RoboCssVersionMinor 33
+#define RoboCssVersionMinor 34
 #define RoboCssVersionPatch 0
-#define RoboCssVersionString "0.33.0"
+#define RoboCssVersionString "0.34.0"
 
 /** 1 once the Phase 9 surface is frozen (not yet — see header comment). */
 #define RoboCssApiFrozen 0

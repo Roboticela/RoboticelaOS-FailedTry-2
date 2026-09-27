@@ -2098,6 +2098,27 @@ static int ComputedVocabularyTextDecorationStyleKnown(CssSlice keyword)
     return CssTextDecorationStyleSliceIsKnown(keyword);
 }
 
+/*
+ * The image vocabularies (18.16): two predicates and the same make body.
+ *
+ * Two rows because two properties have a grammar that *is* their closed set. The rest
+ * of the family is carried PRESERVED, and the closed sets inside those declarations
+ * live in RoboCSSImage.h where a consumer can reach them without this table
+ * pretending the whole grammar is closed: `image-orientation` is
+ * `from-image | none | <angle>`, `image-resolution` is a `||` of two optional parts,
+ * and `object-position` is the position pair the background module owns. That
+ * division is 18.7's, and 18.15 made the same split for the text family.
+ */
+static int ComputedVocabularyImageRenderingKnown(CssSlice keyword)
+{
+    return CssImageRenderingSliceIsKnown(keyword);
+}
+
+static int ComputedVocabularyObjectFitKnown(CssSlice keyword)
+{
+    return CssObjectFitSliceIsKnown(keyword);
+}
+
 /**
  * A closed vocabulary whose value *is* its keyword, carried as one.
  *
@@ -2299,7 +2320,23 @@ static const ComputedVocabularyGrammar computedVocabularyGrammars[] = {
     { RoboCssPropertyComputationTextDecorationStyle,
       ComputedVocabularyTextDecorationStyleKnown, ComputedVocabularyKeywordMake,
       "not a single text-decoration-style keyword",
-      "not a text-decoration-style value" }
+      "not a text-decoration-style value" },
+    /*
+     * The image vocabularies (18.16) are two more rows in the same table, and their
+     * make door is the keyword-carrying one for the reason 18.5's rows recorded:
+     * nothing has a *typed representation* of an `image-rendering` or an `object-fit`
+     * in the computed value yet, so an enumerator here would be a second copy of a
+     * table for a consumer that arrives with the rendering phase. What the closed set
+     * buys is the refusal — `image-rendering: banana` and `object-fit: middle` are
+     * mistakes rather than keywords carrying the letters — and what arrives is already
+     * the canonical spelling.
+     */
+    { RoboCssPropertyComputationImageRendering,
+      ComputedVocabularyImageRenderingKnown, ComputedVocabularyKeywordMake,
+      "not a single image-rendering keyword", "not an image-rendering value" },
+    { RoboCssPropertyComputationObjectFit,
+      ComputedVocabularyObjectFitKnown, ComputedVocabularyKeywordMake,
+      "not a single object-fit keyword", "not an object-fit value" }
 };
 
 /** The vocabulary grammar for @p computation, or NULL when it is not one. */
@@ -3203,6 +3240,15 @@ Result CssComputedValueCompute(
     case RoboCssPropertyComputationLineBreak:
     case RoboCssPropertyComputationHyphens:
     case RoboCssPropertyComputationTextDecorationStyle:
+    /*
+     * And the image vocabularies (18.16) are two more rows -- the half of the image
+     * family whose grammar *is* a closed set. The other half is not here at all: an
+     * `image-orientation` angle, an `image-resolution` resolution and an
+     * `object-position` pair are PRESERVED declarations, and their own closed sets are
+     * reached through RoboCSSImage.h rather than through this switch.
+     */
+    case RoboCssPropertyComputationImageRendering:
+    case RoboCssPropertyComputationObjectFit:
         return ComputedComputeVocabulary(
             ComputedVocabularyGrammarFor(computation), out, specified, diag);
     case RoboCssPropertyComputationBackgroundImage:

@@ -450,6 +450,12 @@ Result CssGetCapabilities(CssCapabilities *out)
      * changed, and no function takes or returns a line, a glyph id or a rectangle.
      * `direction` and `text-orientation` are 18.13's. */
     out->text = 1;
+    /* The image family (18.16): the `<image>` function vocabulary and the three
+     * properties that control a chosen image, as typed shapes or carried
+     * declarations. What it does not claim is a loader, a decoder, a renderer, a
+     * gradient sampler or a layout pass -- no file is opened, no URL resolved, no
+     * stop sampled, no pixel scaled and no box measured. */
+    out->images = 1;
     out->defaultStyles = 0;
     out->stylesheetLoading = 0;
     return RoboOk;

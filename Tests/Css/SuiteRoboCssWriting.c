@@ -262,8 +262,8 @@ static void TestWritingCapabilities(void)
     RoboCheckEqInt(caps.defaultStyles, 0);
     RoboCheckEqInt(caps.stylesheetLoading, 0);
 
-    RoboCheckEqInt(RoboCssVersionMinor, 33);
-    RoboCheckStrEq(CssVersionString(), "0.33.0");
+    RoboCheckEqInt(RoboCssVersionMinor, 34);
+    RoboCheckStrEq(CssVersionString(), "0.34.0");
 
     RoboCheckStrEq(CssPropertyComputationName(
                           RoboCssPropertyComputationWritingMode),

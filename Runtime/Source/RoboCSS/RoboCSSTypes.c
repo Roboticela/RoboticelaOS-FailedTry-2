@@ -430,6 +430,8 @@ const char *CssDiagnosticDomainName(CssDiagnosticDomain domain)
         return "font";
     case RoboCssDomainText:
         return "text";
+    case RoboCssDomainImage:
+        return "image";
     default:
         return "unknown";
     }

@@ -686,11 +686,31 @@ typedef enum CssPropertyComputation {
      * stroke with gaps, or a stroke that is not straight — and the row is the only
      * place that knows. `double` is why "segmented" is separate from "not solid".
      */
-    RoboCssPropertyComputationTextDecorationStyle = 68
+    RoboCssPropertyComputationTextDecorationStyle = 68,
+    /**
+     * One of the closed `image-rendering` vocabulary (18.16) — `auto`, `smooth`,
+     * `high-quality`, `crisp-edges` or `pixelated`.
+     *
+     * The row worth reading is `auto`: it is not `smooth`, it leaves the algorithm to
+     * the user agent, and the two groups below it are two different promises rather
+     * than two strengths of one. A build that stored the keyword would have to know
+     * that `crisp-edges` does not mean `pixelated` at every call site.
+     */
+    RoboCssPropertyComputationImageRendering = 69,
+    /**
+     * One of the closed `object-fit` vocabulary (18.16) — `fill`, `contain`, `cover`,
+     * `none` or `scale-down`.
+     *
+     * Five words that are not one scale factor: `fill` distorts, `none` does not scale
+     * and clips, `contain` and `cover` preserve the ratio and differ only in which side
+     * fills first, and `scale-down` is the one value whose answer depends on comparing
+     * the image's intrinsic size with the box — a number the value does not carry.
+     */
+    RoboCssPropertyComputationObjectFit = 70
 } CssPropertyComputation;
 
 /** Number of defined computations. */
-#define RoboCssPropertyComputationCount 69u
+#define RoboCssPropertyComputationCount 71u
 
 /** Non-zero when @p computation is a defined enumerator. */
 int CssPropertyComputationIsKnown(CssPropertyComputation computation);

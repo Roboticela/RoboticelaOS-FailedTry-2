@@ -128,7 +128,7 @@ static void TestCssRegistryStandardSet(void)
      *
      * A count is asserted rather than a lower bound so that a row added later is a
      * deliberate act rather than an accident. */
-    RoboCheckEqInt((int)CssPropertyRegistryCount(registry), 200);
+    RoboCheckEqInt((int)CssPropertyRegistryCount(registry), 205);
     /*
      * 18.15's twenty text rows move the inherited half by fourteen and the other by
      * six, and that split is the family's central fact stated as a count: an alignment,
@@ -138,7 +138,7 @@ static void TestCssRegistryStandardSet(void)
      * clips the text, so a child does not — and a link's underlined text would be every
      * descendant of the link if the line propagated.
      */
-    RoboCheckEqInt((int)inherited, 54);
+    RoboCheckEqInt((int)inherited, 57);
     /* 18.3's twelve flexbox rows and 18.4's twenty grid rows are all non-inherited,
      * which is why only this half of the count moved: a flex container's direction, a
      * wrap rule, an alignment, a factor, a basis and an order are the box's own, and a
@@ -156,7 +156,7 @@ static void TestCssRegistryStandardSet(void)
      * and expansion — not the cascade — is what distributes it. That is why the
      * inherited half moved by eighteen and the other by exactly one.
      */
-    RoboCheckEqInt((int)nonInherited, 146);
+    RoboCheckEqInt((int)nonInherited, 148);
 
     CssPropertyRegistryDestroy(registry);
 }
@@ -195,7 +195,13 @@ static void TestCssRegistryInheritedClassification(void)
         "hyphens", "line-break", "overflow-wrap", "tab-size", "text-align-last",
         "text-emphasis", "text-emphasis-color", "text-emphasis-position",
         "text-emphasis-style", "text-justify", "text-shadow",
-        "text-underline-offset", "text-underline-position", "word-break"
+        "text-underline-offset", "text-underline-position", "word-break",
+        /* 18.16's three inherited image rows. How an image is rendered, how a file's
+         * own orientation is read and its resolution are settings of the element
+         * that holds the image, so a child inside a paragraph that displays the same
+         * image sits on the same rules; fitting the content to a box is the box's
+         * own business and is the non-inherited half asserted below. */
+        "image-orientation", "image-rendering", "image-resolution"
     };
     /* The eight the phase names as the things that must NOT propagate, plus the
      * box model's fourteen (9.11) — every one of which is the *opposite* of an
@@ -228,7 +234,11 @@ static void TestCssRegistryInheritedClassification(void)
          * so a child of an underlined link is not underlined, and truncation belongs
          * to the box that clips rather than to the text inside it. */
         "text-decoration", "text-decoration-color", "text-decoration-line",
-        "text-decoration-style", "text-decoration-thickness", "text-overflow"
+        "text-decoration-style", "text-decoration-thickness", "text-overflow",
+        /* 18.16's two non-inherited image rows: how a replaced element's content is
+         * fitted to its box belongs to the box, not to the content, so a child that
+         * displayed the same image is not itself `cover`. */
+        "object-fit", "object-position"
     };
     CssPropertyRegistry *registry = NULL;
     size_t index;
@@ -521,6 +531,15 @@ static void TestCssRegistryInitialValues(void)
          * carries the concatenation of its four longhands exactly as `font` and
          * `border` carry theirs. */
         {"hyphens", "manual"},
+        /* 18.16's five image rows. Two take a closed vocabulary and the rest are
+         * carried declarations: `image-orientation`'s grammar is `from-image | none
+         * | <angle>` with an optional `flip`, `image-resolution`'s is a `||` of two
+         * optional parts, and `object-position` is the position pair the background
+         * module owns. `image-orientation: from-image` is the family's `from-font` --
+         * a fact about the *file* rather than a policy of the user agent. */
+        {"image-orientation", "from-image"},
+        {"image-rendering", "auto"},
+        {"image-resolution", "1dppx"},
         {"line-break", "auto"},
         {"overflow-wrap", "normal"},
         {"tab-size", "8"},
@@ -539,7 +558,9 @@ static void TestCssRegistryInitialValues(void)
         {"text-decoration-line", "none"},
         {"text-decoration-style", "solid"},
         {"text-decoration-thickness", "auto"},
-        {"text-overflow", "clip"}
+        {"text-overflow", "clip"},
+        {"object-fit", "fill"},
+        {"object-position", "50%,_,50%"}
     };
     CssPropertyRegistry *registry = NULL;
     size_t index;

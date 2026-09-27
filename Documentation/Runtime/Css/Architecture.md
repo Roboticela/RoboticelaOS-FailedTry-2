@@ -892,6 +892,60 @@ One capability joins the table (`text`), one diagnostic domain
 (`RoboCssDomainText`), ten computations join the closed-vocabulary body, and the
 module moves to `0.33.0`.
 
+### The image family (18.16)
+
+The image family (`RoboCSSImage.h`) is the family whose central fact is that **an
+`<image>` is not a file**. A `url("a.png")` names one, a `linear-gradient(...)`
+computes one, an `image-set(...)` chooses between several and a `cross-fade(...)`
+composes them; what they have in common is not a byte stream but a *description of
+where pixels come from*, and the one fact the value itself carries is the name of the
+function that describes it. So the family's largest table is the function vocabulary —
+thirteen functions (`url`, `src`, `image`, `image-set`, `cross-fade`, `element`,
+`paint` and the six gradient spellings) with the classifications a consumer switches
+on: is this a gradient, is it repeating, which of the three axes does it run on, does
+the value itself state an intrinsic size, and does it name a resource outside the
+stylesheet.
+
+Those classifications are columns rather than a tree. A repeating gradient is *also* a
+gradient and is on an axis; a non-gradient is on **no** axis; and "does the value state
+an intrinsic size" is a separate question from which kind it is — `image-set()`
+resolves to one of its alternatives and inherits *that* image's size, while as a value
+it states none. A build that read "not linear" as "radial" would sample a conic
+gradient's stops by the wrong quantity, and a build that assumed every image had an
+intrinsic size would size a gradient to zero.
+
+The phase's second decision is that a classification is **never the negation of
+another**. `image-rendering`'s `auto` is in neither the smoothing group nor the
+pixelated group, so a consumer that read "not smoothing" as "pixelated" would pin the
+choice `auto` deliberately leaves to the user agent; and `crisp-edges` and `pixelated`
+are two different promises — "do not blur" against "show the source's pixels" — which
+is why the table carries a fourth column for the pixel grid. The same shape recurs in
+`object-fit`, where `none` preserves the aspect ratio **without** scaling, so
+"preserves the ratio" is not "scales".
+
+Five rows split by **grammar**. Two take a typed shape (`image-rendering`, `object-fit`)
+and three are carried declarations whose closed sets live in the header for a consumer
+to read: `image-orientation` is `from-image | none | <angle>` with an optional `flip`,
+`image-resolution` is a `||` of two optional parts, and `object-position` is the
+position *pair* the background module already owns rather than a second copy of that
+grammar. `image-orientation: from-image` is the family's `from-font` — a fact about the
+*file* rather than a policy of the user agent — which is why it is the initial and why
+an unknown value answers its behaviour rather than discarding a rotated photo.
+
+Three of the five rows are inherited and two are not, and the split is the family's
+home stated as a count: how an image is *rendered*, how a file's own orientation is
+*read* and its resolution are settings of the element that holds the image, so a child
+inherits them; how a replaced element's content is *fitted to a box* is the box's own
+business, so `object-fit` and `object-position` do not.
+
+What the phase does not claim is a loader, a decoder, a renderer, a gradient sampler or
+a layout pass: no function here opens a file, resolves a URL, samples a colour stop,
+interpolates a gradient, scales a pixel or measures a box. A value in this family says
+*which image* and *what rule* a renderer follows; the pixels belong to the phase that
+draws them. One capability joins the table (`images`), one diagnostic domain
+(`RoboCssDomainImage`), two computations join the closed-vocabulary body, and the
+module moves to `0.34.0`.
+
 ### Colour
 
 A *colour* is the one shape whose meaning is arithmetic, so since 9.9 it is a type
@@ -1387,7 +1441,14 @@ rest carried with their inner sets typed (`text-decoration-line`'s set,
 `text-overflow`'s string, `text-decoration-thickness`'s length,
 `text-underline-position`'s two questions) — and a split in which the decoration's
 five rows and `text-overflow` alone do not inherit, because they describe the box
-that draws or clips the text.
+that draws or clips the text. The sixteenth is the image family (18.16, §5 and
+`docs/Images.md`): the `<image>` function vocabulary (thirteen functions with a
+gradient/repeating/axis/intrinsic-size/resource classification each) beside two typed
+property sets (`image-rendering`, `object-fit`) and three carried declarations
+(`image-orientation`, `image-resolution`, `object-position`), whose central fact is
+that an `<image>` is a description of where pixels come from rather than a file — so
+`image-rendering: auto` is not `smooth`, `object-fit: none` preserves the ratio without
+scaling, and a gradient has no intrinsic size.
 
 Conformance (9.16) is behind us and it is the one phase that is *not* a subject: it
 adds no production code at all, which is why it is the only entry in this list that

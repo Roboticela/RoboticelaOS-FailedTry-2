@@ -138,6 +138,20 @@ static const CssConformanceInitial cssConformanceInitials[] = {
      * same word as a preserved token, exactly as `border` and `border-color` differ.
      */
     {"hyphens", "keyword", "manual"},
+    /*
+     * The image family (18.16), in registry order. How an image is rendered, how a
+     * file's own orientation is read and its resolution are settings of the element
+     * that holds the image, so these three inherit; fitting the content to a box is
+     * the box's own business and is in the non-inherited block below.
+     *
+     * `image-rendering` computes to its keyword; `image-orientation` is carried because
+     * its grammar is `from-image | none | <angle>` and the angle has no keyword, and
+     * `image-resolution` is carried because its grammar is a `||` of two optional
+     * parts. `from-image` is the family's `from-font` — a fact about the *file* rather
+     * than a policy. */
+    {"image-orientation", "preserved", "from-image"},
+    {"image-rendering", "keyword", "auto"},
+    {"image-resolution", "preserved", "1dppx"},
     {"letter-spacing", "keyword", "normal"},
     {"line-break", "keyword", "auto"},
     {"line-height", "keyword", "normal"},
@@ -220,6 +234,13 @@ static const CssConformanceInitial cssConformanceInitials[] = {
     {"margin-left", "length", "0px"},
     {"margin-right", "length", "0px"},
     {"margin-top", "length", "0px"},
+    /*
+     * The non-inherited half of the image family (18.16): a replaced element's fitting
+     * belongs to its box, not to its content. `object-fit` takes the closed shape, and
+     * `object-position` is carried because it is the position *pair* the background
+     * module owns rather than a second copy of that grammar. */
+    {"object-fit", "keyword", "fill"},
+    {"object-position", "preserved", "50% 50%"},
     /* Opacity (11.9): the row a *paint* phase registered, and the only one here whose
      * initial value is not the zero of its own vocabulary -- so its computed text is `1`
      * where every property around it computes to an initial spelling of nothing-ness. */
@@ -711,6 +732,17 @@ static const CssConformanceDeclaration cssConformanceDeclarations[] = {
     {"overflow-wrap", "overflow-wrap: anywhere", "keyword", "anywhere"},
     {"line-break", "line-break: strict", "keyword", "strict"},
     {"hyphens", "hyphens: auto", "keyword", "auto"},
+    /* The image family (18.16): the two closed vocabularies, one refusal each, and the
+     * carried half whose grammar is wider than any closed set — an orientation angle,
+     * a resolution and a position pair all survive intact. */
+    {"image-rendering", "image-rendering: pixelated", "keyword", "pixelated"},
+    {"image-rendering", "image-rendering: banana", "invalid",
+     "not an image-rendering value"},
+    {"object-fit", "object-fit: scale-down", "keyword", "scale-down"},
+    {"object-fit", "object-fit: middle", "invalid", "not an object-fit value"},
+    {"image-orientation", "image-orientation: 90deg", "preserved", "90deg"},
+    {"image-resolution", "image-resolution: 2dppx", "preserved", "2dppx"},
+    {"object-position", "object-position: 25% 75%", "preserved", "25% 75%"},
     {"text-decoration-style", "text-decoration-style: wavy", "keyword", "wavy"},
     {"text-decoration-style", "text-decoration-style: banana", "invalid",
      "not a text-decoration-style value"},
@@ -1863,7 +1895,8 @@ static void TestCssConformanceCapabilitiesEveryFlag(void)
         {"container_queries", 1},
         {"logical_properties", 1},
         {"fonts", 1},
-        {"text", 1}
+        {"text", 1},
+        {"images", 1}
     };
     CssCapabilities caps;
     int *asInts = (int *)&caps;
@@ -1896,11 +1929,13 @@ static void TestCssConformanceCapabilitiesEveryFlag(void)
     RoboCheckEqInt(caps.fonts, 1);
     /* And for 18.15, the same pair of promises. */
     RoboCheckEqInt(caps.text, 1);
+    /* And for 18.16. */
+    RoboCheckEqInt(caps.images, 1);
 
     /* The frozen-surface flag is a promise about the phase, not a capability. */
     RoboCheckEqInt(RoboCssApiFrozen, 0);
     RoboCheckEqInt(RoboCssVersionMajor, 0);
-    RoboCheckEqInt(RoboCssVersionMinor, 33);
+    RoboCheckEqInt(RoboCssVersionMinor, 34);
 }
 
 void TestRegisterCssConformance(void);

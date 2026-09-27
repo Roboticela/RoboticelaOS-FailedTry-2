@@ -485,6 +485,11 @@ $ProdSrcs = @(
     # text-underline-position). It wraps no line, finds no hyphenation point and
     # changes no case.
     (Join-Path $SourceDir "RoboCSS\RoboCSSText.c"),
+    # The image vocabulary (18.16): the `<image>` function kinds (url, gradients,
+    # image-set, cross-fade, ...) and the image-rendering/object-fit closed sets,
+    # with image-orientation's keyword pair typed inside a carried declaration. It
+    # opens no file, samples no stop and scales no pixel.
+    (Join-Path $SourceDir "RoboCSS\RoboCSSImage.c"),
     (Join-Path $SourceDir "RoboLayout\RoboLayout.c"),
     (Join-Path $SourceDir "RoboLayout\RoboLayoutTypes.c"),
     (Join-Path $SourceDir "RoboLayout\RoboLayoutDiagnostics.c"),
@@ -997,6 +1002,9 @@ $SuiteSrcs = @(
     # The text suite (18.15): the fourteen vocabularies, their classifications, the
     # inherited and non-inherited rows and the carried half of the family.
     (Join-Path $TestsRoot "Css\SuiteRoboCssText.c"),
+    # The image suite (18.16): the function vocabulary, the rendering and object-fit
+    # sets, the orientation keywords and the registry rows all of it is registered by.
+    (Join-Path $TestsRoot "Css\SuiteRoboCssImage.c"),
     # The selector/DOM integration suite deliberately lives outside css/: it
     # includes both RoboCSS and RoboHTML, and the two are peers whose guards
     # forbid each other's headers. A suite that must see both belongs in neither.
