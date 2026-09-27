@@ -115,7 +115,10 @@ static int LayoutSizingBoundPx(const CssComputedStyle *style,
  */
 void LayoutObjectSizing(LayoutSizing *sizing,
                                const LayoutObject *object,
-                               int32_t availableWidth)
+                               int32_t availableWidth,
+                               int32_t percentWidthBase,
+                               int hasPercentHeightBase,
+                               GfxPixelY percentHeightBase)
 {
     GfxPixelX minimumWidth = 0;
     GfxPixelX minimumHeight = 0;
@@ -125,6 +128,25 @@ void LayoutObjectSizing(LayoutSizing *sizing,
 
     LayoutSizingInit(sizing);
     (void)LayoutSizingSetAvailableWidth(sizing, availableWidth, NULL);
+    /*
+     * The containing block's **content** width is also the percentage base (19.2): a
+     * `width: 50%` is half of the containing block, not half of what the box's own
+     * margins, borders and padding leave -- that subtraction is the constraint
+     * equation's, and it belongs to `available`. The two numbers coincide here because
+     * the number handed in is the containing block's content width; they stop coinciding
+     * one step later, when `available` is narrowed to what the box's own insets leave.
+     */
+    (void)LayoutSizingSetPercentageBaseWidth(sizing, percentWidthBase, NULL);
+    /*
+     * The height base is the caller's to name, because a percentage height resolves
+     * only against a **definite** containing height (CSS's rule), and the caller -- the
+     * parent's own layout -- is the only one that knows whether it has one. A caller
+     * with no definite height records none, and a `height: 50%` then degrades to `auto`
+     * exactly as CSS says it must.
+     */
+    if (hasPercentHeightBase) {
+        (void)LayoutSizingSetPercentageBaseHeight(sizing, percentHeightBase, NULL);
+    }
 
     (void)LayoutSizingReadDimension(object->style, "width", &sizing->width);
     (void)LayoutSizingReadDimension(object->style, "height", &sizing->height);
@@ -151,6 +173,8 @@ static Result LayoutBlockBox(LayoutWalk *walk,
                                       LayoutNodeId id,
                                       LayoutPoint origin,
                                       int32_t availableWidth,
+                                      int hasPercentHeightBase,
+                                      GfxPixelY percentHeightBase,
                                       const LayoutAbsolutePlacement *place,
                                       GfxPixelY *outHeight);
 
@@ -246,6 +270,8 @@ static LayoutBlockVerdict LayoutBlockVerdictFor(const LayoutTree *tree,
 static Result LayoutBlockChildren(LayoutWalk *walk,
                                            const LayoutObject *object,
                                            int32_t contentWidth,
+                                           int hasPercentHeightBase,
+                                           GfxPixelY percentHeightBase,
                                            GfxPixelY *outExtent)
 {
     LayoutNodeId child = object->firstChild;
@@ -320,8 +346,9 @@ static Result LayoutBlockChildren(LayoutWalk *walk,
 
             childOrigin.x = 0;
             childOrigin.y = LayoutExtentClamp(cursor);
-            if (LayoutBlockBox(walk, child, childOrigin, contentWidth, NULL,
-                                       &childHeight) != RoboOk) {
+            if (LayoutBlockBox(walk, child, childOrigin, contentWidth,
+                                          hasPercentHeightBase, percentHeightBase,
+                                          NULL, &childHeight) != RoboOk) {
                 return walk->diag ? walk->diag->code : RoboError;
             }
             cursor += (int64_t)childHeight;
@@ -391,7 +418,10 @@ Result LayoutBlockWalkChildren(LayoutWalk *walk,
         return RoboLayoutDiag(walk->diag, RoboLayoutDomainBlockLayout, RoboError,
                                 "the box that owns a block context is not in the tree");
     }
-    return LayoutBlockChildren(walk, object, contentWidth, outExtent);
+    /* An atomic inline's block contents have no definite containing height to offer,
+     * so no percentage-height base is recorded here -- a `height: %` inside one
+     * degrades to `auto`, which is what a line box can honestly promise. */
+    return LayoutBlockChildren(walk, object, contentWidth, 0, 0, outExtent);
 }
 
 /**
@@ -414,6 +444,8 @@ static Result LayoutBlockBox(LayoutWalk *walk,
                                       LayoutNodeId id,
                                       LayoutPoint origin,
                                       int32_t availableWidth,
+                                      int hasPercentHeightBase,
+                                      GfxPixelY percentHeightBase,
                                       const LayoutAbsolutePlacement *place,
                                       GfxPixelY *outHeight)
 {
@@ -440,7 +472,8 @@ static Result LayoutBlockBox(LayoutWalk *walk,
                                 "a box vanished under the pass");
     }
 
-    LayoutObjectSizing(&sizing, object, availableWidth);
+    LayoutObjectSizing(&sizing, object, availableWidth, availableWidth,
+                       hasPercentHeightBase, percentHeightBase);
 
     /*
      * The margins next (10.9), and *before* the width for a reason that is forced
@@ -490,7 +523,10 @@ static Result LayoutBlockBox(LayoutWalk *walk,
         return status;
     }
     declaredPadding = LayoutPaddingsOf(object->style);
-    status = LayoutPaddingResolve(&declaredPadding, &padding, walk->diag);
+    /* The containing block's content width is the percentage base for a padding (19.2),
+     * for all four sides. */
+    status = LayoutPaddingResolve(&declaredPadding, availableWidth, &padding,
+                                  walk->diag);
     if (status != RoboOk) {
         return status;
     }
@@ -558,10 +594,38 @@ static Result LayoutBlockBox(LayoutWalk *walk,
      * The children next, because an `auto` height *is* their extent -- and because if
      * this box declares a height, the children still have to be laid out inside it.
      */
-    status = LayoutBlockChildren(walk, object, (int32_t)sizing.resolved.width,
-                                   &contentExtent);
-    if (status != RoboOk) {
-        return status;
+    /*
+     * The percentage-height base the children get (19.2), and it is computed from this
+     * box's **declared** height rather than from its resolved one -- which matters,
+     * because the height is resolved *after* the children are laid out (a block's height
+     * can be its contents'). CSS's condition for resolving a child's percentage height
+     * is that the containing block's height is *specified*, and "specified" is known
+     * before the content is: a `height: 200px` is 200 whatever the contents turn out to
+     * be, and a `height: 50%` is half of the base this box was itself handed. A box whose
+     * height is `auto` has no definite height to offer, and CSS turns the child's
+     * percentage into `auto` -- which is what recording no base does.
+     */
+    {
+        int childHasHeightBase = 0;
+        GfxPixelY childHeightBase = 0;
+
+        if (LayoutDimensionIsDefinite(&sizing.height)) {
+            childHasHeightBase = 1;
+            childHeightBase = sizing.height.length;
+        } else if (LayoutDimensionIsPercentage(&sizing.height) &&
+                   LayoutSizingHasPercentageBaseHeight(&sizing)) {
+            childHasHeightBase = 1;
+            childHeightBase = (GfxPixelY)LayoutPxRound(
+                LayoutDimensionPercentageOf(&sizing.height) / 100.0 *
+                (double)sizing.percentageBaseHeight);
+        }
+
+        status = LayoutBlockChildren(walk, object, (int32_t)sizing.resolved.width,
+                                     childHasHeightBase, childHeightBase,
+                                     &contentExtent);
+        if (status != RoboOk) {
+            return status;
+        }
     }
 
     /*
@@ -753,7 +817,12 @@ static Result LayoutBlockBox(LayoutWalk *walk,
          */
         LayoutPositionOffsetInit(&positionOffset);
     } else {
-        status = LayoutPositionResolve(&declaredPosition, &positionOffset, walk->diag);
+        /* The containing block's content width and (when it has one) content height are the
+         * two bases a percentage inset resolves against (19.2): `left: 50%` is half the
+         * former and `top: 50%` is half the latter, which is why the door is handed both. */
+        status = LayoutPositionResolveAgainst(&declaredPosition, availableWidth, 1,
+                                              percentHeightBase, hasPercentHeightBase,
+                                              &positionOffset, walk->diag);
         if (status != RoboOk) {
             return status;
         }
@@ -1029,8 +1098,10 @@ static Result LayoutBlockPlaceOutOfFlow(LayoutWalk *walk,
      */
     origin.x = 0;
     origin.y = 0;
-    status = LayoutBlockBox(walk, id, origin, placement.availableWidth, &placement,
-                                   &height);
+    status = LayoutBlockBox(walk, id, origin, placement.availableWidth,
+                                   /* hasPercentHeightBase */ cb.initial,
+                                   cb.initial ? cb.size.height : 0,
+                                   &placement, &height);
     if (status != RoboOk) {
         return status;
     }
@@ -1250,7 +1321,10 @@ Result LayoutBlockLayout(LayoutTree *tree,
     origin.y = 0;
     {
         Result status = LayoutBlockBox(&walk, root, origin,
-                                               (int32_t)viewport.width, NULL, &height);
+                                               (int32_t)viewport.width,
+                                               /* hasPercentHeightBase */ 1,
+                                               (GfxPixelY)viewport.height,
+                                               NULL, &height);
 
         if (status != RoboOk) {
             return status;

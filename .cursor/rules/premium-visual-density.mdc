@@ -1,0 +1,27 @@
+---
+description: Premium HD / Retina density — screenshots and video must look sharp
+alwaysApply: true
+---
+
+# Premium visual density (HiDPI)
+
+RoboticelaOS UI must look **Retina-class** in screenshots and recordings. Soft 1× upscales are defects.
+
+## Rules
+
+1. **Logical vs physical.** Layout, CSS `px`, hit-testing, and design tokens use **logical** units. Framebuffers, glyph outlines, and PNG exports use **physical** pixels (`logical × scale`).
+2. **Default demo scale is 2.0.** Host desktop demos and HD QEMU profiles prefer scale ≥ 2. Never ship a marketing capture from 1280×800 @ 1× stretched on a 4K screen.
+3. **Never upscale bitmaps for chrome.** Prefer glyphs/vectors. If a bitmap is required, provide `@2x` (and match device scale).
+4. **Text stays outline-rasterized** through RoboText → RoboPaint → RoboGraphics. Do not bake UI labels into low-res PNGs.
+5. **Exports match the framebuffer.** Screenshots and recording captures use physical resolution — not the window’s CSS size alone.
+6. **Scale changes invalidate.** DPI/scale change rebuilds surfaces and documents; do not leave a 1× buffer on a 2× display.
+
+## When implementing UI
+
+- Size chrome with the spacing/type scales in `design-rule` / `color-rule`.
+- Ask: “Will this still look crisp if someone records at 2×?” If not, fix density first.
+
+## Out of scope shortcuts
+
+- Do not fake sharpness with CSS `scale()` on a 1× buffer.
+- Do not add Chromium/Skia to get HiDPI.

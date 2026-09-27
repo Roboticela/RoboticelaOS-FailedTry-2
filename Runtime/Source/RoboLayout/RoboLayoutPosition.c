@@ -38,7 +38,8 @@
 int LayoutInsetKindIsKnown(LayoutInsetKind kind)
 {
     return kind == RoboLayoutInsetAbsent || kind == RoboLayoutInsetResolved ||
-           kind == RoboLayoutInsetAuto || kind == RoboLayoutInsetUnresolved;
+           kind == RoboLayoutInsetAuto || kind == RoboLayoutInsetUnresolved ||
+           kind == RoboLayoutInsetPercentage;
 }
 
 const char *LayoutInsetKindName(LayoutInsetKind kind)
@@ -52,6 +53,8 @@ const char *LayoutInsetKindName(LayoutInsetKind kind)
         return "auto";
     case RoboLayoutInsetUnresolved:
         return "unresolved";
+    case RoboLayoutInsetPercentage:
+        return "percentage";
     default:
         break;
     }
@@ -67,6 +70,7 @@ static LayoutInset LayoutInsetMake(LayoutInsetKind kind,
 
     inset.kind = kind;
     inset.length = length;
+    inset.percentage = 0.0;
     return inset;
 }
 
@@ -95,6 +99,14 @@ LayoutInset LayoutInsetUnresolved(void)
     return LayoutInsetMake(RoboLayoutInsetUnresolved, 0);
 }
 
+LayoutInset LayoutInsetPercentage(double percentage)
+{
+    LayoutInset inset = LayoutInsetMake(RoboLayoutInsetPercentage, 0);
+
+    inset.percentage = percentage;
+    return inset;
+}
+
 int LayoutInsetIsAuto(const LayoutInset *inset)
 {
     return inset && inset->kind == RoboLayoutInsetAuto;
@@ -115,6 +127,19 @@ int LayoutInsetIsUnresolved(const LayoutInset *inset)
     return inset && inset->kind == RoboLayoutInsetUnresolved;
 }
 
+int LayoutInsetIsPercentage(const LayoutInset *inset)
+{
+    return inset && inset->kind == RoboLayoutInsetPercentage;
+}
+
+double LayoutInsetPercentageOf(const LayoutInset *inset)
+{
+    if (!inset || inset->kind != RoboLayoutInsetPercentage) {
+        return 0.0;
+    }
+    return inset->percentage;
+}
+
 int LayoutInsetIsValid(const LayoutInset *inset)
 {
     if (!inset || !LayoutInsetKindIsKnown(inset->kind)) {
@@ -130,6 +155,15 @@ int LayoutInsetIsValid(const LayoutInset *inset)
     if (inset->kind == RoboLayoutInsetResolved &&
         (inset->length > (GfxPixelX)LAYOUT_STYLE_LENGTH_MAX ||
          inset->length < (GfxPixelX)(-LAYOUT_STYLE_LENGTH_MAX))) {
+        return 0;
+    }
+    /* A percentage's magnitude is bounded by finiteness, and a percentage is signed in
+     * both directions exactly as a length is: `left: -50%` pulls. The bound is the same
+     * one 19.2 gave the dimension, margin and padding percentages, and it is a pair of
+     * comparisons rather than an `isfinite` because `<math.h>` is not available here. */
+    if (inset->kind == RoboLayoutInsetPercentage &&
+        (inset->percentage < -LAYOUT_STYLE_PERCENT_MAX ||
+         inset->percentage > LAYOUT_STYLE_PERCENT_MAX)) {
         return 0;
     }
     return 1;
@@ -158,6 +192,9 @@ int LayoutInsetEqual(const LayoutInset *a, const LayoutInset *b)
     }
     /* The length only where it means something: two `ABSENT` sides are equal whatever
      * their stale `length` fields hold, which is the same rule the kind exists for. */
+    if (a->kind == RoboLayoutInsetPercentage) {
+        return a->percentage == b->percentage;
+    }
     if (a->kind != RoboLayoutInsetResolved) {
         return 1;
     }
@@ -225,6 +262,10 @@ static LayoutInset LayoutInsetOfProperty(const CssComputedStyle *style,
         return LayoutInsetAuto();
     case LAYOUT_STYLE_VALUE_ABSENT:
         return LayoutInsetAbsent();
+    case LAYOUT_STYLE_VALUE_PERCENT:
+        /* A percentage keeps its magnitude (19.2); the *resolution* happens in the
+         * policy, which is the one handed the containing block's two bases. */
+        return LayoutInsetPercentage(number);
     case LAYOUT_STYLE_VALUE_UNUSABLE:
     default:
         break;
@@ -431,19 +472,39 @@ int LayoutPositionOffsetEqual(const LayoutPositionOffset *a,
  *
  * Split out so the four sides are counted by one switch rather than four, and so that
  * the reason a side did or did not contribute is written once. `*outLength` is filled
- * only for a `RESOLVED` side, which is what lets the caller tell "the author wrote
- * `0px`" from "the author wrote nothing" without a second look at the kind.
+ * only for a usable side, which is what lets the caller tell "the author wrote `0px`"
+ * from "the author wrote nothing" without a second look at the kind.
  *
+ * A `PERCENTAGE` side (19.2) is usable only when @p hasBase: `left: 10%` against a
+ * containing block whose width is known resolves to `10% * base`, and against a base
+ * this build does not have it degrades to `UNRESOLVED` rather than to a zero -- the one
+ * case 10.8's rule still reaches. Which base a side takes is the caller's question,
+ * because it differs by axis (`left`/`right` take the width, `top`/`bottom` the height).
+ *
+ * @param hasBase whether @p base is a value this build may resolve against.
+ * @param base the containing block's content extent on this side's axis, in px.
  * @return 1 when the side is a usable length the caller may use for its axis.
  */
 static int LayoutPositionCountInset(const LayoutInset *inset,
                                        LayoutPositionOffset *offset,
+                                       int hasBase,
+                                       GfxPixelY base,
                                        GfxPixelX *outLength)
 {
     switch (inset->kind) {
     case RoboLayoutInsetResolved:
         offset->insetsResolved++;
         *outLength = inset->length;
+        return 1;
+    case RoboLayoutInsetPercentage:
+        if (!hasBase) {
+            /* No base to resolve against: the declaration is unusable here, and the
+             * counter says so rather than the value quietly becoming zero. */
+            offset->insetsUnresolved++;
+            return 0;
+        }
+        offset->insetsResolved++;
+        *outLength = LayoutPxRound(inset->percentage / 100.0 * (double)base);
         return 1;
     case RoboLayoutInsetAuto:
         offset->insetsAuto++;
@@ -462,6 +523,20 @@ static int LayoutPositionCountInset(const LayoutInset *inset,
 Result LayoutPositionResolve(const LayoutPosition *position,
                                            LayoutPositionOffset *out,
                                            LayoutDiag *diag)
+{
+    /* 19.2: no percentage base, so a percentage inset stays `UNRESOLVED` here exactly as
+     * it did before the phase. Every pass has a containing block and calls the door
+     * below instead. */
+    return LayoutPositionResolveAgainst(position, 0, 0, (GfxPixelY)0, 0, out, diag);
+}
+
+Result LayoutPositionResolveAgainst(const LayoutPosition *position,
+                                                  int32_t containingWidth,
+                                                  int hasWidthBase,
+                                                  GfxPixelY containingHeight,
+                                                  int hasHeightBase,
+                                                  LayoutPositionOffset *out,
+                                                  LayoutDiag *diag)
 {
     LayoutPositionOffset offset;
     size_t index;
@@ -512,14 +587,22 @@ Result LayoutPositionResolve(const LayoutPosition *position,
         GfxPixelX right = 0;
         GfxPixelX top = 0;
         GfxPixelX bottom = 0;
+        /* The inline-axis insets take the containing block's **width** and the
+         * block-axis ones its **height** (19.2), which is why the two bases are
+         * separate -- `left: 50%` and `top: 50%` are percentages of two different
+         * numbers. */
         int haveLeft = LayoutPositionCountInset(declared[RoboCssBoxSideLeft],
-                                                    &offset, &left);
+                                                    &offset, hasWidthBase,
+                                                    (GfxPixelY)containingWidth, &left);
         int haveRight = LayoutPositionCountInset(declared[RoboCssBoxSideRight],
-                                                     &offset, &right);
+                                                     &offset, hasWidthBase,
+                                                     (GfxPixelY)containingWidth, &right);
         int haveTop = LayoutPositionCountInset(declared[RoboCssBoxSideTop],
-                                                   &offset, &top);
+                                                   &offset, hasHeightBase,
+                                                   containingHeight, &top);
         int haveBottom = LayoutPositionCountInset(declared[RoboCssBoxSideBottom],
-                                                      &offset, &bottom);
+                                                      &offset, hasHeightBase,
+                                                      containingHeight, &bottom);
 
         if (haveLeft) {
             offset.dx = left;

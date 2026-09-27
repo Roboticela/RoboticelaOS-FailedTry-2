@@ -458,10 +458,13 @@ placements: the phase changed where a member goes, not which objects are members
   and its contents sit inside its padding — while a transparent inline box takes
   none of the three, its rectangle being the union of what its contents reached. What
   is still absent is a **border**, which reaches no coordinate at all.
-- **No shrink-to-fit, no intrinsic keyword, no percentage or relative-unit
-  resolution.** §3, and 10.8 kept the atomic fallback stated rather than guessed:
-  an unresolvable declaration is read, recorded and filled from the available space
-  with a source saying so (`Sizing.md`).
+- **No shrink-to-fit, no intrinsic keyword, no relative-unit resolution.** §3, and
+  10.8 kept the atomic fallback stated rather than guessed: an unresolvable declaration
+  is read, recorded and filled from the available space with a source saying so
+  (`Sizing.md`). A **percentage** resolves and is no longer part of this list: an
+  atomic inline's percentage width/height resolves against the containing block and a
+  percentage inset against the line's available width, while a block-axis inset
+  percentage degrades where there is no height base (`PercentageResolution.md`).
 - **No absolute or fixed positioning, no floats, no fragmentation, and no
   *scrolling*.** §4, and 10.12 (positioning) and 10.13 (overflow) are done — but a
   box's overflow here is *recorded*, not scrolled, and a box that runs past its line

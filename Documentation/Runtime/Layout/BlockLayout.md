@@ -111,10 +111,11 @@ phase it is also the answer for every *other* declared width — because resolvi
 `width: 200px` properly needs the border box, `box-sizing`, `min-width`,
 `max-width`, and percentages against a containing block that may itself be
 percentage-sized. Phase **10.8** owned all of it, and delivered the half that
-needs no border box: `auto` and a `px` length. A percentage, a relative unit,
-`min-width`/`max-width` as registered properties and `box-sizing` are still
-absent — the sizing layer *reads* the first two and records them as unresolved
-rather than resolving them.
+needs no border box: `auto` and a `px` length. A **percentage** joined it in 19.2
+(the sizing layer keeps the magnitude and resolves it against the containing block
+its pass hands over). A relative unit, `min-width`/`max-width` as registered
+properties and `box-sizing` are still absent — the sizing layer *reads* a relative
+unit and records it as unresolved rather than resolving it.
 
 So a declared `width` was readable in the borrowed style and **not applied**, and
 that was a decision with a visible consequence: a document saying `width: 200px`
@@ -148,7 +149,7 @@ this phase implements the smallest honest version of that:
 |---|---|---|
 | `auto` (the initial value) | the stacked extent of the children | this is the definition, for a block container |
 | a `px` length | that height | one property, one kind check, one unit check |
-| a percentage | the stacked extent | a percentage needs a containing block *height*, which no goal resolves yet — 10.8 reads it, records it unresolved and fills it (`Sizing.md` §4) |
+| a percentage | the declared height when a containing **height** exists (19.2), the stacked extent otherwise | a percentage needs a containing block *height*; 19.2 resolves it against the parent's declared height when there is one and degrades to the stacked extent when there is not (`PercentageResolution.md`) |
 | `em`, `rem`, `vw`, … | the stacked extent | a relative unit needs a font or a viewport basis, which no goal resolves yet |
 | `min-height`, `max-height` | ignored | the sizing layer *has* bounds and clamps through them, but RoboCSS registers neither property, so a declared one is still a rule 9.11 will bring (`Sizing.md` §6) |
 
@@ -344,7 +345,7 @@ one source of truth for one fact, which is the rule this module applies everywhe
 | 10.4 anonymous boxes | the recursion rule: the pass descends only through boxes it placed |
 | 10.6 line boxes | a block container's content origin, and the box whose extent a line box will add to |
 | 10.8 sizing | the single width rule (§3) it replaces, and the `heights_from_content` `auto` path |
-| 10.8 sizing (outcome) | §3's single width is now **one resolution and two uses**: the pass resolves the width first and recursion lays children out into that number, so a declared `width` reaches a box's *children* and not only the box (`Sizing.md` §1); §4's four rows become the sizing layer's three kinds, and a percentage or relative unit is read and recorded **unresolved** rather than silently treated as `auto` (`Sizing.md` §4) |
+| 10.8 sizing (outcome) | §3's single width is now **one resolution and two uses**: the pass resolves the width first and recursion lays children out into that number, so a declared `width` reaches a box's *children* and not only the box (`Sizing.md` §1); §4's four rows become the sizing layer's kinds, and a relative unit is read and recorded **unresolved** rather than silently treated as `auto` (`Sizing.md` §4). *19.2's outcome row:* the height table above is now a percentage that resolves against the parent's declared height when there is one |
 | 10.9 margins | the content origin (§6) that becomes the margin edge |
 | 10.9 margins (outcome) | §6's content origin is now a **margin origin**: the pass resolves the four margins *before* the width (an `auto` width fills what they left), writes the result's position from them, and advances the stacking cursor by the child's **margin box** rather than its content height (`Margins.md` §1) — so the card's origin moves to (20, 10) and `<body>`'s extent becomes 120, and the size stays 200×100 in both cases |
 | 10.10 padding (outcome) | the width is resolved against what the margins **and** the padding left, and the result's `size` is the **padding** box the padding layer derives: the sizing layer's content box plus the padding on each axis (`Padding.md` §1). The card's own size moves 200×100 → **210×110** and `<body>`'s extent 120 → **130**, while its **children** still get 200 — the `content-box` model, and the assertion that keeps the declared-width rule in §3 true |
@@ -374,7 +375,7 @@ boundary item in `Margins.md` §6.
 - **No declared width.** §3 — 10.8's, and it landed: a `px` length and `auto` are
   both resolved by the sizing layer, and everything else is read, recorded as
   unresolved and filled rather than guessed (`Sizing.md`).
-- **No percentage, relative-unit, `min-height` or `max-height` resolution.** §4.
+- **No relative-unit, `min-height` or `max-height` resolution.** §4. A percentage resolution is 19.2's and is done (`PercentageResolution.md`).
 - **No absolute or fixed positioning, no floats, no fragmentation, and no
   *scrolling*.** §6, and 10.12 (positioning) and 10.13 (overflow) are done — but an
   overflow here is *recorded* rather than scrolled, so the box that is a scroll

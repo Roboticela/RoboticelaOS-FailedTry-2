@@ -25,7 +25,8 @@
 int LayoutMarginKindIsKnown(LayoutMarginKind kind)
 {
     return kind == RoboLayoutMarginAbsent || kind == RoboLayoutMarginAuto ||
-           kind == RoboLayoutMarginResolved || kind == RoboLayoutMarginUnresolved;
+           kind == RoboLayoutMarginResolved || kind == RoboLayoutMarginUnresolved ||
+           kind == RoboLayoutMarginPercentage;
 }
 
 const char *LayoutMarginKindName(LayoutMarginKind kind)
@@ -39,6 +40,8 @@ const char *LayoutMarginKindName(LayoutMarginKind kind)
         return "resolved";
     case RoboLayoutMarginUnresolved:
         return "unresolved";
+    case RoboLayoutMarginPercentage:
+        return "percentage";
     default:
         break;
     }
@@ -56,6 +59,7 @@ LayoutMargin LayoutMarginAbsent(void)
 
     margin.kind = RoboLayoutMarginAbsent;
     margin.length = 0;
+    margin.percentage = 0.0;
     return margin;
 }
 
@@ -65,6 +69,7 @@ LayoutMargin LayoutMarginResolved(GfxPixelX length)
 
     margin.kind = RoboLayoutMarginResolved;
     margin.length = length;
+    margin.percentage = 0.0;
     return margin;
 }
 
@@ -80,6 +85,7 @@ LayoutMargin LayoutMarginAuto(void)
      */
     margin.kind = RoboLayoutMarginAuto;
     margin.length = 0;
+    margin.percentage = 0.0;
     return margin;
 }
 
@@ -89,6 +95,17 @@ LayoutMargin LayoutMarginUnresolved(void)
 
     margin.kind = RoboLayoutMarginUnresolved;
     margin.length = 0;
+    margin.percentage = 0.0;
+    return margin;
+}
+
+LayoutMargin LayoutMarginPercentage(double percentage)
+{
+    LayoutMargin margin;
+
+    margin.kind = RoboLayoutMarginPercentage;
+    margin.length = 0;
+    margin.percentage = percentage;
     return margin;
 }
 
@@ -110,6 +127,19 @@ int LayoutMarginIsAbsent(const LayoutMargin *margin)
 int LayoutMarginIsUnresolved(const LayoutMargin *margin)
 {
     return margin && margin->kind == RoboLayoutMarginUnresolved;
+}
+
+int LayoutMarginIsPercentage(const LayoutMargin *margin)
+{
+    return margin && margin->kind == RoboLayoutMarginPercentage;
+}
+
+double LayoutMarginPercentageOf(const LayoutMargin *margin)
+{
+    if (!margin || margin->kind != RoboLayoutMarginPercentage) {
+        return 0.0;
+    }
+    return margin->percentage;
 }
 
 int LayoutMarginIsValid(const LayoutMargin *margin)
@@ -134,6 +164,16 @@ int LayoutMarginIsValid(const LayoutMargin *margin)
             magnitude = -magnitude;
         }
         return magnitude <= LAYOUT_STYLE_LENGTH_MAX;
+    }
+    if (margin->kind == RoboLayoutMarginPercentage) {
+        /* The magnitude is bounded by finiteness, and a percentage is signed in both
+         * directions exactly as a length is: `margin: -5%` pulls. */
+        double magnitude = margin->percentage;
+
+        if (magnitude < 0.0) {
+            magnitude = -magnitude;
+        }
+        return magnitude <= LAYOUT_STYLE_PERCENT_MAX;
     }
     return 1;
 }
@@ -161,6 +201,9 @@ int LayoutMarginEqual(const LayoutMargin *a, const LayoutMargin *b)
     }
     if (a->kind != b->kind) {
         return 0;
+    }
+    if (a->kind == RoboLayoutMarginPercentage) {
+        return a->percentage == b->percentage;
     }
     if (a->kind != RoboLayoutMarginResolved) {
         return 1;
@@ -215,6 +258,10 @@ static LayoutMargin LayoutMarginForKind(LayoutStyleValueKind kind,
         return LayoutMarginResolved(LayoutPxRound(number));
     case LAYOUT_STYLE_VALUE_AUTO:
         return LayoutMarginAuto();
+    case LAYOUT_STYLE_VALUE_PERCENT:
+        /* A percentage keeps its magnitude (19.2); the *resolution* happens in the
+         * policy, which is the one that is handed a containing width. */
+        return LayoutMarginPercentage(number);
     case LAYOUT_STYLE_VALUE_UNUSABLE:
         return LayoutMarginUnresolved();
     case LAYOUT_STYLE_VALUE_ABSENT:
@@ -377,6 +424,7 @@ Result LayoutMarginEdgesOuterWidth(const LayoutMarginEdges *edges,
  * distribute against.
  */
 static void LayoutMarginsUseNonAuto(const LayoutMargins *margins,
+                                        int32_t containingWidth,
                                         LayoutMarginEdges *out)
 {
     const LayoutMargin *sides[RoboCssBoxSideCount];
@@ -397,6 +445,19 @@ static void LayoutMarginsUseNonAuto(const LayoutMargins *margins,
         switch (sides[index]->kind) {
         case RoboLayoutMarginResolved:
             *used[index] = sides[index]->length;
+            out->resolved++;
+            break;
+        case RoboLayoutMarginPercentage:
+            /*
+             * A percentage resolves against the containing block's **width** for every
+             * side (19.2) -- including the vertical ones, which is CSS's rule and the
+             * reason a percentage margin is resolved here rather than in 10.8's layer.
+             * Rounded once, half away from zero, and signed: `margin: -5%` pulls. It is
+             * counted as *resolved*, because a percentage this build used is a margin
+             * that reached geometry rather than one it could not read.
+             */
+            *used[index] = LayoutPxRound(sides[index]->percentage / 100.0 *
+                                         (double)containingWidth);
             out->resolved++;
             break;
         case RoboLayoutMarginAbsent:
@@ -456,7 +517,7 @@ Result LayoutMarginsResolveBlock(const LayoutMargins *margins,
     }
 
     LayoutMarginEdgesInit(&edges, containingWidth);
-    LayoutMarginsUseNonAuto(margins, &edges);
+    LayoutMarginsUseNonAuto(margins, containingWidth, &edges);
 
     leftAuto = LayoutMarginIsAuto(&margins->left);
     rightAuto = LayoutMarginIsAuto(&margins->right);
@@ -530,7 +591,7 @@ Result LayoutMarginsResolveInline(const LayoutMargins *margins,
     }
 
     LayoutMarginEdgesInit(&edges, containingWidth);
-    LayoutMarginsUseNonAuto(margins, &edges);
+    LayoutMarginsUseNonAuto(margins, containingWidth, &edges);
 
     /*
      * Every `auto` is already zero, and that is the policy rather than an omission:

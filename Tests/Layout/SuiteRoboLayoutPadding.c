@@ -517,7 +517,7 @@ static void TestPaddingsKindVocabulary(void)
 
     LayoutFixture();
 
-    RoboCheckEqInt((int)RoboLayoutPaddingKindCount, 3);
+    RoboCheckEqInt((int)RoboLayoutPaddingKindCount, 4);
     /*
      * The zero of the vocabulary is `ABSENT`, and that is a decision rather than a
      * numbering accident: a cleared record then holds the side's *initial state*, so a
@@ -526,6 +526,8 @@ static void TestPaddingsKindVocabulary(void)
     RoboCheckEqInt((int)RoboLayoutPaddingAbsent, 0);
     RoboCheckEqInt((int)RoboLayoutPaddingResolved, 1);
     RoboCheckEqInt((int)RoboLayoutPaddingUnresolved, 2);
+    /* 19.2's kind, before `unknown`. */
+    RoboCheckEqInt((int)RoboLayoutPaddingPercentage, 3);
 
     for (index = 0u; index < RoboLayoutPaddingKindCount; index++) {
         LayoutPaddingKind kind = (LayoutPaddingKind)index;
@@ -533,13 +535,15 @@ static void TestPaddingsKindVocabulary(void)
         RoboCheckEqInt(LayoutPaddingKindIsKnown(kind), 1);
         RoboCheck(LayoutPaddingKindName(kind) != NULL);
     }
-    RoboCheckEqInt(LayoutPaddingKindIsKnown((LayoutPaddingKind)3), 0);
+    RoboCheckEqInt(LayoutPaddingKindIsKnown((LayoutPaddingKind)4), 0);
     RoboCheckEqInt(LayoutPaddingKindIsKnown((LayoutPaddingKind)77), 0);
     RoboCheckStrEq(LayoutPaddingKindName(RoboLayoutPaddingAbsent), "absent");
     RoboCheckStrEq(LayoutPaddingKindName(RoboLayoutPaddingResolved), "resolved");
     RoboCheckStrEq(LayoutPaddingKindName(RoboLayoutPaddingUnresolved),
                       "unresolved");
-    RoboCheckStrEq(LayoutPaddingKindName((LayoutPaddingKind)3), "unknown");
+    RoboCheckStrEq(LayoutPaddingKindName(RoboLayoutPaddingPercentage),
+                      "percentage");
+    RoboCheckStrEq(LayoutPaddingKindName((LayoutPaddingKind)4), "unknown");
     RoboCheck(LayoutPaddingKindName((LayoutPaddingKind)77) != NULL);
 }
 
@@ -742,11 +746,16 @@ static void TestPaddingsSeam(void)
      * `ABSENT` kind exists for. */
     RoboCheckEqInt(LayoutPaddingIsResolved(&paddings.right), 1);
     RoboCheckEqInt(paddings.right.length, 0);
-    RoboCheckEqInt(LayoutPaddingIsUnresolved(&paddings.bottom), 1);
+    /* A `padding-bottom: 5%` since 19.2 keeps its magnitude; `left`'s `em` is still
+     * `UNRESOLVED`, because relative units are not this phase's. */
+    RoboCheckEqInt(LayoutPaddingIsPercentage(&paddings.bottom), 1);
+    RoboCheckEqInt((int)LayoutPaddingPercentageOf(&paddings.bottom), 5);
     RoboCheckEqInt(LayoutPaddingIsUnresolved(&paddings.left), 1);
 
-    RoboCheckEqInt(LayoutPaddingResolve(&paddings, &edges, NULL), RoboOk);
-    LayoutPaddingExpectEdges(&edges, 10, 0, 0, 0, 2u, 2u);
+    RoboCheckEqInt(LayoutPaddingResolve(&paddings, 200, &edges, NULL), RoboOk);
+    /* 5% of the 200px containing width is 10, on the bottom; the `em` is still zero
+     * and counted. */
+    LayoutPaddingExpectEdges(&edges, 10, 0, 10, 0, 3u, 1u);
 
     CssComputedStyleDestroy(style);
 
@@ -779,7 +788,7 @@ static void TestPaddingsSeam(void)
      * value is not editing the document. */
     RoboCheckEqInt(LayoutPaddingEntryPx(style, "padding-bottom"), -6);
 
-    RoboCheckEqInt(LayoutPaddingResolve(&paddings, &edges, NULL), RoboOk);
+    RoboCheckEqInt(LayoutPaddingResolve(&paddings, 200, &edges, NULL), RoboOk);
     LayoutPaddingExpectEdges(&edges, 0, 0, 0, 8, 1u, 3u);
 
     CssComputedStyleDestroy(style);
@@ -793,7 +802,7 @@ static void TestPaddingsSeam(void)
     RoboCheckEqInt(LayoutPaddingIsAbsent(&paddings.right), 1);
     RoboCheckEqInt(LayoutPaddingIsAbsent(&paddings.bottom), 1);
     RoboCheckEqInt(LayoutPaddingIsAbsent(&paddings.left), 1);
-    RoboCheckEqInt(LayoutPaddingResolve(&paddings, &edges, NULL), RoboOk);
+    RoboCheckEqInt(LayoutPaddingResolve(&paddings, 200, &edges, NULL), RoboOk);
     LayoutPaddingExpectEdges(&edges, 0, 0, 0, 0, 0u, 0u);
     CssComputedStyleDestroy(style);
 
@@ -871,19 +880,19 @@ static void TestPaddingsEdgesRecord(void)
      * by the counters -- which is what makes the counters the honest part of the record.
      */
     paddings = LayoutPaddingQuad(1, 2, 3, 4);
-    RoboCheckEqInt(LayoutPaddingResolve(&paddings, &edges, NULL), RoboOk);
+    RoboCheckEqInt(LayoutPaddingResolve(&paddings, 200, &edges, NULL), RoboOk);
     LayoutPaddingExpectEdges(&edges, 1, 2, 3, 4, 4u, 0u);
 
     paddings = LayoutPaddingQuad(1, 2, 3, 4);
     paddings.bottom = LayoutPaddingAbsent();
     paddings.left = LayoutPaddingUnresolved();
-    RoboCheckEqInt(LayoutPaddingResolve(&paddings, &edges, NULL), RoboOk);
+    RoboCheckEqInt(LayoutPaddingResolve(&paddings, 200, &edges, NULL), RoboOk);
     LayoutPaddingExpectEdges(&edges, 1, 2, 0, 0, 2u, 1u);
 
     /* Refusals: the argument boundary, and nothing else -- this function cannot fail on a
      * document, because every declaration has a stated answer. */
-    RoboCheckEqInt(LayoutPaddingResolve(NULL, &edges, NULL), RoboInvalidArgument);
-    RoboCheckEqInt(LayoutPaddingResolve(&paddings, NULL, NULL),
+    RoboCheckEqInt(LayoutPaddingResolve(NULL, 200, &edges, NULL), RoboInvalidArgument);
+    RoboCheckEqInt(LayoutPaddingResolve(&paddings, 200, NULL, NULL),
                       RoboInvalidArgument);
 }
 
@@ -1320,10 +1329,11 @@ static void TestPaddingsBlockUnresolved(void)
 
     /*
      * A document with declarations this build cannot use, which is a document and not a
-     * failure: `padding-left: 5%`, a relative unit, and the `auto` the grammar does not
-     * allow for this property. All three are used as **zero** and *counted*, so the box
-     * lays out flush and the numbers say so -- which is the alternative to an author's `5%`
-     * being silently a confident zero nobody can see.
+     * failure: a relative unit and the `auto` the grammar does not allow for this
+     * property. Both are used as **zero** and *counted*. Since 19.2 the `padding-left:
+     * 5%` on the same box **does** resolve -- against the containing block's width -- so
+     * it is no longer in that group, and the case now proves the two facts side by side:
+     * one declaration this build resolves and two it does not.
      */
     LayoutPaddingRuleInit(&htmlRule, "html", RoboCssDisplayBlock);
     LayoutPaddingRuleInit(&bodyRule, "body", RoboCssDisplayBlock);
@@ -1342,15 +1352,17 @@ static void TestPaddingsBlockUnresolved(void)
     LayoutPaddingPass(&fixture, LAYOUT_PADDING_VIEWPORT_WIDTH, &stats);
 
     edges = LayoutPaddingEdgesOf(&fixture, LayoutPaddingBoxFor(&fixture, "div"));
-    LayoutPaddingExpectEdges(&edges, 0, 2, 0, 0, 1u, 3u);
+    /* right 2 and left 5% (of the 800px containing width) resolved; the `em` and the
+     * `auto` used as zero and counted. */
+    LayoutPaddingExpectEdges(&edges, 0, 2, 0, 40, 2u, 2u);
 
-    /* The one usable side reaches the size and the three unusable ones do not: 100 + 2. */
+    /* The two usable sides reach the size and the two unusable ones do not: 100 + 40 + 2. */
     size = LayoutPaddingSizeOf(&fixture, LayoutPaddingBoxFor(&fixture, "div"));
-    RoboCheckEqInt(size.width, 102);
+    RoboCheckEqInt(size.width, 142);
     RoboCheckEqInt(size.height, 10);
 
-    RoboCheckEqInt(stats.block.paddingsApplied, 1u);
-    RoboCheckEqInt(stats.block.paddingsUnresolved, 3u);
+    RoboCheckEqInt(stats.block.paddingsApplied, 2u);
+    RoboCheckEqInt(stats.block.paddingsUnresolved, 2u);
 
     LayoutPaddingEnd(&fixture);
 }

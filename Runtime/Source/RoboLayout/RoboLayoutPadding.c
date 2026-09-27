@@ -28,7 +28,8 @@
 int LayoutPaddingKindIsKnown(LayoutPaddingKind kind)
 {
     return kind == RoboLayoutPaddingAbsent || kind == RoboLayoutPaddingResolved ||
-           kind == RoboLayoutPaddingUnresolved;
+           kind == RoboLayoutPaddingUnresolved ||
+           kind == RoboLayoutPaddingPercentage;
 }
 
 const char *LayoutPaddingKindName(LayoutPaddingKind kind)
@@ -40,6 +41,8 @@ const char *LayoutPaddingKindName(LayoutPaddingKind kind)
         return "resolved";
     case RoboLayoutPaddingUnresolved:
         return "unresolved";
+    case RoboLayoutPaddingPercentage:
+        return "percentage";
     default:
         break;
     }
@@ -57,6 +60,7 @@ LayoutPadding LayoutPaddingAbsent(void)
 
     padding.kind = RoboLayoutPaddingAbsent;
     padding.length = 0;
+    padding.percentage = 0.0;
     return padding;
 }
 
@@ -66,6 +70,7 @@ LayoutPadding LayoutPaddingResolved(GfxPixelX length)
 
     padding.kind = RoboLayoutPaddingResolved;
     padding.length = length;
+    padding.percentage = 0.0;
     return padding;
 }
 
@@ -79,6 +84,17 @@ LayoutPadding LayoutPaddingUnresolved(void)
      * padding a way to change it. */
     padding.kind = RoboLayoutPaddingUnresolved;
     padding.length = 0;
+    padding.percentage = 0.0;
+    return padding;
+}
+
+LayoutPadding LayoutPaddingPercentage(double percentage)
+{
+    LayoutPadding padding;
+
+    padding.kind = RoboLayoutPaddingPercentage;
+    padding.length = 0;
+    padding.percentage = percentage;
     return padding;
 }
 
@@ -95,6 +111,19 @@ int LayoutPaddingIsAbsent(const LayoutPadding *padding)
 int LayoutPaddingIsUnresolved(const LayoutPadding *padding)
 {
     return padding && padding->kind == RoboLayoutPaddingUnresolved;
+}
+
+int LayoutPaddingIsPercentage(const LayoutPadding *padding)
+{
+    return padding && padding->kind == RoboLayoutPaddingPercentage;
+}
+
+double LayoutPaddingPercentageOf(const LayoutPadding *padding)
+{
+    if (!padding || padding->kind != RoboLayoutPaddingPercentage) {
+        return 0.0;
+    }
+    return padding->percentage;
 }
 
 int LayoutPaddingIsValid(const LayoutPadding *padding)
@@ -122,6 +151,12 @@ int LayoutPaddingIsValid(const LayoutPadding *padding)
         double value = (double)padding->length;
 
         return value >= 0.0 && value <= LAYOUT_STYLE_LENGTH_MAX;
+    }
+    if (padding->kind == RoboLayoutPaddingPercentage) {
+        /* The same non-negativity a length has, applied to the magnitude: a padding is
+         * a distance inward, so a negative percentage is not a small padding. */
+        return padding->percentage >= 0.0 &&
+               padding->percentage <= LAYOUT_STYLE_PERCENT_MAX;
     }
     return 1;
 }
@@ -151,6 +186,9 @@ int LayoutPaddingEqual(const LayoutPadding *a,
     }
     if (a->kind != b->kind) {
         return 0;
+    }
+    if (a->kind == RoboLayoutPaddingPercentage) {
+        return a->percentage == b->percentage;
     }
     if (a->kind != RoboLayoutPaddingResolved) {
         return 1;
@@ -209,6 +247,13 @@ static LayoutPadding LayoutPaddingForKind(LayoutStyleValueKind kind,
          * rounding is the only thing that matters: `padding: 10.5px` is 11, which is what
          * a browser does with it too. */
         return LayoutPaddingResolved(LayoutPxRound(number));
+    case LAYOUT_STYLE_VALUE_PERCENT:
+        /* A percentage keeps its magnitude (19.2); a *negative* one is not a padding,
+         * so it is `UNRESOLVED` -- the same answer a negative length gets, and the
+         * non-negativity the classification's `allowNegative` cannot express for a
+         * percentage because the classification's sign rule is about lengths. */
+        return number < 0.0 ? LayoutPaddingUnresolved()
+                            : LayoutPaddingPercentage(number);
     case LAYOUT_STYLE_VALUE_UNUSABLE:
     case LAYOUT_STYLE_VALUE_AUTO:
     default:
@@ -441,6 +486,7 @@ Result LayoutPaddingEdgesPaddingBox(const LayoutPaddingEdges *edges,
 /* ------------------------------------------------------------------ */
 
 Result LayoutPaddingResolve(const LayoutPaddings *paddings,
+                                          int32_t containingWidth,
                                           LayoutPaddingEdges *out,
                                           LayoutDiag *diag)
 {
@@ -475,6 +521,17 @@ Result LayoutPaddingResolve(const LayoutPaddings *paddings,
             /* Zero, and **counted nowhere**: the initial value is what the geometry uses,
              * and the counters are about declarations. This is the branch 10.9 had to add
              * a kind for, and it is the only place the distinction survives. */
+            break;
+        case RoboLayoutPaddingPercentage:
+            /*
+             * A percentage resolves against the containing block's **width** for every
+             * side (19.2), vertical ones included -- CSS's rule, and the reason a
+             * `padding: 10%` on all four sides of a 200px-wide box is 20 on each.
+             * Rounded once, half away from zero; non-negative by the reader.
+             */
+            *used[index] = LayoutPxRound(sides[index]->percentage / 100.0 *
+                                         (double)containingWidth);
+            edges.resolved++;
             break;
         case RoboLayoutPaddingUnresolved:
         default:

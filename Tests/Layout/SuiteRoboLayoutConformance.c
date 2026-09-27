@@ -77,6 +77,7 @@ static const struct {
     { "invalidation", 1 },
     { "font_request", 1 },
     { "intrinsic_sizing", 1 },
+    { "percentage_resolution", 1 },
     { "painting", 0 }
 };
 
@@ -104,11 +105,11 @@ static void TestConformanceCapabilities(void)
             implemented++;
         }
     }
-    /* Twenty-four of twenty-five. Asserted as a count as well as field by field, so a build
+    /* Twenty-five of twenty-six. Asserted as a count as well as field by field, so a build
      * that turned one on and one off at the same time -- which field-by-field would
      * still catch, but a reader would have to diff to see -- is visible at a
-     * glance. The twenty-fifth is `painting`, and it is the only one that is 0. */
-    RoboCheckEqInt(implemented, 24u);
+     * glance. The twenty-sixth is `painting`, and it is the only one that is 0. */
+    RoboCheckEqInt(implemented, 25u);
 
     /*
      * The four that matter are the direction pair, the field that names both, and
@@ -172,10 +173,11 @@ static void TestConformanceCapabilities(void)
     /*
      * And `sizing`, the field 10.7's prose left for the goal that would make a
      * declaration *mean* something. Read from its own macro like the three above it,
-     * and the boundary is asserted where a reader will meet it: percentages are read
-     * and recorded as `UNRESOLVED` but are not resolved against a containing
-     * *dimension*, and intrinsic sizing does not exist -- so this is not "sizing is
-     * finished", it is "a declared px width and height reach geometry".
+     * and the boundary is asserted where a reader will meet it: a declared px width and
+     * height reach geometry, an intrinsic keyword resolves from a measurement (19.1) and
+     * a percentage resolves against the containing block a pass hands over (19.2) -- so
+     * this is not "sizing is finished", it is "a dimension declaration reaches
+     * geometry".
      */
     RoboCheckEqInt(caps.sizing, 1);
     RoboCheckEqInt(RoboLayoutSizingImplemented, 1);
@@ -196,9 +198,10 @@ static void TestConformanceCapabilities(void)
      * And `padding`, the field 10.10 added, with its boundary stated where a reader
      * meets it: a padding reaches geometry -- a box's `size` is its **border** box and
      * its contents begin `padding-left`/`padding-top` inside that -- while this build is
-     * `box-sizing: content-box` (a declared `width` is the *content* box), percentage
-     * padding is read and used as zero, and no padding applies to a transparent inline
-     * box. `padding` would be claiming those if it were named for "padding is finished".
+     * `box-sizing: content-box` (a declared `width` is the *content* box), a percentage
+     * padding resolves against the containing block's width (19.2), and no padding
+     * applies to a transparent inline box. `padding` would be claiming those if it were
+     * named for "padding is finished".
      */
     RoboCheckEqInt(caps.padding, 1);
     RoboCheckEqInt(RoboLayoutPaddingImplemented, 1);
@@ -1109,7 +1112,7 @@ static void TestConformanceStatement(void)
      * the build claiming it does not.
      */
     RoboCheckEqInt(LayoutGeometryIsImplemented(), 1);
-    RoboCheckStrEq(LayoutVersionString(), "0.18.0");
+    RoboCheckStrEq(LayoutVersionString(), "0.19.0");
     RoboCheckEqInt(RoboLayoutApiFrozen, 0);
 
     /*

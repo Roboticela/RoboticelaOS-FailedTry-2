@@ -578,7 +578,8 @@ static Result LayoutInlinePlaceLeaf(LayoutWalk *walk,
             return sizingStatus;
         }
         declaredPadding = LayoutPaddingsOf(object->style);
-        sizingStatus = LayoutPaddingResolve(&declaredPadding, &padding, walk->diag);
+        sizingStatus = LayoutPaddingResolve(&declaredPadding, flow->availableWidth,
+                                            &padding, walk->diag);
         if (sizingStatus != RoboOk) {
             return sizingStatus;
         }
@@ -606,7 +607,8 @@ static Result LayoutInlinePlaceLeaf(LayoutWalk *walk,
          * margins, the border **and the padding**, because CSS's constraint equation has
          * every term however the box participates.
          */
-        LayoutObjectSizing(&sizing, object, contentAvailable);
+        LayoutObjectSizing(&sizing, object, contentAvailable, flow->availableWidth,
+                           /* hasPercentHeightBase */ 0, 0);
 
         /*
          * The width, then the contents, then the height -- the two-phase shape the
@@ -716,8 +718,13 @@ static Result LayoutInlinePlaceLeaf(LayoutWalk *walk,
          * the doors say so rather than answering a zero (`RoboLayoutPosition.h`).
          */
         declaredPosition = LayoutPositionOf(object->style);
-        sizingStatus = LayoutPositionResolve(&declaredPosition, &positionOffset,
-                                                     walk->diag);
+        /* An atomic inline resolves a percentage inset against the line's available width
+         * (19.2) -- the containing block's content width in this flow -- and has no
+         * indefinite height base, so a block-axis percentage degrades to `UNRESOLVED`. */
+        sizingStatus = LayoutPositionResolveAgainst(&declaredPosition,
+                                                    flow->availableWidth, 1,
+                                                    (GfxPixelY)0, 0,
+                                                    &positionOffset, walk->diag);
         if (sizingStatus != RoboOk) {
             return sizingStatus;
         }

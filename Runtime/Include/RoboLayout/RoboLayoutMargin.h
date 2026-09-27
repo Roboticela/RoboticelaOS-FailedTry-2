@@ -132,11 +132,15 @@ typedef enum LayoutMarginKind {
     /** The keyword `auto`. Distributes on a block-level box's horizontal sides. */
     RoboLayoutMarginAuto = 2,
     /** Declared, and not a value this build can use: a percentage, a relative unit. */
-    RoboLayoutMarginUnresolved = 3
+    RoboLayoutMarginUnresolved = 3,
+    /** A percentage (19.2), its magnitude in @ref LayoutMargin::percentage. Resolves
+     *  against the containing block's **width** for every side, which is CSS's rule
+     *  and the one asymmetry a margin has against a box dimension. */
+    RoboLayoutMarginPercentage = 4
 } LayoutMarginKind;
 
 /** Number of defined margin kinds. */
-#define RoboLayoutMarginKindCount 4u
+#define RoboLayoutMarginKindCount 5u
 
 /** Non-zero when @p kind is one of the three above. */
 int LayoutMarginKindIsKnown(LayoutMarginKind kind);
@@ -165,6 +169,9 @@ typedef struct LayoutMargin {
      * width* that is floored, once, at the end.
      */
     GfxPixelX length;
+    /** The magnitude, when @c kind is PERCENTAGE (`5.0` for `5%`). Undefined
+     *  otherwise; `0.0` in a cleared record. */
+    double percentage;
 } LayoutMargin;
 
 /**
@@ -208,6 +215,10 @@ LayoutMargin LayoutMarginAuto(void);
 /** A declaration this build cannot use: a percentage, a relative unit. */
 LayoutMargin LayoutMarginUnresolved(void);
 
+/** A `PERCENTAGE` margin (19.2): @p percentage is the magnitude, so `5.0` is `5%`.
+ *  A negative magnitude is legal -- `margin: -5%` pulls -- as it is for a length. */
+LayoutMargin LayoutMarginPercentage(double percentage);
+
 /** Non-zero when @p margin is the `auto` kind. */
 int LayoutMarginIsAuto(const LayoutMargin *margin);
 
@@ -219,6 +230,13 @@ int LayoutMarginIsAbsent(const LayoutMargin *margin);
 
 /** Non-zero when @p margin is a declaration this build cannot use. */
 int LayoutMarginIsUnresolved(const LayoutMargin *margin);
+
+/** Non-zero when @p margin is a percentage. */
+int LayoutMarginIsPercentage(const LayoutMargin *margin);
+
+/** The magnitude of a `PERCENTAGE` @p margin (`5.0` for `5%`), or 0.0 for NULL or a
+ *  margin of another kind. */
+double LayoutMarginPercentageOf(const LayoutMargin *margin);
 
 /**
  * Non-zero when @p margin is one of the three kinds with a length this build can put

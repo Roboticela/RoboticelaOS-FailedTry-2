@@ -431,7 +431,8 @@ static void TestMarginsKindVocabulary(void)
     kinds[1] = RoboLayoutMarginAuto;
     kinds[2] = RoboLayoutMarginResolved;
     kinds[3] = RoboLayoutMarginUnresolved;
-    RoboCheckEqInt(RoboLayoutMarginKindCount, 4u);
+    kinds[4] = RoboLayoutMarginPercentage;
+    RoboCheckEqInt(RoboLayoutMarginKindCount, 5u);
 
     memset(seen, 0, sizeof(seen));
     for (index = 0u; index < RoboLayoutMarginKindCount; index++) {
@@ -456,8 +457,10 @@ static void TestMarginsKindVocabulary(void)
     RoboCheckStrEq(LayoutMarginKindName(RoboLayoutMarginResolved), "resolved");
     RoboCheckStrEq(LayoutMarginKindName(RoboLayoutMarginUnresolved),
                       "unresolved");
+    RoboCheckStrEq(LayoutMarginKindName(RoboLayoutMarginPercentage),
+                      "percentage");
     RoboCheckStrEq(LayoutMarginKindName((LayoutMarginKind)7), "unknown");
-    RoboCheckEqInt(LayoutMarginKindIsKnown((LayoutMarginKind)4), 0);
+    RoboCheckEqInt(LayoutMarginKindIsKnown((LayoutMarginKind)5), 0);
     RoboCheckEqInt(LayoutMarginKindIsKnown((LayoutMarginKind)99), 0);
 }
 
@@ -656,7 +659,7 @@ static void TestMarginsSeam(void)
     LayoutMarginRuleInit(&divRule, "div", RoboCssDisplayBlock);
     LayoutMarginRulePx(&divRule, "margin-top", -5.0);
     LayoutMarginRuleAuto(&divRule, "margin-right");
-    LayoutMarginRulePercentage(&divRule, "margin-bottom", 25.0);
+    LayoutMarginRulePercentage(&divRule, "margin-bottom", 5.0);
     LayoutMarginRulePx(&divRule, "margin-left", 12.0);
 
     /* A relative unit is a declaration this build cannot use, and it is *not* the same
@@ -686,7 +689,10 @@ static void TestMarginsSeam(void)
     RoboCheckEqInt((int)margins.top.kind, (int)RoboLayoutMarginResolved);
     RoboCheckEqInt(margins.top.length, -5);
     RoboCheckEqInt((int)margins.right.kind, (int)RoboLayoutMarginAuto);
-    RoboCheckEqInt((int)margins.bottom.kind, (int)RoboLayoutMarginUnresolved);
+    /* A `margin-bottom: 5%` since 19.2 keeps its magnitude rather than being
+     * `UNRESOLVED`; the *resolution* happens in the policy, which has the width. */
+    RoboCheckEqInt((int)margins.bottom.kind, (int)RoboLayoutMarginPercentage);
+    RoboCheckEqInt((int)LayoutMarginPercentageOf(&margins.bottom), 5);
     RoboCheckEqInt((int)margins.left.kind, (int)RoboLayoutMarginResolved);
     RoboCheckEqInt(margins.left.length, 12);
     RoboCheckEqInt(LayoutMarginsIsValid(&margins), 1);

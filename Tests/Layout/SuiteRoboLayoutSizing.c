@@ -411,8 +411,11 @@ static void TestSizingVocabulary(void)
     /* 19.1's kind: a `width: max-content` is neither a px length nor "nothing settled
      * this", it is a request to measure the contents, so it is a fourth kind. */
     RoboCheckEqInt(LayoutDimensionKindIsKnown(RoboLayoutDimensionIntrinsic), 1);
+    /* 19.2's kind: a `width: 50%` is resolvable against a containing dimension, so it
+     * is a fifth kind rather than another `UNRESOLVED`. */
+    RoboCheckEqInt(LayoutDimensionKindIsKnown(RoboLayoutDimensionPercentage), 1);
     RoboCheckEqInt(LayoutDimensionKindIsKnown((LayoutDimensionKind)9), 0);
-    RoboCheckEqInt((int)RoboLayoutDimensionKindCount, 4);
+    RoboCheckEqInt((int)RoboLayoutDimensionKindCount, 5);
 
     RoboCheckEqInt(LayoutDimensionSourceIsKnown(RoboLayoutDimensionSourceNone),
                       1);
@@ -426,9 +429,13 @@ static void TestSizingVocabulary(void)
      * size, which is a fourth question the same number can answer. */
     RoboCheckEqInt(
         LayoutDimensionSourceIsKnown(RoboLayoutDimensionSourceIntrinsic), 1);
+    /* 19.2's source: a percentage's number came from the containing block's content
+     * dimension, which is a fifth question the same number can answer. */
+    RoboCheckEqInt(
+        LayoutDimensionSourceIsKnown(RoboLayoutDimensionSourcePercentage), 1);
     RoboCheckEqInt(LayoutDimensionSourceIsKnown((LayoutDimensionSource)9),
                       0);
-    RoboCheckEqInt((int)RoboLayoutDimensionSourceCount, 5);
+    RoboCheckEqInt((int)RoboLayoutDimensionSourceCount, 6);
 
     RoboCheckStrEq(LayoutDimensionSourceName(RoboLayoutDimensionSourceNone),
                       "none");
@@ -440,6 +447,8 @@ static void TestSizingVocabulary(void)
                       "content");
     RoboCheckStrEq(LayoutDimensionSourceName(RoboLayoutDimensionSourceIntrinsic),
                       "intrinsic");
+    RoboCheckStrEq(LayoutDimensionSourceName(RoboLayoutDimensionSourcePercentage),
+                      "percentage");
     RoboCheckStrEq(LayoutDimensionSourceName((LayoutDimensionSource)77),
                       "unknown");
     RoboCheckEqInt(LayoutDimensionSourceEqual(RoboLayoutDimensionSourceDeclared,
@@ -1010,10 +1019,14 @@ static void TestSizingSeam(void)
     RoboCheckEqInt(LayoutDimensionLength(&dimension, &length), RoboOk);
     RoboCheckEqInt(length, 11);
 
-    /* A percentage and a relative unit: `UNRESOLVED`, which is the kind that will
-     * change when a containing dimension is known. */
+    /* Since 19.2 a percentage is its own kind: resolvable against a containing
+     * dimension this reader does not have, so it carries the magnitude raw. */
     RoboCheckEqInt(LayoutSizingReadDimension(percent, "width", &dimension), 1);
-    RoboCheckEqInt(LayoutDimensionIsUnresolved(&dimension), 1);
+    RoboCheckEqInt(LayoutDimensionIsPercentage(&dimension), 1);
+    RoboCheckEqInt((int)LayoutDimensionPercentageOf(&dimension), 50);
+    RoboCheckEqInt(LayoutDimensionIsUnresolved(&dimension), 0);
+    /* A relative unit is still `UNRESOLVED`: this build cannot resolve an `em`, and the
+     * phase that owns percentages does not own relative units. */
     RoboCheckEqInt(LayoutSizingReadDimension(em, "width", &dimension), 1);
     RoboCheckEqInt(LayoutDimensionIsUnresolved(&dimension), 1);
 
@@ -1137,7 +1150,7 @@ static void TestSizingBlockAutoWidth(void)
  * `50%` into `auto` at the seam would produce the same 300px box here and be wrong
  * about the document.
  */
-static void TestSizingBlockUnresolvedWidth(void)
+static void TestSizingBlockPercentageWidth(void)
 {
     LayoutSizingFixture fixture;
     LayoutSizingRule rules[3];
@@ -1154,16 +1167,27 @@ static void TestSizingBlockUnresolvedWidth(void)
     LayoutSizingBegin(&fixture, "<html><body><div></div></body></html>", rules, 3u);
     LayoutSizingPass(&fixture, 300, NULL, &stats);
 
-    /* The seam's answer, on the very style the pass used. */
+    /*
+     * The seam's answer, on the very style the pass used: since 19.2 a `width: 50%`
+     * reads as a `PERCENTAGE` dimension carrying its magnitude, not as `UNRESOLVED`.
+     * The case is the one 10.8 wrote to be *changed* by this phase, which is why its
+     * name moved from `block_unresolved_width` to `block_percentage_width`.
+     */
     style = fixture.source.rules[2].style;
     RoboCheckEqInt(LayoutSizingReadDimension(style, "width", &dimension), 1);
-    RoboCheckEqInt(LayoutDimensionIsUnresolved(&dimension), 1);
+    RoboCheckEqInt(LayoutDimensionIsPercentage(&dimension), 1);
     RoboCheckEqInt(LayoutDimensionIsAuto(&dimension), 0);
+    RoboCheckEqInt(LayoutDimensionIsUnresolved(&dimension), 0);
 
-    /* And the pass's: the containing block's width, counted as a *filled* width
-     * rather than a declared one, because that is what it is. */
+    /*
+     * And the pass's: **half the containing block's content width**. The viewport is
+     * 300 and the two block ancestors are `auto`, so the `div`'s containing block is
+     * 300 and its width is 150 -- where a build that folded the percentage into `auto`
+     * would answer 300. It is counted as a *filled* width (the block pass counts by
+     * source, and a percentage's source is `PERCENTAGE`, not `DECLARED`).
+     */
     size = LayoutSizingSizeOf(&fixture, LayoutSizingBoxFor(&fixture, "div"));
-    RoboCheckEqInt(size.width, 300);
+    RoboCheckEqInt(size.width, 150);
     RoboCheckEqInt(stats.block.widthsDeclared, 0u);
     RoboCheckEqInt(stats.block.widthsFilled, 3u);
 
@@ -1444,6 +1468,252 @@ static void TestSizingAllocatorBalance(void)
 }
 
 /* ------------------------------------------------------------------ */
+/* Percentage resolution (Phase 19.2) -- layout.percentage.*             */
+/* ------------------------------------------------------------------ */
+
+/**
+ * The record's percentage doors and the two resolvers, driven directly.
+ *
+ * No pass here: a percentage resolves from two inputs -- the declaration and the
+ * containing block's content dimension -- and the point of the case is that the
+ * *arithmetic* is the layer's, so the layer is asked without a document.
+ */
+static void TestPercentageRecord(void)
+{
+    LayoutSizing sizing;
+    LayoutDimension dim;
+    LayoutDimension other;
+    GfxPixelX width = 0;
+    GfxPixelY height = 0;
+
+    LayoutFixture();
+
+    /* The dimension vocabulary. */
+    dim = LayoutDimensionPercentage(50.0);
+    RoboCheckEqInt(LayoutDimensionIsPercentage(&dim), 1);
+    RoboCheckEqInt(LayoutDimensionIsAuto(&dim), 0);
+    RoboCheckEqInt(LayoutDimensionIsDefinite(&dim), 0);
+    RoboCheckEqInt(LayoutDimensionIsIntrinsic(&dim), 0);
+    RoboCheckEqInt(LayoutDimensionIsValid(&dim), 1);
+    RoboCheckEqInt((int)LayoutDimensionPercentageOf(&dim), 50);
+    other = LayoutDimensionPercentage(50.0);
+    RoboCheckEqInt(LayoutDimensionEqual(&dim, &other), 1);
+    other = LayoutDimensionPercentage(25.0);
+    RoboCheckEqInt(LayoutDimensionEqual(&dim, &other), 0);
+    /* A negative percentage is not a size, and a NaN is not a magnitude. */
+    other = LayoutDimensionPercentage(-1.0);
+    RoboCheckEqInt(LayoutDimensionIsValid(&other), 0);
+    RoboCheckEqInt(LayoutDimensionIsPercentage(NULL), 0);
+    RoboCheckEqInt(LayoutDimensionPercentageOf(NULL), 0.0);
+    RoboCheckStrEq(LayoutDimensionKindName(RoboLayoutDimensionPercentage),
+                      "percentage");
+
+    /* The bases, and the refusals. */
+    LayoutSizingInit(&sizing);
+    RoboCheckEqInt(LayoutSizingHasPercentageBaseWidth(&sizing), 0);
+    RoboCheckEqInt(LayoutSizingPercentageBaseWidth(&sizing, &width), RoboNotFound);
+    RoboCheckEqInt(LayoutSizingHasPercentageBaseHeight(&sizing), 0);
+    RoboCheckEqInt(LayoutSizingSetPercentageBaseWidth(&sizing, 400, NULL), RoboOk);
+    RoboCheckEqInt(LayoutSizingSetPercentageBaseHeight(&sizing, 200, NULL), RoboOk);
+    RoboCheckEqInt(LayoutSizingHasPercentageBaseWidth(&sizing), 1);
+    RoboCheckEqInt(LayoutSizingPercentageBaseWidth(&sizing, &width), RoboOk);
+    RoboCheckEqInt(width, 400);
+    RoboCheckEqInt(LayoutSizingPercentageBaseHeight(&sizing, &height), RoboOk);
+    RoboCheckEqInt(height, 200);
+    RoboCheckEqInt(LayoutSizingSetPercentageBaseWidth(&sizing, -1, NULL),
+                      RoboInvalidArgument);
+    RoboCheckEqInt(LayoutSizingSetPercentageBaseHeight(&sizing, -1, NULL),
+                      RoboInvalidArgument);
+    RoboCheckEqInt(LayoutSizingSetPercentageBaseWidth(NULL, 1, NULL),
+                      RoboInvalidArgument);
+
+    /* A width: 25% of 400 is 100, source PERCENTAGE. */
+    LayoutSizingInit(&sizing);
+    RoboCheckEqInt(LayoutSizingSetPercentageBaseWidth(&sizing, 400, NULL), RoboOk);
+    RoboCheckEqInt(LayoutSizingSetWidth(&sizing, LayoutDimensionPercentage(25.0),
+                                        NULL),
+                   RoboOk);
+    RoboCheckEqInt(LayoutSizingResolveWidth(&sizing, NULL), RoboOk);
+    RoboCheckEqInt(sizing.resolved.width, 100);
+    RoboCheckEqInt((int)sizing.widthSource,
+                   (int)RoboLayoutDimensionSourcePercentage);
+
+    /* A height: 50% of 200 is 100, source PERCENTAGE. */
+    LayoutSizingInit(&sizing);
+    RoboCheckEqInt(LayoutSizingSetPercentageBaseHeight(&sizing, 200, NULL), RoboOk);
+    RoboCheckEqInt(LayoutSizingSetHeight(&sizing, LayoutDimensionPercentage(50.0),
+                                         NULL),
+                   RoboOk);
+    RoboCheckEqInt(LayoutSizingResolveHeight(&sizing, NULL), RoboOk);
+    RoboCheckEqInt(sizing.resolved.height, 100);
+    RoboCheckEqInt((int)sizing.heightSource,
+                   (int)RoboLayoutDimensionSourcePercentage);
+
+    /* The rounding happens once, at the base: 33% of 100 is 33. */
+    LayoutSizingInit(&sizing);
+    RoboCheckEqInt(LayoutSizingSetPercentageBaseWidth(&sizing, 100, NULL), RoboOk);
+    RoboCheckEqInt(LayoutSizingSetWidth(&sizing, LayoutDimensionPercentage(33.0),
+                                        NULL),
+                   RoboOk);
+    RoboCheckEqInt(LayoutSizingResolveWidth(&sizing, NULL), RoboOk);
+    RoboCheckEqInt(sizing.resolved.width, 33);
+
+    /* No base: a percentage degrades to `auto` -- the containing block for a width,
+     * the contents' extent for a height -- rather than failing or inventing a zero. */
+    LayoutSizingInit(&sizing);
+    RoboCheckEqInt(LayoutSizingSetWidth(&sizing, LayoutDimensionPercentage(50.0),
+                                        NULL),
+                   RoboOk);
+    RoboCheckEqInt(LayoutSizingResolveWidth(&sizing, NULL), RoboNotFound);
+    RoboCheckEqInt(LayoutSizingSetAvailableWidth(&sizing, 300, NULL), RoboOk);
+    RoboCheckEqInt(LayoutSizingResolveWidth(&sizing, NULL), RoboOk);
+    RoboCheckEqInt(sizing.resolved.width, 300);
+    RoboCheckEqInt((int)sizing.widthSource,
+                   (int)RoboLayoutDimensionSourceAvailable);
+
+    LayoutSizingInit(&sizing);
+    RoboCheckEqInt(LayoutSizingSetHeight(&sizing, LayoutDimensionPercentage(50.0),
+                                         NULL),
+                   RoboOk);
+    {
+        LayoutSize content;
+
+        content.width = 0;
+        content.height = 40;
+        RoboCheckEqInt(LayoutSizingSetContent(&sizing, content, NULL), RoboOk);
+    }
+    RoboCheckEqInt(LayoutSizingResolveHeight(&sizing, NULL), RoboOk);
+    RoboCheckEqInt(sizing.resolved.height, 40);
+    RoboCheckEqInt((int)sizing.heightSource,
+                   (int)RoboLayoutDimensionSourceContent);
+}
+
+/** Two nested percentage widths: 50% of 50% of the viewport. */
+static void TestPercentageWidthNested(void)
+{
+    LayoutSizingFixture fixture;
+    LayoutSizingRule rules[4];
+    LayoutStats stats;
+    LayoutSize div;
+    LayoutSize section;
+
+    LayoutSizingRuleInit(&rules[0], "html", RoboCssDisplayBlock);
+    LayoutSizingRuleInit(&rules[1], "body", RoboCssDisplayBlock);
+    LayoutSizingRuleInit(&rules[2], "div", RoboCssDisplayBlock);
+    LayoutSizingRuleInit(&rules[3], "section", RoboCssDisplayBlock);
+    LayoutSizingRulePercentage(&rules[2], "width", 50.0);
+    LayoutSizingRulePercentage(&rules[3], "width", 50.0);
+
+    LayoutSizingBegin(&fixture,
+                      "<html><body><div><section></section></div></body></html>",
+                      rules, 4u);
+    LayoutSizingPass(&fixture, 300, NULL, &stats);
+
+    div = LayoutSizingSizeOf(&fixture, LayoutSizingBoxFor(&fixture, "div"));
+    section = LayoutSizingSizeOf(&fixture, LayoutSizingBoxFor(&fixture, "section"));
+    /* div is half of 300; section is half of the div's content box, which is 150. */
+    RoboCheckEqInt(div.width, 150);
+    RoboCheckEqInt(section.width, 75);
+
+    LayoutSizingEnd(&fixture);
+}
+
+/** `height: 100%` on the root resolves against the viewport (the initial CB). */
+static void TestPercentageHeightRoot(void)
+{
+    LayoutSizingFixture fixture;
+    LayoutSizingRule rules[2];
+    LayoutStats stats;
+    LayoutSize html;
+
+    LayoutSizingRuleInit(&rules[0], "html", RoboCssDisplayBlock);
+    LayoutSizingRulePercentage(&rules[0], "height", 100.0);
+    LayoutSizingRuleInit(&rules[1], "body", RoboCssDisplayBlock);
+
+    LayoutSizingBegin(&fixture, "<html><body></body></html>", rules, 2u);
+    LayoutSizingPass(&fixture, 300, NULL, &stats);
+
+    html = LayoutSizingSizeOf(&fixture, LayoutSizingBoxFor(&fixture, "html"));
+    RoboCheckEqInt(html.height, LAYOUT_SIZING_VIEWPORT_HEIGHT);
+
+    LayoutSizingEnd(&fixture);
+}
+
+/** A child's `height: 50%` resolves against a parent with a **declared** height. */
+static void TestPercentageHeightChild(void)
+{
+    LayoutSizingFixture fixture;
+    LayoutSizingRule rules[2];
+    LayoutStats stats;
+    LayoutSize body;
+
+    LayoutSizingRuleInit(&rules[0], "html", RoboCssDisplayBlock);
+    LayoutSizingRulePx(&rules[0], "height", 200.0);
+    LayoutSizingRuleInit(&rules[1], "body", RoboCssDisplayBlock);
+    LayoutSizingRulePercentage(&rules[1], "height", 50.0);
+
+    LayoutSizingBegin(&fixture, "<html><body></body></html>", rules, 2u);
+    LayoutSizingPass(&fixture, 300, NULL, &stats);
+
+    /* Half of the html's 200px content box, not half of the viewport. */
+    body = LayoutSizingSizeOf(&fixture, LayoutSizingBoxFor(&fixture, "body"));
+    RoboCheckEqInt(body.height, 100);
+
+    LayoutSizingEnd(&fixture);
+}
+
+/**
+ * The degradation: a percentage height against an `auto` containing height.
+ *
+ * CSS computes it to `auto`, so a body whose parent declares no height is as tall as
+ * its contents -- which is zero for an empty one -- rather than a fraction of the
+ * viewport that nobody asked for.
+ */
+static void TestPercentageHeightIndefinite(void)
+{
+    LayoutSizingFixture fixture;
+    LayoutSizingRule rules[2];
+    LayoutStats stats;
+    LayoutSize body;
+
+    LayoutSizingRuleInit(&rules[0], "html", RoboCssDisplayBlock);
+    LayoutSizingRuleInit(&rules[1], "body", RoboCssDisplayBlock);
+    LayoutSizingRulePercentage(&rules[1], "height", 50.0);
+
+    LayoutSizingBegin(&fixture, "<html><body></body></html>", rules, 2u);
+    LayoutSizingPass(&fixture, 300, NULL, &stats);
+
+    body = LayoutSizingSizeOf(&fixture, LayoutSizingBoxFor(&fixture, "body"));
+    RoboCheckEqInt(body.height, 0);
+
+    LayoutSizingEnd(&fixture);
+}
+
+/** Nested percentage heights: 50% of 50% of 400px is 100px. */
+static void TestPercentageHeightNested(void)
+{
+    LayoutSizingFixture fixture;
+    LayoutSizingRule rules[3];
+    LayoutStats stats;
+    LayoutSize div;
+
+    LayoutSizingRuleInit(&rules[0], "html", RoboCssDisplayBlock);
+    LayoutSizingRulePx(&rules[0], "height", 400.0);
+    LayoutSizingRuleInit(&rules[1], "body", RoboCssDisplayBlock);
+    LayoutSizingRulePercentage(&rules[1], "height", 50.0);
+    LayoutSizingRuleInit(&rules[2], "div", RoboCssDisplayBlock);
+    LayoutSizingRulePercentage(&rules[2], "height", 50.0);
+
+    LayoutSizingBegin(&fixture, "<html><body><div></div></body></html>", rules, 3u);
+    LayoutSizingPass(&fixture, 300, NULL, &stats);
+
+    div = LayoutSizingSizeOf(&fixture, LayoutSizingBoxFor(&fixture, "div"));
+    RoboCheckEqInt(div.height, 100);
+
+    LayoutSizingEnd(&fixture);
+}
+
+/* ------------------------------------------------------------------ */
 /* Registration                                                        */
 /* ------------------------------------------------------------------ */
 
@@ -1461,12 +1731,19 @@ void TestRegisterLayoutSizing(void)
     TestRegister("layout.sizing.seam", TestSizingSeam);
     TestRegister("layout.sizing.block_declared_width", TestSizingBlockDeclaredWidth);
     TestRegister("layout.sizing.block_auto_width", TestSizingBlockAutoWidth);
-    TestRegister("layout.sizing.block_unresolved_width",
-                       TestSizingBlockUnresolvedWidth);
+    TestRegister("layout.sizing.block_percentage_width",
+                       TestSizingBlockPercentageWidth);
     TestRegister("layout.sizing.block_keyword_and_unit",
                        TestSizingBlockKeywordAndUnit);
     TestRegister("layout.sizing.block_bounds", TestSizingBlockBounds);
     TestRegister("layout.sizing.block_half_bound", TestSizingBlockHalfBound);
+    TestRegister("layout.percentage.record", TestPercentageRecord);
+    TestRegister("layout.percentage.width_nested", TestPercentageWidthNested);
+    TestRegister("layout.percentage.height_root", TestPercentageHeightRoot);
+    TestRegister("layout.percentage.height_child", TestPercentageHeightChild);
+    TestRegister("layout.percentage.height_indefinite",
+                       TestPercentageHeightIndefinite);
+    TestRegister("layout.percentage.height_nested", TestPercentageHeightNested);
     TestRegister("layout.sizing.atomic_inline", TestSizingAtomicInline);
     TestRegister("layout.sizing.line_regression", TestSizingLineRegression);
     TestRegister("layout.sizing.allocator_balance", TestSizingAllocatorBalance);

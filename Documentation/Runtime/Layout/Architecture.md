@@ -84,7 +84,7 @@ that flip is the part worth keeping:
 | `LayoutCapabilities.margins` | — | — | — | — | — | — | — | `1` | `1` | `1` | `1` | `1` | `1` | — | this build places a box at its **margin** origin and stacks by its children's margin boxes — **not** that collapsing is implemented |
 | `LayoutCapabilities.padding` | — | — | — | — | — | — | — | — | `1` | `1` | `1` | `1` | `1` | — | this build's `size` is a **padding** box built on the sizing layer's answer, and an `auto` width fills what the margins and the padding left — **not** that `box-sizing: border-box` exists |
 | `LayoutCapabilities.border` | — | — | — | — | — | — | — | — | — | `1` | `1` | `1` | `1` | — | this build's `size` is the **border** box, a side's used width is zero unless its style draws, and the whole record — width, style, colour — is readable for paint — **not** that `border-radius` exists, and not that a border paints |
-| `LayoutCapabilities.positioning` | — | — | — | — | — | — | — | — | — | — | `1` | `1` | `1` | — | a `relative` box is **drawn** where its offset puts it while its size and its flow contribution are untouched, and the used offset is readable from the object — **not** that `absolute`/`fixed`/`sticky` place, and not that a percentage inset resolves |
+| `LayoutCapabilities.positioning` | — | — | — | — | — | — | — | — | — | — | `1` | `1` | `1` | — | a `relative` box is **drawn** where its offset puts it while its size and its flow contribution are untouched, and the used offset is readable from the object — **not** that `absolute`/`fixed`/`sticky` place, and not that an **out-of-flow** percentage inset resolves (an in-flow one does since 19.2) |
 | `LayoutCapabilities.overflow` | — | — | — | — | — | — | — | — | — | — | — | `1` | `1` | — | the contents that do not fit are **recorded beside the box** as four extents measured from its padding box, with a mode per axis — **not** that anything scrolls, clips a pixel, or turns `visible` into `auto` |
 | `LayoutCapabilities.invalidation` | — | — | — | — | — | — | — | — | — | — | — | — | `1` | — | a box carries a **state** saying what about it is stale and a reason for a reader, a property name is classified into what changing it costs, and a pass can be skipped when nothing needs one — **not** that partial layout exists: the dirty root is computed and reported, and the pass still recomputes from the tree root |
 | `LayoutCapabilities.font_request` | — | — | — | — | — | — | — | — | — | — | — | — | — | `1` | a computed style's font properties become one **value** request — an ordered, classified family list plus size, weight, stretch, slope and direction — an installed `LayoutFontProvider` answers its entries in author order, and the answering face is recorded on the run — **not** that layout owns a font database: no coverage walk, no fallback chain, no per-scalar splitting, no `@font-face`, and no provider means the single attached face |
@@ -159,7 +159,7 @@ positioned box is drawn where its offset puts it *and* the following sibling sta
 exactly where flow says — the pair is the claim, and a build that moved the sibling
 would satisfy the first half and fail the second. What it does **not** say is that
 `absolute`, `fixed` or `sticky` place (their facts exist, 9.13; placing one is 18.5's),
-that a percentage inset resolves, or that any stacking order moves; the positioning
+that an **out-of-flow** percentage inset resolves, or that any stacking order moves; the positioning
 suite asserts it against the *policy* (`layout.positioning.flow_preserved` places the
 box 30/20 away and the next box exactly where it would have been).
 
@@ -618,9 +618,11 @@ conflict and lets a caller refuse a nonsensical pair up front, and `clamp` answe
 What is absent from this header, and must stay absent: percentage resolution,
 `auto` filling, intrinsic sizing, `box-sizing`. 10.8 resolves a declared `px` length
 and fills `auto` from the containing block, but it does all of that **through** the
-constraints record rather than by growing one; a `%` reaches it as `UNRESOLVED` and
-leaves as the available space. If the arithmetic grew here, every later goal would
-have two places to look.
+constraints record rather than by growing one. If the arithmetic grew here, every
+later goal would have two places to look. (19.2 *did* add percentage resolution, but
+it lives in the sizing layer's own branch and the four property vocabularies, not in
+the constraints record: a percentage is a *ratio* recorded on the dimension, and the
+clamp still sees only numbers — see `PercentageResolution.md`.)
 
 ---
 
@@ -834,7 +836,7 @@ visible omission rather than a silent gap.
 
 ## 13. The capability model
 
-`LayoutCapabilities` is twenty-five `int` fields in declaration order, and one
+`LayoutCapabilities` is twenty-six `int` fields in declaration order, and one
 of them is deliberately 0:
 
 | Field | this build | Filled by |
@@ -863,6 +865,7 @@ of them is deliberately 0:
 | `invalidation` | 1 | 10.14 |
 | `font_request` | 1 | 12.17 |
 | `intrinsic_sizing` | 1 | 19.1 |
+| `percentage_resolution` | 1 | 19.2 |
 | `painting` | **0** | Phase 11 |
 
 The table is in declaration order rather than in the order fields landed, so the
@@ -879,6 +882,18 @@ or flex/grid/table intrinsic sizing (19.3, 19.4, 19.6, each of which consumes th
 two numbers). A build with the sizing record and no measurement of what is inside it
 would have satisfied every field above it, which is why the field exists
 (`IntrinsicSizing.md`).
+
+`percentage_resolution` is 19.2's field, and its wording is as narrow as the one
+above: it says a `<percentage>` keeps its **magnitude** — as its own kind on a
+dimension, a margin, a padding and an inset — and resolves against the containing
+block's own dimension once a pass hands the base over. Every margin and padding
+percentage takes the containing block's **width** (CSS's rule, though a vertical
+margin would look right against the height in a square box), `width`/`height` take
+the matching extent, and `left`/`right` take the width while `top`/`bottom` take the
+height. A percentage with no base degrades to `UNRESOLVED` and is used as zero. It
+does **not** say grid-track or flex-basis percentages (19.3, 19.4), percentage
+`min-width`/`max-width` bounds, a percentage inset on an **out-of-flow** box (14.0's
+contract, left untouched), `calc()` or a viewport unit (`PercentageResolution.md`).
 
 A caller that checked only the version string would conclude that 0.1.0 lays boxes
 out. The three doors §1 lists answer that together: `geometry` says **the build**
@@ -939,12 +954,12 @@ rather than unfinished:
 | anonymous boxes | a later goal | every box knows which context it participates in and which it establishes (10.2); the pass counts the boxes it declined (`block.inline_level_skipped`, `inline.block_level_declined`) and the boxes nothing containing was placed for (`block.unreached`) |
 | ~~baselines~~ **done in 10.7**; still absent: `line-height` as a resolved used value, alignment, `text-align`, `vertical-align` | 10.7, and a later goal for the rest | every line carries an ascent, a descent and the kind they came from, its height **is** their sum, and every member is placed from them (`Baselines.md`); what is not claimed is a `line-height` computation, a resolved used value, or any of the alignment properties |
 | text **shaping** — glyph substitution, positioning, ligature, kerning, bidi reordering, Unicode line breaking, whitespace collapsing, fragmentation | Phase 14, and 10.6's successor for the last two | a run's width is the **sum of its glyphs' advances**, which is what an unshaped run is; a participant too wide for its line **overflows** rather than breaking, guarded by `cursor > 0`; `LayoutTextIsCollapsibleWhitespace` is the predicate the builder applies and the one a collapsing rule will have to agree with |
-| `min-width`, `max-width`, `min-height`, `max-height` as **properties** (neither 9.11 nor a later CSS goal has registered them yet); `box-sizing`; percentages and relative units for both axes; applied shrink-to-fit | 10.11+, and a RoboCSS goal for the properties | the sizing layer *has* a minimum and a maximum and clamps through them (`Sizing.md` §6), so the arrival of the properties is a read rather than a redesign; `box-sizing: border-box` is one branch at the place 10.10 hands the layer a number; ~~intrinsic sizing~~ **done in 19.1** — min-content/max-content/fit-content are measured through the metrics seam and resolve as a fourth dimension kind, so what is still absent is intrinsic *height* as a function of width (line breaking), replaced-element dimensions, and flex/grid/table intrinsic sizing (`IntrinsicSizing.md`) |
-| ~~declared **width** and **height**~~ **done in 10.8**; still absent: a declared size on a **block** box beyond a bare `px` length, and `width` on a text object | 10.11+ | a block box lays its children out **into** its resolved width and is measured against its declared height (10.8); an atomic inline resolves width, contents and height in that order; a `%` is recorded as unresolved and filled from the containing block rather than guessed |
+| `min-width`, `max-width`, `min-height`, `max-height` as **properties** (neither 9.11 nor a later CSS goal has registered them yet); `box-sizing`; ~~percentages~~ **done in 19.2** (a percentage `width`/`height`, `margin`, `padding` and inset keep their magnitude and resolve against the containing block's own dimension, degrading to `UNRESOLVED` when there is no base — `PercentageResolution.md`); relative units; **percentage min/max bounds**; applied shrink-to-fit | 10.11+, and a RoboCSS goal for the properties | the sizing layer *has* a minimum and a maximum and clamps through them (`Sizing.md` §6), so the arrival of the properties is a read rather than a redesign; `box-sizing: border-box` is one branch at the place 10.10 hands the layer a number; ~~intrinsic sizing~~ **done in 19.1** — min-content/max-content/fit-content are measured through the metrics seam and resolve as a fourth dimension kind, so what is still absent is intrinsic *height* as a function of width (line breaking), replaced-element dimensions, and flex/grid/table intrinsic sizing (`IntrinsicSizing.md`) |
+| ~~declared **width** and **height**~~ **done in 10.8**; still absent: a declared size on a **block** box beyond a `px` length and a percentage, and `width` on a text object | 10.11+ | a block box lays its children out **into** its resolved width and is measured against its declared height (10.8); an atomic inline resolves width, contents and height in that order; since 19.2 a `%` keeps its magnitude as its own dimension kind and resolves against the containing block (or degrades to `UNRESOLVED` when there is no base) rather than being filled from it (`PercentageResolution.md`) |
 | margin **collapsing** | a later goal | margins are *summed* and placed (10.9): a box sits at its margin origin, a horizontal `auto` distributes the leftover beside a declared width, and a parent stacks its children by their margin boxes — with the transparency rule collapsing needs already in *both* directions (10.3's transparent block container and 10.4's transparent inline box) and the four used values in one record, so collapsing becomes a rule **over those numbers** rather than over declarations (`Margins.md` §6) |
-| ~~padding~~ **done in 10.10**; still absent: `box-sizing: border-box`, a percentage padding (read, counted and used as zero), and padding on a **transparent inline box** | a later goal each | a box's `size` is its **padding** box built on the sizing layer's answer, its contents begin inside it, an `auto` width fills what the margins and the padding left, and the used padding is readable from the object (`Padding.md`) |
+| ~~padding~~ **done in 10.10**; still absent: `box-sizing: border-box` and padding on a **transparent inline box** (a percentage padding **done in 19.2**: it resolves against the containing block's width) | a later goal each | a box's `size` is its **padding** box built on the sizing layer's answer, its contents begin inside it, an `auto` width fills what the margins and the padding left, and the used padding is readable from the object (`Padding.md`) |
 | ~~border geometry~~ **done in 10.11**; still absent: `border-radius` and any corner geometry, `hidden`'s border-collapsing meaning (a table rule this build has no tables for), logical border properties, and a border on a **transparent inline box** | a later goal each | twelve longhands are read, a side's *used* width is zero unless its style draws, the border box is what a result carries, and the whole per-side record — used width, style, colour — is readable through `LayoutObjectBorders` so a paint pass re-decides nothing (`Borders.md`) |
-| ~~basic **`position: relative`**~~ **done in 10.12**; still absent: `sticky` placement, percentage insets, `z-index` and stacking contexts | a later goal each | the mode and four insets are read, resolved to one displacement by a stated precedence rule (`left` over `right`, `top` over `bottom`, an `auto` saying nothing), and applied so a `relative` box is drawn where its offset puts it while its size and flow contribution are untouched; the used offset is readable through `LayoutObjectPosition` so the flow position is `final − offset` (`Positioning.md`) |
+| ~~basic **`position: relative`**~~ **done in 10.12**; still absent: `sticky` placement, `z-index` and stacking contexts (percentage insets **done in 19.2**: `left`/`right` resolve against the containing block's width and `top`/`bottom` against its height through `LayoutPositionResolveAgainst`) | a later goal each | the mode and four insets are read, resolved to one displacement by a stated precedence rule (`left` over `right`, `top` over `bottom`, an `auto` saying nothing), and applied so a `relative` box is drawn where its offset puts it while its size and flow contribution are untouched; the used offset is readable through `LayoutObjectPosition` so the flow position is `final − offset` (`Positioning.md`) |
 | ~~out-of-flow **`absolute` and `fixed`** placement~~ **done in 14.0**; still absent: `z-index`, stacking contexts and paint order (nothing is reordered), `sticky`, a scrollport, `shrink-to-fit`, the static-position rule, percentage insets, and an out-of-flow **inline-level** box | a later goal each, and the shell that needed it is Phase 14 | a box is taken out of flow, placed against the nearest positioned ancestor's **padding** box or the initial containing block (always, for `fixed`), sized between two opposing insets when the declared dimension is `auto`, and positioned by its **far** side when the near side says nothing — which is why the origin is a second call that knows the box's own size (`OutOfFlow.md`) |
 | ~~overflow~~ **done in 10.13**; still absent: everything that *acts* on it — scrolling, scrollbars, a scroll offset, `overflow: auto`/`scroll`, CSS's axis promotion, `text-overflow`, and any pixel clipping | the scrolling goals, and Phase 11 for clipping | the two flags are set from a **measured** extent beside a record of four extents measured from the padding box, and both the region a parent folds in and the clip rectangle a paint pass will draw against are readable through `LayoutObjectOverflow` and the overflow doors (`Overflow.md`) |
 | damage, invalidation | a later goal | an invalidation that withdraws geometry rather than keeping a stale conclusion |

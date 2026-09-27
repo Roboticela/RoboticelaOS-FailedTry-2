@@ -1,0 +1,29 @@
+---
+description: Premium OS UX craft — materials, motion, calm Apple-class shell
+alwaysApply: true
+---
+
+# Premium OS UX craft
+
+Every Desktop / shell / document-UI change must feel **premium, calm, and deliberate** — not busy, not gamer, not generic AI chrome.
+
+## Craft rules
+
+1. **Clarity over decoration.** If it does not communicate hierarchy or action, remove it.
+2. **One accent.** Interactive color is `--brand-primary` only (`color-rule`). Teal = success/verified only.
+3. **Depth with restraint.** Soft shadow, hairline separators, optional blur — never neon glow, never multi-layered drop-shadow stacks.
+4. **Typography is the polish.** Use RoboTypography roles / system pack sizes. No random px sizes at call sites.
+5. **Motion vocabulary is fixed.** Easing `cubic-bezier(0.28, 0.11, 0.32, 1)`; durations **150 / 300 / 600 ms** only. Honor reduced motion (snap to end).
+6. **Materials need tokens.** Light/dark pairs resolve through tokens; never mix mode hex in one view.
+7. **Recording-safe.** No clock flicker in demo status unless the fixture owns the string; prefer deterministic labels in galleries.
+
+## Shell / Desktop specifics
+
+- Prefer the Phase 14 shell surfaces (menu, dock, windows) over one-off layouts.
+- `border-radius` / blur / soft shadow only when paint/compositor support them — do not emit unsupported CSS that validates as a silent no-op.
+- Follow `design-rule` for marketing-grade pages; follow this rule for **in-OS** chrome.
+
+## Agent behavior
+
+- When asked for “HD”, “Apple”, or “premium”, prioritize **density (Phase 44) → materials (45) → motion (46)** over new features.
+- Refuse visual shortcuts that break boundaries (no Chromium/Skia/V8).

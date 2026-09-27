@@ -423,7 +423,8 @@ percentage border widths
         here is a relative unit, a `calc()`, a negative length or the forbidden
         `auto`, and never a percentage this build declined to resolve -- which is a
         difference from 10.10's vocabulary worth noting, where a percentage is legal
-        CSS and is counted as a declaration the build cannot yet honour
+        CSS and, since 19.2, resolves against the containing block's width rather than
+        being counted as a declaration the build cannot honour
 
 any border on a transparent inline box
         it takes none for the reason it takes no margin and no padding: its

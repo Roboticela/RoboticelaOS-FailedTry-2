@@ -126,6 +126,25 @@ int LayoutStyleClassify(const CssComputedStyle *style,
             return 1;
         }
     }
+    if (value->kind == RoboCssComputedValuePercentage && !value->unresolved) {
+        /*
+         * A percentage (19.2). It is a *fifth* answer rather than `UNUSABLE` because it
+         * is resolvable -- against a containing dimension the classification does not
+         * have, which is why the magnitude is returned raw and the reader that has a
+         * base is the one that turns it into pixels. The magnitude bound refuses a NaN
+         * or an infinity the same way the px branch's range check does; a percentage is
+         * *signed* by declaration, and the readers that forbid a negative one (a width,
+         * a padding) refuse it themselves, because a `-5%` width and a `-5%` margin are
+         * different declarations and `allowNegative` is the box-dimension axis, not the
+         * percentage's.
+         */
+        if (value->number >= -LAYOUT_STYLE_PERCENT_MAX &&
+            value->number <= LAYOUT_STYLE_PERCENT_MAX) {
+            *outKind = LAYOUT_STYLE_VALUE_PERCENT;
+            *outNumber = value->number;
+            return 1;
+        }
+    }
     *outKind = LAYOUT_STYLE_VALUE_UNUSABLE;
     *outNumber = 0.0;
     return 1;
@@ -139,7 +158,8 @@ int LayoutDimensionKindIsKnown(LayoutDimensionKind kind)
 {
     return kind == RoboLayoutDimensionAuto || kind == RoboLayoutDimensionDefinite ||
            kind == RoboLayoutDimensionUnresolved ||
-           kind == RoboLayoutDimensionIntrinsic;
+           kind == RoboLayoutDimensionIntrinsic ||
+           kind == RoboLayoutDimensionPercentage;
 }
 
 const char *LayoutDimensionKindName(LayoutDimensionKind kind)
@@ -153,6 +173,8 @@ const char *LayoutDimensionKindName(LayoutDimensionKind kind)
         return "unresolved";
     case RoboLayoutDimensionIntrinsic:
         return "intrinsic";
+    case RoboLayoutDimensionPercentage:
+        return "percentage";
     default:
         break;
     }
@@ -170,6 +192,7 @@ void LayoutDimensionInit(LayoutDimension *dimension)
     dimension->kind = RoboLayoutDimensionAuto;
     dimension->length = 0;
     dimension->intrinsicKind = RoboLayoutIntrinsicNone;
+    dimension->percentage = 0.0;
 }
 
 LayoutDimension LayoutDimensionAuto(void)
@@ -187,6 +210,7 @@ LayoutDimension LayoutDimensionDefinite(GfxPixelX length)
     dimension.kind = RoboLayoutDimensionDefinite;
     dimension.length = length;
     dimension.intrinsicKind = RoboLayoutIntrinsicNone;
+    dimension.percentage = 0.0;
     return dimension;
 }
 
@@ -197,6 +221,7 @@ LayoutDimension LayoutDimensionUnresolved(void)
     dimension.kind = RoboLayoutDimensionUnresolved;
     dimension.length = 0;
     dimension.intrinsicKind = RoboLayoutIntrinsicNone;
+    dimension.percentage = 0.0;
     return dimension;
 }
 
@@ -207,6 +232,18 @@ LayoutDimension LayoutDimensionIntrinsic(LayoutIntrinsicKind intrinsicKind)
     dimension.kind = RoboLayoutDimensionIntrinsic;
     dimension.length = 0;
     dimension.intrinsicKind = intrinsicKind;
+    dimension.percentage = 0.0;
+    return dimension;
+}
+
+LayoutDimension LayoutDimensionPercentage(double percentage)
+{
+    LayoutDimension dimension;
+
+    dimension.kind = RoboLayoutDimensionPercentage;
+    dimension.length = 0;
+    dimension.intrinsicKind = RoboLayoutIntrinsicNone;
+    dimension.percentage = percentage;
     return dimension;
 }
 
@@ -238,6 +275,19 @@ LayoutIntrinsicKind LayoutDimensionIntrinsicKindOf(const LayoutDimension *dimens
     return dimension->intrinsicKind;
 }
 
+int LayoutDimensionIsPercentage(const LayoutDimension *dimension)
+{
+    return dimension && dimension->kind == RoboLayoutDimensionPercentage;
+}
+
+double LayoutDimensionPercentageOf(const LayoutDimension *dimension)
+{
+    if (!dimension || dimension->kind != RoboLayoutDimensionPercentage) {
+        return 0.0;
+    }
+    return dimension->percentage;
+}
+
 int LayoutDimensionIsValid(const LayoutDimension *dimension)
 {
     if (!dimension) {
@@ -251,6 +301,16 @@ int LayoutDimensionIsValid(const LayoutDimension *dimension)
          * which is the shape a caller that forgot the argument builds. */
         return LayoutIntrinsicKindIsKnown(dimension->intrinsicKind) &&
                dimension->intrinsicKind != RoboLayoutIntrinsicNone;
+    }
+    if (dimension->kind == RoboLayoutDimensionPercentage) {
+        /* A percentage is a magnitude, and the only way one is wrong is to be negative
+         * or not a finite number. The upper bound is finiteness rather than a range: a
+         * magnitude above 100 is legal (`width: 150%` is a real declaration), and the
+         * comparison against `LAYOUT_STYLE_PERCENT_MAX` is false for NaN and infinity,
+         * which is the "fail a test rather than slip through one" discipline the px
+         * branch follows without needing `<math.h>`. */
+        return dimension->percentage >= 0.0 &&
+               dimension->percentage <= LAYOUT_STYLE_PERCENT_MAX;
     }
     /* Only a length can be wrong: a non-negative px length is the whole of what
      * `DEFINITE` means, and the other two kinds carry no number at all. */
@@ -287,6 +347,9 @@ int LayoutDimensionEqual(const LayoutDimension *a,
     if (a->kind == RoboLayoutDimensionIntrinsic) {
         return a->intrinsicKind == b->intrinsicKind;
     }
+    if (a->kind == RoboLayoutDimensionPercentage) {
+        return a->percentage == b->percentage;
+    }
     if (a->kind != RoboLayoutDimensionDefinite) {
         return 1;
     }
@@ -300,7 +363,7 @@ int LayoutDimensionEqual(const LayoutDimension *a,
 int LayoutDimensionSourceIsKnown(LayoutDimensionSource source)
 {
     return source >= RoboLayoutDimensionSourceNone &&
-           source <= RoboLayoutDimensionSourceIntrinsic;
+           source <= RoboLayoutDimensionSourcePercentage;
 }
 
 const char *LayoutDimensionSourceName(LayoutDimensionSource source)
@@ -316,6 +379,8 @@ const char *LayoutDimensionSourceName(LayoutDimensionSource source)
         return "content";
     case RoboLayoutDimensionSourceIntrinsic:
         return "intrinsic";
+    case RoboLayoutDimensionSourcePercentage:
+        return "percentage";
     default:
         break;
     }
@@ -417,6 +482,76 @@ Result LayoutSizingAvailableHeight(const LayoutSizing *sizing,
         return RoboNotFound;
     }
     *out = sizing->available.height;
+    return RoboOk;
+}
+
+Result LayoutSizingSetPercentageBaseWidth(LayoutSizing *sizing,
+                                                     GfxPixelX extent,
+                                                     LayoutDiag *diag)
+{
+    if (!sizing) {
+        return RoboLayoutDiag(diag, RoboLayoutDomainSizing, RoboInvalidArgument,
+                                "sizing is NULL");
+    }
+    if (extent < 0) {
+        return RoboLayoutDiag(diag, RoboLayoutDomainSizing, RoboInvalidArgument,
+                                "percentage base width is negative");
+    }
+    sizing->percentageBaseWidth = extent;
+    sizing->hasPercentageBaseWidth = 1;
+    return RoboOk;
+}
+
+Result LayoutSizingSetPercentageBaseHeight(LayoutSizing *sizing,
+                                                      GfxPixelY extent,
+                                                      LayoutDiag *diag)
+{
+    if (!sizing) {
+        return RoboLayoutDiag(diag, RoboLayoutDomainSizing, RoboInvalidArgument,
+                                "sizing is NULL");
+    }
+    if (extent < 0) {
+        return RoboLayoutDiag(diag, RoboLayoutDomainSizing, RoboInvalidArgument,
+                                "percentage base height is negative");
+    }
+    sizing->percentageBaseHeight = extent;
+    sizing->hasPercentageBaseHeight = 1;
+    return RoboOk;
+}
+
+int LayoutSizingHasPercentageBaseWidth(const LayoutSizing *sizing)
+{
+    return sizing && sizing->hasPercentageBaseWidth;
+}
+
+int LayoutSizingHasPercentageBaseHeight(const LayoutSizing *sizing)
+{
+    return sizing && sizing->hasPercentageBaseHeight;
+}
+
+Result LayoutSizingPercentageBaseWidth(const LayoutSizing *sizing,
+                                                  GfxPixelX *out)
+{
+    if (!sizing || !out) {
+        return RoboInvalidArgument;
+    }
+    if (!sizing->hasPercentageBaseWidth) {
+        return RoboNotFound;
+    }
+    *out = sizing->percentageBaseWidth;
+    return RoboOk;
+}
+
+Result LayoutSizingPercentageBaseHeight(const LayoutSizing *sizing,
+                                                   GfxPixelY *out)
+{
+    if (!sizing || !out) {
+        return RoboInvalidArgument;
+    }
+    if (!sizing->hasPercentageBaseHeight) {
+        return RoboNotFound;
+    }
+    *out = sizing->percentageBaseHeight;
     return RoboOk;
 }
 
@@ -747,6 +882,21 @@ Result LayoutSizingResolveWidth(LayoutSizing *sizing,
                                             sizing->width.intrinsicKind);
         }
         source = RoboLayoutDimensionSourceIntrinsic;
+    } else if (sizing->width.kind == RoboLayoutDimensionPercentage &&
+               sizing->hasPercentageBaseWidth) {
+        /*
+         * A percentage of the containing block's **content** width (19.2), resolved
+         * against the base rather than against `available`: the constraint equation
+         * subtracts the box's own margins, borders and padding from the containing
+         * block, and a percentage is taken of the containing block itself. Rounded
+         * **once**, at the moment the base is known, so the sub-pixel value never
+         * reaches geometry. With no base recorded the branch below runs instead and the
+         * percentage fills what `AUTO` fills, which is CSS's rule for an indefinite
+         * containing width.
+         */
+        base = LayoutPxRound(sizing->width.percentage / 100.0 *
+                             (double)sizing->percentageBaseWidth);
+        source = RoboLayoutDimensionSourcePercentage;
     } else {
         /*
          * `AUTO` and `UNRESOLVED` take the same branch, and the header argues why
@@ -808,6 +958,20 @@ Result LayoutSizingResolveHeight(LayoutSizing *sizing,
     if (sizing->height.kind == RoboLayoutDimensionDefinite) {
         base = sizing->height.length;
         source = RoboLayoutDimensionSourceDeclared;
+    } else if (sizing->height.kind == RoboLayoutDimensionPercentage &&
+               sizing->hasPercentageBaseHeight) {
+        /*
+         * A percentage of the containing block's **content** height (19.2). It resolves
+         * only when a caller has recorded a base, and that is CSS's own condition rather
+         * than a limitation: a percentage height against a containing block whose height
+         * depends on its contents computes to `auto`, which is the branch below. So the
+         * pass records a base for a child only when its containing block's height is
+         * **definite** -- declared, or itself a resolved percentage. Rounded once, as the
+         * width is.
+         */
+        base = (GfxPixelY)LayoutPxRound(sizing->height.percentage / 100.0 *
+                                        (double)sizing->percentageBaseHeight);
+        source = RoboLayoutDimensionSourcePercentage;
     } else {
         /*
          * The mirror of the width's branch, and the asymmetry is the interesting
@@ -918,6 +1082,8 @@ int LayoutSizingEqual(const LayoutSizing *a,
     }
     if (a->hasAvailableWidth != b->hasAvailableWidth ||
         a->hasAvailableHeight != b->hasAvailableHeight ||
+        a->hasPercentageBaseWidth != b->hasPercentageBaseWidth ||
+        a->hasPercentageBaseHeight != b->hasPercentageBaseHeight ||
         a->hasMinimum != b->hasMinimum || a->hasMaximum != b->hasMaximum ||
         a->hasContent != b->hasContent || a->widthClamped != b->widthClamped ||
         a->heightClamped != b->heightClamped) {
@@ -943,6 +1109,13 @@ int LayoutSizingEqual(const LayoutSizing *a,
         return 0;
     }
     if (a->hasContent && !GfxSizeEqual(a->content, b->content)) {
+        return 0;
+    }
+    if (a->hasPercentageBaseWidth && a->percentageBaseWidth != b->percentageBaseWidth) {
+        return 0;
+    }
+    if (a->hasPercentageBaseHeight &&
+        a->percentageBaseHeight != b->percentageBaseHeight) {
         return 0;
     }
     /* The resolved pair is compared only when both dimensions have been resolved,
@@ -980,6 +1153,18 @@ int LayoutSizingReadDimension(const CssComputedStyle *style,
          * truncated would make every fractional declared width come out a pixel short
          * of what the author wrote. */
         *out = LayoutDimensionDefinite(LayoutPxRound(number));
+        return 1;
+    case LAYOUT_STYLE_VALUE_PERCENT:
+        /* This door is `width`/`height`, and a negative percentage is not a size, so a
+         * declaration naming one is `UNRESOLVED` -- the same answer a negative px length
+         * gets, because `LayoutDimensionIsValid` refuses it and this is the reader that
+         * would otherwise build the invalid record. A magnitude above 100 is left alone:
+         * `width: 150%` is a real declaration. */
+        if (number < 0.0) {
+            *out = LayoutDimensionUnresolved();
+            return 1;
+        }
+        *out = LayoutDimensionPercentage(number);
         return 1;
     case LAYOUT_STYLE_VALUE_AUTO:
     case LAYOUT_STYLE_VALUE_ABSENT:

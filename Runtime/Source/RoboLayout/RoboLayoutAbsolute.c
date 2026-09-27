@@ -153,13 +153,19 @@ int LayoutAbsoluteEdgesIsValid(const LayoutAbsoluteEdges *edges)
     if (edges->far.autoSide && !edges->far.declared) {
         return 0;
     }
-    if (edges->near.present && !LayoutInsetIsValid(&(LayoutInset){
-                                       RoboLayoutInsetResolved, edges->near.length})) {
-        return 0;
+    if (edges->near.present) {
+        LayoutInset near = LayoutInsetResolved(edges->near.length);
+
+        if (!LayoutInsetIsValid(&near)) {
+            return 0;
+        }
     }
-    if (edges->far.present && !LayoutInsetIsValid(&(LayoutInset){
-                                      RoboLayoutInsetResolved, edges->far.length})) {
-        return 0;
+    if (edges->far.present) {
+        LayoutInset far = LayoutInsetResolved(edges->far.length);
+
+        if (!LayoutInsetIsValid(&far)) {
+            return 0;
+        }
     }
     return 1;
 }

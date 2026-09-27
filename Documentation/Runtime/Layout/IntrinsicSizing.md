@@ -140,9 +140,10 @@ dimension, not an `UNRESOLVED` one and not `AUTO`.
 
 The reader's rule (10.8's four checks) is unchanged in shape: an absent entry is
 `AUTO`; a keyword spelling `auto` is `AUTO`; an intrinsic keyword is `INTRINSIC`;
-any other keyword is `UNRESOLVED`; a px `LENGTH` is `DEFINITE`; a percentage or a
-relative unit is `UNRESOLVED`. There is no new door, and no second interpretation of
-a property in the module.
+any other keyword is `UNRESOLVED`; a px `LENGTH` is `DEFINITE`; a relative unit is
+`UNRESOLVED`; and a percentage is its own kind since 19.2 (`PERCENTAGE`, its magnitude
+kept -- see `PercentageResolution.md`, which refined this sentence). There is no new
+door here, and no second interpretation of a property in the module.
 
 ## 6. Resolution, and the degradation
 

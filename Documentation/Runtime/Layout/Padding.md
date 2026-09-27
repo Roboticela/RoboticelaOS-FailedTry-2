@@ -357,12 +357,12 @@ Each a named later goal:
   (`layout.paddings.inline_transparent_not_applied`), and is the thing a later goal
   changes — the same treatment 10.9 gave to margin collapsing.
 
-- **percentages** — `padding: 5%` resolves against the containing block's *width* in
-  CSS, for every side including the vertical ones. This build has a containing width
-  and could; it does not, because 10.8 left every percentage unresolved and resolving
-  one here would make `padding: 5%` the only percentage in the module that means
-  something. It is `UNRESOLVED` and counted, and the phase that resolves percentages
-  owns all of them at once.
+- ~~**percentages**~~ **done in 19.2** — `padding: 5%` resolves against the
+  containing block's *width* in CSS, for every side including the vertical ones, and
+  since 19.2 this layer does exactly that: the kind `PERCENTAGE` carries the magnitude
+  and `LayoutPaddingResolve` resolves it against the `containingWidth` its caller hands
+  over, counted as a resolved side. A negative percentage is not a padding and is
+  `UNRESOLVED`, the same answer a negative length gets (`PercentageResolution.md`).
 
 - **`box-sizing: border-box`** — §5. The model is the CSS initial value so that the
   later property is a branch rather than a change of meaning.

@@ -195,6 +195,18 @@ Result LayoutInlineWalkContents(LayoutWalk *walk,
 #define LAYOUT_STYLE_LENGTH_MAX 2147483647.0
 
 /**
+ * The magnitude a declared percentage may not exceed (Phase 19.2).
+ *
+ * A percentage is not a length -- `1e12` is a real declaration and `150` is an ordinary
+ * one -- so it gets its own bound rather than reusing the px one. What the bound is for
+ * is not range but **finiteness**: a `double` comparison against it is false for NaN and
+ * for +infinity, so `value <= LAYOUT_STYLE_PERCENT_MAX` fails for both rather than
+ * admitting either, and that is needed without `<math.h>` (this module builds freestanding
+ * for the guest, where the header is not there).
+ */
+#define LAYOUT_STYLE_PERCENT_MAX 1.0e12
+
+/**
  * A 64-bit sum clamped to the geometry's range (Phase 10.15).
  *
  * The block pass's cursor is an **accumulation**, and an accumulation is the one kind of
@@ -236,7 +248,13 @@ typedef enum layoutStyleValueKind {
     /** A usable px length, in the classification's number output. */
     LAYOUT_STYLE_VALUE_PX = 2,
     /** Declared, and not usable here: another unit, a percentage, or out of range. */
-    LAYOUT_STYLE_VALUE_UNUSABLE = 3
+    LAYOUT_STYLE_VALUE_UNUSABLE = 3,
+    /** A percentage, its magnitude in the classification's number output (`5.0` for
+     *  `5%`) -- Phase 19.2. A reader that resolves it is handed the containing
+     *  block's content dimension separately; a reader that cannot (a border) keeps
+     *  treating it as `UNUSABLE`, which is why this is a *fifth* answer rather than a
+     *  re-interpretation of the fourth. */
+    LAYOUT_STYLE_VALUE_PERCENT = 4
 } LayoutStyleValueKind;
 
 /**
@@ -266,7 +284,10 @@ int LayoutStyleClassify(const CssComputedStyle *style,
  */
 void LayoutObjectSizing(LayoutSizing *sizing,
                                const LayoutObject *object,
-                               int32_t availableWidth);
+                               int32_t availableWidth,
+                               int32_t percentWidthBase,
+                               int hasPercentHeightBase,
+                               GfxPixelY percentHeightBase);
 
 /*
  * The overflow seam (Phase 10.13)

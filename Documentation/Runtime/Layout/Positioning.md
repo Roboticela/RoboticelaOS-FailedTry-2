@@ -42,7 +42,8 @@ vocabulary, the same decision 10.9's margin vocabulary made:
 | `RoboLayoutInsetAbsent` | nobody declared this side (a cleared record's state) |
 | `RoboLayoutInsetResolved` | a px length, **signed** — `left: -7px` is legal |
 | `RoboLayoutInsetAuto` | the keyword `auto`, a declaration that says nothing here |
-| `RoboLayoutInsetUnresolved` | declared but unusable here: a percentage, a relative unit, a `var()`-flagged length, or any other kind |
+| `RoboLayoutInsetUnresolved` | declared but unusable here: a relative unit, a `var()`-flagged length, a percentage with no base, or any other kind |
+| `RoboLayoutInsetPercentage` | a percentage (19.2), **signed** — its magnitude in `LayoutInset::percentage`, resolved by `LayoutPositionResolveAgainst` against the containing block's width (`left`/`right`) or height (`top`/`bottom`) |
 
 `zero` is *not* `absent`: `top: 0` is a declaration an author asked for, and
 `LayoutInsetEqual` distinguishes them (`ABSENT` sides compare equal whatever
@@ -85,12 +86,15 @@ What each kind becomes:
 | px length (any sign) | `RESOLVED`, rounded half away from zero |
 | `auto` | `AUTO` |
 | absent longhand | `ABSENT` |
-| percentage, `em`/`rem`, `var()`-flagged, out-of-range | `UNRESOLVED` |
+| percentage | `PERCENTAGE`, magnitude kept (19.2) |
+| `em`/`rem`, `var()`-flagged, out-of-range | `UNRESOLVED` |
 
-A percentage is legal CSS for an inset and is `UNRESOLVED` here for 10.8's reason:
-resolving one needs a containing-block *dimension* positioned against, which no phase
-in this build computes. Recorded rather than dropped, so the resolution rule is the one
-that changes when a later phase arrives.
+A percentage is legal CSS for an inset and since 19.2 is its **own kind** rather than
+`UNRESOLVED`: the magnitude survives the read and `LayoutPositionResolveAgainst`
+resolves it against whatever base its caller has. `left`/`right` take the containing
+block's **width** and `top`/`bottom` its **height** -- two bases, one per axis -- and a
+side with no base degrades to `UNRESOLVED`, which is the one case 10.8's rule still
+reaches.
 
 ### The policy (`LayoutPositionResolve`)
 
@@ -207,8 +211,11 @@ like the nine before it: the mode and the four insets are read, resolved by one 
 precedence rule, and applied so a relative box is drawn where its offset puts it while
 its size and flow contribution are untouched. **`absolute`, `fixed` and `sticky`
 behaviour does not exist** (their values and facts do, 9.13; placing against a
-containing block or a scrollport is 18.5's); no stacking context or paint order moves;
-no percentage inset resolves.
+containing block or a scrollport is 18.5's); no stacking context or paint order moves.
+A percentage inset **does** resolve as of 19.2, through the new
+`LayoutPositionResolveAgainst` door; `LayoutPositionResolve` keeps its pre-19.2
+behaviour for a caller with no base, and an **out-of-flow** percentage inset stays
+14.0's stated contract (`PercentageResolution.md`).
 
 The diagnostic-domain list ended with **`RoboLayoutDomainPosition`** (`"position"`,
 the twentieth domain) — the first domain in this module about *where* rather than about
@@ -221,7 +228,7 @@ twenty-first) followed it, which is why the positioning suite now pins
 | Deferred | To |
 |---|---|
 | `absolute` / `fixed` / `sticky` placement | 18.5 (advanced positioning) |
-| percentage insets | the containing-block/percentage phase |
+| percentage insets | ~~done in 19.2~~ for an **in-flow** box; an out-of-flow one stays 14.0's contract |
 | z-index, stacking contexts, paint order | paint/stacking phases |
 | hit testing against final geometry | Phase 11/12 |
 | direction-dependent over-constrained offset resolution | 18.5 |

@@ -199,11 +199,15 @@ typedef enum LayoutPaddingKind {
     RoboLayoutPaddingResolved = 1,
     /** Declared, and not a value this build can use: a percentage, a relative unit, a
      *  negative length, or the `auto` the grammar does not allow. */
-    RoboLayoutPaddingUnresolved = 2
+    RoboLayoutPaddingUnresolved = 2,
+    /** A percentage (19.2), its magnitude in @ref LayoutPadding::percentage. Resolves
+     *  against the containing block's **width** for every side -- including the
+     *  vertical ones, which is CSS's rule for a padding. */
+    RoboLayoutPaddingPercentage = 3
 } LayoutPaddingKind;
 
 /** Number of defined padding kinds. */
-#define RoboLayoutPaddingKindCount 3u
+#define RoboLayoutPaddingKindCount 4u
 
 /** Non-zero when @p kind is one of the three above. */
 int LayoutPaddingKindIsKnown(LayoutPaddingKind kind);
@@ -234,6 +238,9 @@ typedef struct LayoutPadding {
      * reader to trust it.
      */
     GfxPixelX length;
+    /** The magnitude, when @c kind is PERCENTAGE (`5.0` for `5%`). Undefined
+     *  otherwise; `0.0` in a cleared record. Non-negative, as a length is. */
+    double percentage;
 } LayoutPadding;
 
 /**
@@ -279,8 +286,20 @@ LayoutPadding LayoutPaddingResolved(GfxPixelX length);
  *  length, `auto`. */
 LayoutPadding LayoutPaddingUnresolved(void);
 
+/** A `PERCENTAGE` padding (19.2): @p percentage is the magnitude, so `5.0` is `5%`.
+ *  A negative magnitude is *stored* and is reported invalid by
+ *  @ref LayoutPaddingIsValid -- a padding is never negative. */
+LayoutPadding LayoutPaddingPercentage(double percentage);
+
 /** Non-zero when @p padding is a resolvable length. */
 int LayoutPaddingIsResolved(const LayoutPadding *padding);
+
+/** Non-zero when @p padding is a percentage. */
+int LayoutPaddingIsPercentage(const LayoutPadding *padding);
+
+/** The magnitude of a `PERCENTAGE` @p padding (`5.0` for `5%`), or 0.0 for NULL or a
+ *  padding of another kind. */
+double LayoutPaddingPercentageOf(const LayoutPadding *padding);
 
 /** Non-zero when @p padding is a side nobody declared. */
 int LayoutPaddingIsAbsent(const LayoutPadding *padding);
@@ -491,17 +510,21 @@ Result LayoutPaddingEdgesPaddingBox(const LayoutPaddingEdges *edges,
  *      a padding is `0`, and a side nobody declared is not a declaration that reached
  *      geometry;
  *   2. a `RESOLVED` side is used as written, and it is non-negative by construction;
- *   3. an `UNRESOLVED` side is used as zero and counted -- a percentage, a relative unit,
- *      a negative length, or the `auto` the grammar forbids.
+ *   3. a `PERCENTAGE` side resolves against @p containingWidth -- the containing
+ *      block's **width**, for every side, which is CSS's rule (19.2);
+ *   4. an `UNRESOLVED` side is used as zero and counted -- a relative unit, a negative
+ *      length or percentage, or the `auto` the grammar forbids.
  *
- * No distribution, no containing width, no second door: this is the whole policy, and
+ * No distribution and no second door: this is the whole policy, and
  * RoboLayoutPadding.h's opening note argues why margins needed two of these and padding
- * needs one.
+ * needs one. The containing width is the one thing a percentage needs and an inset
+ * never had before 19.2.
  *
  * @return RoboOk and @p out; RoboInvalidArgument for NULL arguments. This function
  *         cannot fail on a document: every declaration has a stated answer.
  */
 Result LayoutPaddingResolve(const LayoutPaddings *paddings,
+                                          int32_t containingWidth,
                                           LayoutPaddingEdges *out,
                                           LayoutDiag *diag);
 

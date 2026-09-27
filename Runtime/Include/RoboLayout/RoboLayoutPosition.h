@@ -71,9 +71,18 @@
  *                author wrote `auto`" and "the author wrote nothing" are two
  *                declarations, and the counters are where the difference is visible.
  *
- *   UNRESOLVED   declared, and not usable here: a percentage, a relative unit, a
- *                `calc()` this build has no basis for. It contributes **zero** and is
- *                *counted*, which is 10.8's rule for a dimension it cannot resolve.
+ *   PERCENTAGE   a percentage (19.2), its magnitude in @ref LayoutInset::percentage.
+ *                CSS resolves `left`/`right` against the containing block's **width**
+ *                and `top`/`bottom` against its **height**, which is why the door that
+ *                resolves one is handed the two bases separately. A percentage with no
+ *                base to resolve against (an indefinite containing height) degrades to
+ *                `UNRESOLVED`, which is 10.8's rule kept for the one case it still
+ *                applies to.
+ *
+ *   UNRESOLVED   declared, and not usable here: a relative unit, a `calc()` this build
+ *                has no basis for, or a percentage the caller had no base for. It
+ *                contributes **zero** and is *counted*, which is 10.8's rule for a
+ *                dimension it cannot resolve.
  *
  * The precedence rule, and why it is one sentence rather than a specification
  *
@@ -151,11 +160,13 @@ typedef enum LayoutInsetKind {
     /** The keyword `auto`: this side says nothing, and its partner decides. */
     RoboLayoutInsetAuto = 2,
     /** Declared, and not a value this build can use: a percentage, a relative unit. */
-    RoboLayoutInsetUnresolved = 3
+    RoboLayoutInsetUnresolved = 3,
+    /** A percentage (19.2), in @ref LayoutInset::percentage. Signed like a length. */
+    RoboLayoutInsetPercentage = 4
 } LayoutInsetKind;
 
 /** Number of defined inset kinds. */
-#define RoboLayoutInsetKindCount 4u
+#define RoboLayoutInsetKindCount 5u
 
 /** Non-zero when @p kind is one of the four above. */
 int LayoutInsetKindIsKnown(LayoutInsetKind kind);
@@ -182,6 +193,9 @@ typedef struct LayoutInset {
     LayoutInsetKind kind;
     /** The declared length in px, meaningful only for `RESOLVED`. */
     GfxPixelX length;
+    /** The declared percentage, meaningful only for `PERCENTAGE` (19.2). Signed, because
+     *  `left: -50%` is legal for the same reason a negative length is. */
+    double percentage;
 } LayoutInset;
 
 /** A `RESOLVED` inset of zero: what `top: 0` is, and *a* default rather than the
@@ -201,6 +215,11 @@ LayoutInset LayoutInsetAuto(void);
 /** A declaration this build cannot use: a percentage, a relative unit. */
 LayoutInset LayoutInsetUnresolved(void);
 
+/** A percentage inset (19.2), its magnitude in @ref LayoutInset::percentage. Resolves
+ *  against the containing block's **width** on the inline axis and its **height** on
+ *  the block one, which is CSS's rule and the one asymmetry an inset keeps. */
+LayoutInset LayoutInsetPercentage(double percentage);
+
 /** Non-zero when @p inset is the `auto` kind. */
 int LayoutInsetIsAuto(const LayoutInset *inset);
 
@@ -212,6 +231,12 @@ int LayoutInsetIsAbsent(const LayoutInset *inset);
 
 /** Non-zero when @p inset is a declaration this build cannot use. */
 int LayoutInsetIsUnresolved(const LayoutInset *inset);
+
+/** Non-zero when @p inset is a percentage (19.2). */
+int LayoutInsetIsPercentage(const LayoutInset *inset);
+
+/** The magnitude of a `PERCENTAGE` @p inset, zero for any other kind. */
+double LayoutInsetPercentageOf(const LayoutInset *inset);
 
 /** Non-zero when @p inset is a record this build may read: a known kind and, for
  *  `RESOLVED`, a length inside the geometry's range. */
@@ -439,10 +464,44 @@ int LayoutPositionOffsetEqual(const LayoutPositionOffset *a,
  *
  * @return RoboOk and @p out; RoboInvalidArgument for NULL arguments. This function
  *         cannot fail on a document: every declaration has a stated answer.
+ *
+ * This door carries **no percentage base**, so a percentage inset degrades to
+ * `UNRESOLVED` through it exactly as before 19.2. A caller that has a containing
+ * block -- every pass does -- calls @ref LayoutPositionResolveAgainst instead.
  */
 Result LayoutPositionResolve(const LayoutPosition *position,
                                            LayoutPositionOffset *out,
                                            LayoutDiag *diag);
+
+/**
+ * The same policy, with the two containing-block bases a percentage inset resolves
+ * against (19.2).
+ *
+ * CSS resolves an inset percentage against a **different** axis on each side:
+ * `left`/`right` take the containing block's width and `top`/`bottom` take its height.
+ * The two bases are therefore separate arguments, and each carries a presence flag
+ * because a containing block with an indefinite height (the common case -- a box's
+ * height is its contents') gives a block-axis percentage nothing to resolve against,
+ * where that side degrades to `UNRESOLVED` rather than to zero-of-a-base.
+ *
+ * The rules above are unchanged; the only difference is that a `PERCENTAGE` side with
+ * a base is a usable length the precedence rule may choose. Everything else -- the
+ * mode gate, the near/far precedence, the four counters -- behaves exactly as
+ * @ref LayoutPositionResolve states.
+ *
+ * @param containingWidth the containing block's content width, the base for
+ *        `left`/`right`; `hasWidthBase` selects it.
+ * @param containingHeight the containing block's content height, the base for
+ *        `top`/`bottom`; `hasHeightBase` selects it.
+ * @return RoboOk and @p out; RoboInvalidArgument for NULL arguments.
+ */
+Result LayoutPositionResolveAgainst(const LayoutPosition *position,
+                                                  int32_t containingWidth,
+                                                  int hasWidthBase,
+                                                  GfxPixelY containingHeight,
+                                                  int hasHeightBase,
+                                                  LayoutPositionOffset *out,
+                                                  LayoutDiag *diag);
 
 /**
  * The **final** position of a box whose flow position is @p flow, displaced by

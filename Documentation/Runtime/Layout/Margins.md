@@ -104,7 +104,7 @@ inline-level participant, and CSS says so explicitly:
 | `auto` horizontal | **distributes** the leftover beside a declared width | **zero** |
 | `auto` vertical | **zero** (`auto` only means something for an absolutely positioned box, 10.12) | **zero** |
 | a length | used as written, negative included | used as written |
-| a percentage | zero, and counted as unresolved | zero, and counted |
+| a percentage | resolves against the containing width (19.2); zero and counted when there is none | resolves against the containing width; zero and counted when there is none |
 
 Two doors rather than one with a flag, for the reason 10.8 kept two dimension
 resolvers: the difference *is* the two CSS rules, and a flag lets a caller pass the
@@ -297,13 +297,14 @@ Each a named later goal:
 
 - **margin collapsing** — §6, and the only *specified* behaviour this phase does not
   implement.
-- **percentage resolution** — `margin: 5%` resolves against the containing block's
-  *width* in CSS, for every side. This build has a containing width and could; it does
-  not, because 10.8 left every percentage unresolved and resolving one here would make
-  `margin: 5%` the only percentage in the module that means something. It is
-  `UNRESOLVED` and counted, and the goal that resolves percentages owns all of them at
-  once. A percentage is also why `available_content_width` can be *right* while a
-  side's used value is *missing*, which the two counters say separately.
+- ~~**percentage resolution**~~ **done in 19.2** — `margin: 5%` resolves against the
+  containing block's *width* in CSS, for every side, and since 19.2 this layer does
+  exactly that: the kind `PERCENTAGE` carries the magnitude and `LayoutMarginsUseNonAuto`
+  (and the inline policy) resolves it against the `containingWidth` argument the pass
+  hands over, counted as a resolved side. A percentage with no containing width is still
+  `UNRESOLVED` and counted. `available_content_width` can still be *right* while a
+  side's used value is *missing*, which the two counters say separately
+  (`PercentageResolution.md`).
 - ~~**padding**~~ **done in 10.10** (`Padding.md`). A box's margin box is still its
   border box plus these four numbers, and what changed is what the border box *is*:
   no longer its content box, but that plus the padding — derived by the padding layer

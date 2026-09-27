@@ -41,11 +41,11 @@ phase that made it.
 | `SuiteRoboLayoutText.c` | `layout.text.*` | 26 | does a text node become an object, does a real font measure it, and does a run placed on a line get the width the font said? |
 | `SuiteRoboLayoutLineBox.c` | `layout.line.*` | 12 | is the line being built not a line box, and are a line's members exactly the objects that advanced its cursor? |
 | `SuiteRoboLayoutBaseline.c` | `layout.baseline.*` | 16 | does every line get a floor, are its members placed on it, and is "not placed" a different answer from "placed with no extent"? |
-| `SuiteRoboLayoutSizing.c` | `layout.sizing.*` | 17 | does a declaration reach geometry, and does a box's resolved width reach the children laid out *into* it? |
+| `SuiteRoboLayoutSizing.c` | `layout.sizing.*`, `layout.percentage.*` | 22 | does a declaration reach geometry, does a box's resolved width reach the children laid out *into* it, and does a percentage keep its magnitude and resolve against the containing block the pass hands over? |
 | `SuiteRoboLayoutMargin.c` | `layout.margins.*` | 25 | does a margin move a box without resizing it, and does each of the four sides get the value its policy asks for? |
 | `SuiteRoboLayoutPadding.c` | `layout.paddings.*` | 20 | does a padding grow a box without moving it, does an `auto` width fill what it left, and is a transparent inline box left un-inflated? |
 | `SuiteRoboLayoutBorder.c` | `layout.borders.*` | 22 | is a border's *used* width zero unless its style draws, is the box a reader sees the border box, and does a content origin compose two insets? |
-| `SuiteRoboLayoutPosition.c` | `layout.positioning.*` | 20 | does a relative box move without leaving its flow space, and does `static` stay exactly what it was? |
+| `SuiteRoboLayoutPosition.c` | `layout.positioning.*` | 21 | does a relative box move without leaving its flow space, does `static` stay exactly what it was, and does a percentage inset resolve against the right axis's base? |
 | `SuiteRoboLayoutInvalidation.c` | `layout.invalidation.*` | 25 | does the module know which of its own conclusions are still true, and does it skip a pass exactly when nothing needs one? |
 | `SuiteRoboLayoutOverflow.c` | `layout.overflow.*` | 26 | is an overflow a *record* rather than a size, does a child contribute its region rather than its contents, and does a clipping box contribute only what it kept? |
 | `SuiteRoboLayoutFontRequest.c` | `layout.fontrequest.*` | 7 | is a CSS declaration turned into a value record — an ordered, classified family list plus size, weight, stretch, slope and direction — with no font system invented to hold it? |
@@ -1764,3 +1764,44 @@ loop re-asserts the version on every iteration), `layout.conformance.statement` 
 `layout.conformance.capabilities`'s implemented count — plus the capability table in
 three suites, `RoboLayoutDomainCount` in three, and both dimension
 kind/source counts. §21 predicted exactly this shape for every remaining goal.
+
+## 23. What the 19.2 suite found
+
+Six new sizing cases (`layout.percentage.*`), one new positioning case
+(`layout.positioning.percentage`) and a handful of renamed or re-pointed seam cases,
+and the phase added a kind to four vocabularies rather than an engine.
+
+**1. The ordering subtlety is the one finding, and it has no symptom until a nested
+percentage is written.** A child's percentage-height base must be the parent's
+**declared** (or resolved-percentage) height, computed *before* the children are laid
+out — not the height the parent grew to once that child was placed, which is what a
+build computing the base at the usual point naturally has. A `height: 50%` child under
+an `auto`-height parent exposes it; nothing else does. `layout.percentage.height_nested`
+and `layout.percentage.height_child` pin the pair.
+
+**2. The two bases are separate on an inset, and a swapped-bases build looks
+plausible.** `left`/`right` take the containing block's width while `top`/`bottom`
+take its height, so `layout.positioning.percentage` asserts `left: 10%` of 200 → 20 and
+`top: 25%` of 400 → 100 in one case. A build that resolved both axes against the width
+would agree with the first and answer 50 for the second, which is why the two numbers
+differ by design.
+
+**3. A no-base percentage is a *counted* degradation, not a silent zero.**
+`layout.percentage.height_indefinite` and the positioning case's no-base half both
+assert `insetsUnresolved`/the unresolved counter rather than only the zero value, so a
+build that dropped the declaration and one that resolved it to zero are told apart.
+
+**4. A fixture disagreed with its own comment, and the case reported it as a pass.**
+The margin seam's declared percentage was `25.0` while its comment (and its check)
+read `5.0`; aligning the declaration fixed a case that had been asserting its own
+typo. Recorded because it is the same class of mistake §5 of `IntrinsicSizing.md`
+names: a fixture that does not reach the number the case claims.
+
+**5. The version pin, again, and one library detail.** Raising the module to `0.19.0`
+reddened the same four places as 19.1 (`layout.module.version`,
+`layout.module.allocator_balance`, `layout.conformance.statement`,
+`layout.conformance.capabilities`'s implemented count), and the capability table in two
+suites grew a row. The one non-obvious edit was in `RoboLayoutAbsolute.c`: its
+`LayoutInset` compound literals used positional initialization, and the new
+`percentage` field made them `-Wmissing-field-initializers` errors — resolved by using
+the `LayoutInsetResolved` maker, which is the door the struct's own comment points at.

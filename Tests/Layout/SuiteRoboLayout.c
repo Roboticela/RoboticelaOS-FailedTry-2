@@ -43,10 +43,10 @@ static void TestModuleVersion(void)
     I32 patch = -1;
 
     RoboCheckEqInt(RoboLayoutVersionMajor, 0);
-    RoboCheckEqInt(RoboLayoutVersionMinor, 18);
+    RoboCheckEqInt(RoboLayoutVersionMinor, 19);
     RoboCheckEqInt(RoboLayoutVersionPatch, 0);
-    RoboCheckStrEq(RoboLayoutVersionString, "0.18.0");
-    RoboCheckStrEq(LayoutVersionString(), "0.18.0");
+    RoboCheckStrEq(RoboLayoutVersionString, "0.19.0");
+    RoboCheckStrEq(LayoutVersionString(), "0.19.0");
 
     RoboCheckEqInt(LayoutGetVersion(&major, &minor, &patch), RoboOk);
     RoboCheckEqInt(major, RoboLayoutVersionMajor);
@@ -125,6 +125,7 @@ static const struct {
     { "invalidation", 1 },
     { "font_request", 1 },
     { "intrinsic_sizing", 1 },
+    { "percentage_resolution", 1 },
     { "painting", 0 }
 };
 
@@ -236,6 +237,14 @@ static void TestModuleCapabilities(void)
      * measurement of what is inside it would have satisfied every field above it.
      */
     RoboCheckEqInt(caps.intrinsicSizing, RoboLayoutIntrinsicSizingImplemented);
+    /*
+     * And `percentageResolution`, the field 19.2 added: a percentage keeps its magnitude and
+     * resolves against the containing block once a pass hands the base over, which is a fact no
+     * field above it states -- a build with every dimension, margin and padding record and no
+     * percentage kind could have satisfied them all.
+     */
+    RoboCheckEqInt(caps.percentageResolution,
+                   RoboLayoutPercentageResolutionImplemented);
     RoboCheckEqInt(caps.painting, 0);
     /* Both halves of the third row, so a build that set one of the pair without the
      * other is caught here rather than by a caller that trusted the constant. */
@@ -609,7 +618,7 @@ static void TestModuleAllocatorBalance(void)
         RoboCheckEqInt(LayoutGetVersion(&caps.objectModel, &caps.constraints,
                                                   &caps.resultModel),
                           RoboOk);
-        RoboCheckStrEq(LayoutVersionString(), "0.18.0");
+        RoboCheckStrEq(LayoutVersionString(), "0.19.0");
         RoboCheckEqInt(LayoutGeometryIsImplemented(), 1);
         memset(buffer, 0, sizeof(buffer));
         strncpy(buffer, LayoutObjectKindName(RoboLayoutObjectBox),

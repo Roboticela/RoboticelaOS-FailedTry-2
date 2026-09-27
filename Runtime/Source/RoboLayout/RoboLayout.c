@@ -182,6 +182,14 @@ Result LayoutGetCapabilities(LayoutCapabilities *out)
      * (that is wrapping), and no flex/grid/table intrinsic sizing (19.3/19.4/19.6).
      */
     out->intrinsicSizing = RoboLayoutIntrinsicSizingImplemented;
+    /*
+     * And `percentageResolution`, the field 19.2 added. **Not** "percentages are finished": a
+     * percentage resolves against the containing block's own dimension on a dimension, a margin,
+     * a padding and an inset, and degrades to `UNRESOLVED` where there is no base -- but no grid
+     * track or flex basis percentage, no percentage min/max bound, no out-of-flow inset
+     * percentage, no `calc()` and no viewport unit.
+     */
+    out->percentageResolution = RoboLayoutPercentageResolutionImplemented;
     out->painting = 0;
     return RoboOk;
 }

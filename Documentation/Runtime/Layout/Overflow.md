@@ -382,4 +382,4 @@ The four findings the suite produced are in `layout/docs/Tests.md` §18.
 | hit testing against an overflow region | the hit-testing goals |
 | `text-overflow`, ellipsis | the text/CSS goals that own them |
 | absolute/fixed/sticky positioning, and their containing blocks | 18.5 — `position` is read and declined there today |
-| `box-sizing`, intrinsic sizing, percentage insets | 10.8's stated boundaries, untouched here |
+| `box-sizing`, intrinsic sizing, **out-of-flow** percentage insets | 10.8's stated boundaries, untouched here — an in-flow percentage inset resolves as of 19.2, and this layer reads only the extents it is given |

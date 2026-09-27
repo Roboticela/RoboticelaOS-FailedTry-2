@@ -340,9 +340,9 @@
 #define ROBO_LAYOUT_VERSION_H
 
 #define RoboLayoutVersionMajor 0
-#define RoboLayoutVersionMinor 18
+#define RoboLayoutVersionMinor 19
 #define RoboLayoutVersionPatch 0
-#define RoboLayoutVersionString "0.18.0"
+#define RoboLayoutVersionString "0.19.0"
 
 /** 1 once the Phase 10 surface is frozen (not yet — see header comment). */
 #define RoboLayoutApiFrozen 0
@@ -470,11 +470,12 @@
  *   `LayoutConstraintsClamp`, and a pair that contradicts itself is reported
  *   rather than resolved in either's favour.
  *
- * What it does **not** claim: percentage resolution against a containing *dimension*
- * (there is none to resolve against), `min-content`/`max-content`/`fit-content`,
+ * What it does **not** claim: `min-content`/`max-content`/`fit-content`,
  * shrink-to-fit, `box-sizing`, or any contribution from borders. Each
  * is a later phase's, and `RoboLayoutSizing.h` names them where they would otherwise
- * be assumed.
+ * be assumed. (A percentage dimension *does* resolve against the containing block as
+ * of 19.2 -- see `RoboLayoutPercentageResolutionImplemented`; 10.8 read one as
+ * `UNRESOLVED` because no goal had yet handed this layer a base.)
  *
  * One thing 10.9 and 10.10 between them made precise rather than changed: the number
  * this layer resolves is the box's **own box as its declarations determined it**, which
@@ -507,12 +508,12 @@
  *   it is placed on, which is its bottom margin edge.
  *
  * What it does **not** claim: margin collapsing of any kind -- adjacent margins add --
- * percentage margins (read, recorded unresolved and used as zero, because no goal
- * resolves a percentage yet), margins on a **non-replaced inline box** (CSS applies
+ * margins on a **non-replaced inline box** (CSS applies
  * none, and `LayoutObjectMargins` refuses the box rather than reporting zeros),
  * a margin on a replaced element or an out-of-flow box, or `box-sizing`. Each is a
  * later phase's or later positioning's, and `RoboLayoutMargin.h` names them where they
- * would otherwise be assumed.
+ * would otherwise be assumed. (A percentage margin *does* resolve against the containing
+ * block's width as of 19.2 -- see `RoboLayoutPercentageResolutionImplemented`.)
  */
 #define RoboLayoutMarginsImplemented 1
 
@@ -797,5 +798,29 @@
  * for "sizing is finished".
  */
 #define RoboLayoutIntrinsicSizingImplemented 1
+
+/**
+ * 1 once this build resolves a **percentage** against the containing block (19.2).
+ *
+ * A compiler constant rather than a runtime decision, read by the two doors that must not disagree --
+ * `LayoutGetCapabilities().percentageResolution` and the suite that asserts both -- exactly as the other
+ * `RoboLayout*Implemented` macros are.
+ *
+ * What it claims, exactly: a `<percentage>` declaration becomes its **own kind** with its magnitude kept
+ * -- on a dimension, a margin, a padding and an inset -- and resolves against the containing block's own
+ * dimension once the pass that has one hands it over. `width: 50%`, `height: 25%`, `margin: 5%` and
+ * `padding: 10%` resolve against the containing block's content **width** (CSS's rule: every margin and
+ * padding percentage takes the inline extent), `left`/`right` against its width and `top`/`bottom`
+ * against its height. A percentage with no base to resolve against degrades to `UNRESOLVED` and is used
+ * as zero, which is 10.8's rule kept for the one case it still reaches.
+ *
+ * What it does **not** claim, and each of these is a feature a later phase owns: no percentage on a
+ * **grid track** or a **flex basis** (19.4 and 19.3), no percentage `min-width`/`max-width` bound, no
+ * percentage **inset on an out-of-flow box** (14.0's `RoboLayoutAbsolute*` states its own contract, and
+ * a percentage there stays `UNRESOLVED` until that phase is revisited), no `calc()` and no viewport
+ * unit, and no percentage on a **transparent inline box**. `percentage-resolution` would be claiming
+ * those if it were named for "percentages are finished".
+ */
+#define RoboLayoutPercentageResolutionImplemented 1
 
 #endif /* ROBO_LAYOUT_VERSION_H */

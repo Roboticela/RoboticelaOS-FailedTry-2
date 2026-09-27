@@ -277,10 +277,12 @@ would have had nothing to invalidate.
 
 Each a named later goal, and each stated where a reader will look for it:
 
-- **percentages resolved against a containing dimension.** They are read, recorded
-  as `UNRESOLVED`, and filled from the containing block. What is missing is a
-  *known* containing dimension to resolve them against — the same missing input that
-  keeps `has_available_height` clear.
+- ~~**percentages resolved against a containing dimension**~~ **done in 19.2.** They
+  are read as their own kind carrying the magnitude and resolve against a
+  **caller-recorded base** (`percentageBaseWidth`/`…Height` with their `has…` flags);
+  a percentage with no base still fills from the containing block. What remains missing
+  is a percentage `min-width`/`max-width` bound and any percentage this layer is not
+  handed a base for (`PercentageResolution.md`).
 - **intrinsic sizing**: `min-content`, `max-content`, `fit-content`, shrink-to-fit.
 - **`box-sizing`**. No inset contributes to this layer: a margin never does (10.9),
   and neither does a padding (10.10) or a border (10.11) *inside* it — what each
@@ -351,3 +353,14 @@ a build that never calls `LayoutSizingSetIntrinsic` behaves exactly as it did be
 module, asked about a measurement instead of a font: the new capability is *available*
 and, until a caller records a measurement, inert. `IntrinsicSizing.md` is the phase's
 authority.
+
+*19.2's outcome row:* the second extension, and the one 10.8 named as absent when it
+wrote the record. `LayoutDimensionKind` gained a fifth enumerator (`PERCENTAGE`) and
+`LayoutDimensionSource` a sixth (`PERCENTAGE`), the record gained the magnitude
+(`percentage`), and `LayoutSizingResolveWidth`/`…Height` gained the branch that resolves
+it against a **base the caller records** -- `percentageBaseWidth`/`…Height`, each with a
+`has…` flag because an indefinite base is a real state. A percentage with a base
+resolves to `LayoutPxRound(pct / 100 * base)`; one without a base falls through to the
+`AUTO` branch exactly as it did before the phase. The same "inert until a caller provides
+the base" condition applies, so a build that records none behaves as it did at 0.18.0;
+`PercentageResolution.md` is the phase's authority.

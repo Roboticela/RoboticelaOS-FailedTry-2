@@ -378,6 +378,22 @@ typedef struct LayoutCapabilities {
      * finished".
      */
     int intrinsicSizing;
+    /**
+     * Resolving a `<percentage>` against the containing block (19.2).
+     *
+     * **1** since 19.2. A percentage on a dimension, a margin, a padding or an inset
+     * keeps its magnitude and resolves against the containing block's own dimension once
+     * a pass hands that base over -- every margin and padding percentage against the
+     * *width*, `width`/`height` against the matching extent, and `left`/`right` against
+     * the width while `top`/`bottom` take the height. A percentage with no base degrades
+     * to `UNRESOLVED` and is used as zero.
+     *
+     * **Not** "percentages are finished": no grid track or flex basis percentage, no
+     * percentage `min-width`/`max-width` bound, no percentage inset on an **out-of-flow**
+     * box (that stays 14.0's contract), no `calc()` and no viewport unit. See
+     * `RoboLayoutPercentageResolutionImplemented`.
+     */
+    int percentageResolution;
     /** Painting a box. **0**: Phase 11. */
     int painting;
 } LayoutCapabilities;

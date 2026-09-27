@@ -127,11 +127,25 @@ typedef enum LayoutDimensionKind {
      * does) when it has not, which is the same honest degradation 10.5 documents for a
      * pass with no metrics source.
      */
-    RoboLayoutDimensionIntrinsic = 3
+    RoboLayoutDimensionIntrinsic = 3,
+    /**
+     * A percentage (Phase 19.2).
+     *
+     * A fifth kind rather than another `UNRESOLVED`, because a percentage *is*
+     * resolvable -- it needs the containing block's content dimension, which a
+     * caller records through `LayoutSizingSetPercentageBaseWidth`/`...Height`. It is
+     * the one kind whose declaration is not a pixel quantity: `percentage` holds the
+     * magnitude (5.0 for `5%`), and the resolver multiplies it by the base and rounds
+     * **once** through `LayoutPxRound`, so the sub-pixel value never reaches geometry.
+     * With no base recorded it degrades exactly as `AUTO` does, which is CSS's own
+     * rule: a percentage against an indefinite containing dimension computes to
+     * `auto`.
+     */
+    RoboLayoutDimensionPercentage = 4
 } LayoutDimensionKind;
 
 /** Number of defined dimension kinds. */
-#define RoboLayoutDimensionKindCount 4u
+#define RoboLayoutDimensionKindCount 5u
 
 /** Non-zero when @p kind is one of the three above. */
 int LayoutDimensionKindIsKnown(LayoutDimensionKind kind);
@@ -160,6 +174,11 @@ typedef struct LayoutDimension {
     /** Which intrinsic width was asked for, when @c kind is INTRINSIC. Undefined
      *  otherwise; `NONE` in a cleared record. */
     LayoutIntrinsicKind intrinsicKind;
+    /** The magnitude, when @c kind is PERCENTAGE: `5.0` for `5%`. Undefined
+     *  otherwise; `0.0` in a cleared record. The one non-integer field in this record,
+     *  because a percentage is a proportion of a base and rounding before the base is
+     *  known would round the wrong number. */
+    double percentage;
 } LayoutDimension;
 
 /** Clear @p dimension to `AUTO` -- "nothing determines this". Safe on NULL. */
@@ -183,6 +202,11 @@ LayoutDimension LayoutDimensionUnresolved(void);
  *  -- but a dimension built with it is not valid (see `LayoutDimensionIsValid`). */
 LayoutDimension LayoutDimensionIntrinsic(LayoutIntrinsicKind intrinsicKind);
 
+/** A `PERCENTAGE` dimension (19.2): @p percentage is the magnitude, so `5.0` is
+ *  `5%`. A negative or non-finite magnitude is refused by
+ *  `LayoutDimensionIsValid`, not by this maker. */
+LayoutDimension LayoutDimensionPercentage(double percentage);
+
 /** Non-zero when @p dimension is `auto`. 0 for NULL. */
 int LayoutDimensionIsAuto(const LayoutDimension *dimension);
 /** Non-zero when @p dimension is `DEFINITE`. 0 for NULL. */
@@ -194,6 +218,12 @@ int LayoutDimensionIsIntrinsic(const LayoutDimension *dimension);
 /** The intrinsic kind of an `INTRINSIC` @p dimension, or `RoboLayoutIntrinsicNone`
  *  for NULL or a dimension of another kind. */
 LayoutIntrinsicKind LayoutDimensionIntrinsicKindOf(const LayoutDimension *dimension);
+
+/** Non-zero when @p dimension is `PERCENTAGE`. 0 for NULL. */
+int LayoutDimensionIsPercentage(const LayoutDimension *dimension);
+/** The magnitude of a `PERCENTAGE` @p dimension (`5.0` for `5%`), or 0.0 for NULL
+ *  or a dimension of another kind. */
+double LayoutDimensionPercentageOf(const LayoutDimension *dimension);
 
 /**
  * Non-zero when @p dimension is internally consistent: a `DEFINITE` one has a
@@ -245,11 +275,14 @@ typedef enum LayoutDimensionSource {
     RoboLayoutDimensionSourceContent = 3,
     /** An intrinsic `width` (`min-content`/`max-content`/`fit-content`), taken
      *  from the subtree's measured intrinsic size (19.1). */
-    RoboLayoutDimensionSourceIntrinsic = 4
+    RoboLayoutDimensionSourceIntrinsic = 4,
+    /** A percentage, resolved against the containing block's content dimension
+     *  (19.2). */
+    RoboLayoutDimensionSourcePercentage = 5
 } LayoutDimensionSource;
 
 /** Number of defined sources. */
-#define RoboLayoutDimensionSourceCount 5u
+#define RoboLayoutDimensionSourceCount 6u
 
 /** Non-zero when @p source is one of the four above. */
 int LayoutDimensionSourceIsKnown(LayoutDimensionSource source);
@@ -316,6 +349,25 @@ typedef struct LayoutSizing {
     LayoutIntrinsicSize intrinsic;
     int hasIntrinsic;
 
+    /**
+     * The containing block's content dimension a percentage resolves against (19.2).
+     *
+     * Deliberately separate from `available`, because they are different numbers: the
+     * constraint equation for a box's width subtracts the box's *own* margins, borders
+     * and padding from the containing block's content width, and a percentage is taken
+     * of the containing block's content width **before** those subtractions (CSS
+     * resolves `width: 50%` against the containing block, not against what is left after
+     * the box's own insets). `available` is the number `AUTO` fills; this is the number a
+     * percentage multiplies. A caller that has a containing dimension records both; one
+     * that has only an available width records that and leaves the bases clear, and a
+     * percentage then degrades to `AUTO` exactly as CSS does when the containing
+     * dimension is indefinite.
+     */
+    GfxPixelX percentageBaseWidth;
+    int hasPercentageBaseWidth;
+    GfxPixelY percentageBaseHeight;
+    int hasPercentageBaseHeight;
+
     /* ---- the answer ---- */
 
     /** The resolved border-box size. Meaningful once both dimensions have been
@@ -368,6 +420,35 @@ Result LayoutSizingAvailableWidth(const LayoutSizing *sizing,
                                                  GfxPixelX *out);
 Result LayoutSizingAvailableHeight(const LayoutSizing *sizing,
                                                   GfxPixelY *out);
+
+/* ---- the percentage base (19.2) ---- */
+
+/**
+ * Record the containing block's content dimension a percentage resolves against.
+ *
+ * A separate door from `LayoutSizingSetAvailableWidth` because they are different
+ * numbers -- see @ref percentageBaseWidth -- and a caller that has only one of them
+ * must be able to say so rather than have the other inferred.
+ *
+ * @return RoboOk; RoboInvalidArgument for NULL @p sizing or a negative @p extent.
+ */
+Result LayoutSizingSetPercentageBaseWidth(LayoutSizing *sizing,
+                                                     GfxPixelX extent,
+                                                     LayoutDiag *diag);
+Result LayoutSizingSetPercentageBaseHeight(LayoutSizing *sizing,
+                                                      GfxPixelY extent,
+                                                      LayoutDiag *diag);
+
+/** Non-zero when that direction's percentage base has been recorded. 0 for NULL. */
+int LayoutSizingHasPercentageBaseWidth(const LayoutSizing *sizing);
+int LayoutSizingHasPercentageBaseHeight(const LayoutSizing *sizing);
+
+/** Read a recorded percentage base. @return RoboOk; RoboInvalidArgument for NULL
+ *  arguments; RoboNotFound when that direction was never set. */
+Result LayoutSizingPercentageBaseWidth(const LayoutSizing *sizing,
+                                                  GfxPixelX *out);
+Result LayoutSizingPercentageBaseHeight(const LayoutSizing *sizing,
+                                                   GfxPixelY *out);
 
 /* ---- what was declared ---- */
 

@@ -500,6 +500,24 @@ static Result LayoutPositionResolved(CssPositioning mode,
     return LayoutPositionResolve(&declared, offset, NULL);
 }
 
+/** The same, through the 19.2 door that carries the two percentage bases. */
+static Result LayoutPositionResolvedAgainst(CssPositioning mode,
+                                                     LayoutInset top,
+                                                     LayoutInset right,
+                                                     LayoutInset bottom,
+                                                     LayoutInset left,
+                                                     int32_t containingWidth,
+                                                     int hasWidthBase,
+                                                     GfxPixelY containingHeight,
+                                                     int hasHeightBase,
+                                                     LayoutPositionOffset *offset)
+{
+    LayoutPosition declared = LayoutPositionDeclared(mode, top, right, bottom, left);
+
+    return LayoutPositionResolveAgainst(&declared, containingWidth, hasWidthBase,
+                                        containingHeight, hasHeightBase, offset, NULL);
+}
+
 /* ------------------------------------------------------------------ */
 /* The vocabulary                                                      */
 /* ------------------------------------------------------------------ */
@@ -510,17 +528,19 @@ static void TestPositioningKindVocabulary(void)
 
     LayoutFixture();
 
-    RoboCheckEqInt((int)RoboLayoutInsetKindCount, 4);
+    RoboCheckEqInt((int)RoboLayoutInsetKindCount, 5);
     /*
      * The zero of the vocabulary is `ABSENT`, and that is a decision rather than a
      * numbering accident: a cleared record then holds the side's *initial state*, so a
      * forgotten initialisation is not a claim that somebody wrote an inset. The same
-     * decision the margin, padding and border vocabularies made.
+     * decision the margin, padding and border vocabularies made. `PERCENTAGE` is 19.2's
+     * fifth kind, appended after the four 10.12 defined so no earlier number moved.
      */
     RoboCheckEqInt((int)RoboLayoutInsetAbsent, 0);
     RoboCheckEqInt((int)RoboLayoutInsetResolved, 1);
     RoboCheckEqInt((int)RoboLayoutInsetAuto, 2);
     RoboCheckEqInt((int)RoboLayoutInsetUnresolved, 3);
+    RoboCheckEqInt((int)RoboLayoutInsetPercentage, 4);
 
     for (index = 0u; index < RoboLayoutInsetKindCount; index++) {
         LayoutInsetKind kind = (LayoutInsetKind)index;
@@ -528,13 +548,14 @@ static void TestPositioningKindVocabulary(void)
         RoboCheckEqInt(LayoutInsetKindIsKnown(kind), 1);
         RoboCheck(LayoutInsetKindName(kind) != NULL);
     }
-    RoboCheckEqInt(LayoutInsetKindIsKnown((LayoutInsetKind)4), 0);
+    RoboCheckEqInt(LayoutInsetKindIsKnown((LayoutInsetKind)5), 0);
     RoboCheckEqInt(LayoutInsetKindIsKnown((LayoutInsetKind)77), 0);
     RoboCheckStrEq(LayoutInsetKindName(RoboLayoutInsetAbsent), "absent");
     RoboCheckStrEq(LayoutInsetKindName(RoboLayoutInsetResolved), "resolved");
     RoboCheckStrEq(LayoutInsetKindName(RoboLayoutInsetAuto), "auto");
     RoboCheckStrEq(LayoutInsetKindName(RoboLayoutInsetUnresolved), "unresolved");
-    RoboCheckStrEq(LayoutInsetKindName((LayoutInsetKind)4), "unknown");
+    RoboCheckStrEq(LayoutInsetKindName(RoboLayoutInsetPercentage), "percentage");
+    RoboCheckStrEq(LayoutInsetKindName((LayoutInsetKind)5), "unknown");
     RoboCheck(LayoutInsetKindName((LayoutInsetKind)77) != NULL);
 
     /* And the domain this phase added, spelled and counted: 24 since 19.1 appended its
@@ -720,8 +741,10 @@ static void TestPositioningSeam(void)
     RoboCheckEqInt(LayoutInsetIsUnresolved(&position.insets.left), 1);
 
     /*
-     * A percentage -- legal CSS for an inset, and `UNRESOLVED` here for the reason
-     * 10.8 set and every layer since inherited.
+     * A percentage -- legal CSS for an inset, and since 19.2 its **own kind** rather than
+     * `UNRESOLVED`: it keeps its magnitude and the policy resolves it against the
+     * containing block once a caller has one (`LayoutPositionResolveAgainst`). A build
+     * that folded it into `UNRESOLVED` would have no way to place a percentage inset.
      */
     LayoutPositionStyleReplace(&source, "div", &rule);
     LayoutPositionRuleInit(&rule, "div", RoboCssDisplayBlock);
@@ -729,7 +752,8 @@ static void TestPositioningSeam(void)
     LayoutPositionRulePercentage(&rule, "left", 10.0);
     LayoutPositionStyleReplace(&source, "div", &rule);
     position = LayoutPositionOf(source.rules[0].style);
-    RoboCheckEqInt(LayoutInsetIsUnresolved(&position.insets.left), 1);
+    RoboCheckEqInt(LayoutInsetIsPercentage(&position.insets.left), 1);
+    RoboCheckEqInt((int)LayoutInsetPercentageOf(&position.insets.left), 10);
 
     /*
      * A `var()`-flagged length: declared, kinded as a length, and not a value yet.
@@ -792,6 +816,107 @@ static void TestPositioningSeam(void)
         }
         source.count = 0u;
     }
+}
+
+/**
+ * Percentage insets (Phase 19.2).
+ *
+ * The one asymmetry an inset keeps: `left`/`right` resolve against the containing
+ * block's **width** and `top`/`bottom` against its **height**, so the two bases are
+ * separate and a case that swapped them would move the box by a plausible-looking wrong
+ * number. Every expectation here is read off the base and the percentage, never a
+ * literal the fixture happened to produce.
+ */
+static void TestPositioningPercentage(void)
+{
+    LayoutPositionOffset offset;
+
+    LayoutFixture();
+
+    /* `left: 10%` against a 200px wide containing block is 20px rightward. */
+    RoboCheckEqInt(LayoutPositionResolvedAgainst(
+                       RoboCssPositioningRelative,
+                       LayoutInsetAbsent(), LayoutInsetAbsent(), LayoutInsetAbsent(),
+                       LayoutInsetPercentage(10.0),
+                       200, 1, (GfxPixelY)400, 1, &offset), RoboOk);
+    RoboCheckEqInt(offset.dx, 20);
+    RoboCheckEqInt(offset.dy, 0);
+    RoboCheckEqInt(offset.insetsResolved, 1u);
+    RoboCheckEqInt(offset.insetsUnresolved, 0u);
+
+    /* `top: 25%` against a 400px tall containing block is 100px downward -- and it is
+     * the *height* base, which is the half a swapped-bases build gets wrong. */
+    RoboCheckEqInt(LayoutPositionResolvedAgainst(
+                       RoboCssPositioningRelative,
+                       LayoutInsetPercentage(25.0), LayoutInsetAbsent(),
+                       LayoutInsetAbsent(), LayoutInsetAbsent(),
+                       200, 1, (GfxPixelY)400, 1, &offset), RoboOk);
+    RoboCheckEqInt(offset.dx, 0);
+    RoboCheckEqInt(offset.dy, 100);
+    RoboCheckEqInt(offset.insetsResolved, 1u);
+
+    /* `right: 50%` is a distance *from* the right edge, so it displaces leftward --
+     * the sign flip the length case carries, on a percentage. */
+    RoboCheckEqInt(LayoutPositionResolvedAgainst(
+                       RoboCssPositioningRelative,
+                       LayoutInsetAbsent(), LayoutInsetPercentage(50.0),
+                       LayoutInsetAbsent(), LayoutInsetAbsent(),
+                       200, 1, (GfxPixelY)400, 1, &offset), RoboOk);
+    RoboCheckEqInt(offset.dx, -100);
+    RoboCheckEqInt(offset.insetsResolved, 1u);
+
+    /* A negative percentage pulls, for the same reason a negative length does. */
+    RoboCheckEqInt(LayoutPositionResolvedAgainst(
+                       RoboCssPositioningRelative,
+                       LayoutInsetAbsent(), LayoutInsetAbsent(), LayoutInsetAbsent(),
+                       LayoutInsetPercentage(-25.0),
+                       200, 1, (GfxPixelY)400, 1, &offset), RoboOk);
+    RoboCheckEqInt(offset.dx, -50);
+
+    /* No width base: the declaration is unusable and *counted* as such rather than
+     * quietly becoming zero -- the one case 10.8's rule still reaches for an inset. */
+    RoboCheckEqInt(LayoutPositionResolvedAgainst(
+                       RoboCssPositioningRelative,
+                       LayoutInsetAbsent(), LayoutInsetAbsent(), LayoutInsetAbsent(),
+                       LayoutInsetPercentage(10.0),
+                       0, 0, (GfxPixelY)0, 0, &offset), RoboOk);
+    RoboCheckEqInt(offset.dx, 0);
+    RoboCheckEqInt(offset.dy, 0);
+    RoboCheckEqInt(offset.insetsResolved, 0u);
+    RoboCheckEqInt(offset.insetsUnresolved, 1u);
+
+    /* An indefinite height: a block-axis percentage degrades while the inline one, which
+     * *has* its base, still resolves -- the two axes answer separately. */
+    RoboCheckEqInt(LayoutPositionResolvedAgainst(
+                       RoboCssPositioningRelative,
+                       LayoutInsetPercentage(25.0), LayoutInsetAbsent(),
+                       LayoutInsetAbsent(), LayoutInsetPercentage(10.0),
+                       200, 1, (GfxPixelY)0, 0, &offset), RoboOk);
+    RoboCheckEqInt(offset.dx, 20);
+    RoboCheckEqInt(offset.dy, 0);
+    RoboCheckEqInt(offset.insetsResolved, 1u);
+    RoboCheckEqInt(offset.insetsUnresolved, 1u);
+
+    /* Precedence and counting are unchanged by the new kind: `left` wins over `right`,
+     * and both reaching the layer are both counted. */
+    RoboCheckEqInt(LayoutPositionResolvedAgainst(
+                       RoboCssPositioningRelative,
+                       LayoutInsetAbsent(), LayoutInsetPercentage(30.0),
+                       LayoutInsetAbsent(), LayoutInsetPercentage(10.0),
+                       200, 1, (GfxPixelY)400, 1, &offset), RoboOk);
+    RoboCheckEqInt(offset.dx, 20);
+    RoboCheckEqInt(offset.insetsResolved, 2u);
+
+    /* A percentage on a non-relative box is a declaration this pass did not act on, and
+     * it is *declined* rather than resolved -- the mode gate runs first. */
+    RoboCheckEqInt(LayoutPositionResolvedAgainst(
+                       RoboCssPositioningAbsolute,
+                       LayoutInsetAbsent(), LayoutInsetAbsent(), LayoutInsetAbsent(),
+                       LayoutInsetPercentage(10.0),
+                       200, 1, (GfxPixelY)400, 1, &offset), RoboOk);
+    RoboCheckEqInt(offset.dx, 0);
+    RoboCheckEqInt(offset.insetsResolved, 0u);
+    RoboCheckEqInt(offset.insetsDeclined, 1u);
 }
 
 static void TestPositioningOffsetRecord(void)
@@ -1825,6 +1950,7 @@ void TestRegisterLayoutPosition(void)
     TestRegister("layout.positioning.inset_record", TestPositioningInsetRecord);
     TestRegister("layout.positioning.position_record", TestPositioningPositionRecord);
     TestRegister("layout.positioning.seam", TestPositioningSeam);
+    TestRegister("layout.positioning.percentage", TestPositioningPercentage);
     TestRegister("layout.positioning.offset_record", TestPositioningOffsetRecord);
     TestRegister("layout.positioning.policy_precedence", TestPositioningPolicyPrecedence);
     TestRegister("layout.positioning.policy_static_declines",

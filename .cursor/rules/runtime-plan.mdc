@@ -5,12 +5,12 @@ alwaysApply: true
 # RoboticelaOS runtime plan
 
 Phase + goal number + short name. Each phase ends with a **wire/integrate** goal against all completed phases.
-Completed stack today: **Phases 0-12**, **Phase 15** and **Phase 16** (RoboJS module + host suites; no guest half). Phase 13/14 consumer seams (Input, DesktopBridge) remain open.
+Completed stack today: **Phases 0–13**, **15–18** (HTML/CSS complete; RoboJS host-complete). **Phase 14** (Beautiful Desktop Shell) and **Phase 19** (layout/paint depth) are the active premium-UI path. Phases **44–47** are the Apple-class HD / materials / motion gate after 14+19.
 
 ## Cross-stack integration (completed phases)
 
-- **X.1** Wire and integrate Phases 0-15 with each other ✅ (Base->Mem->Containers->Unicode/I18N->Font->Text->Graphics->Display->Window->HTML->CSS->Layout->Paint->Render->Desktop->Compositor; Input consumer seam still open — see X.2)
-- **X.2** Close remaining consumer seams among completed phases (DesktopBridge/`data-command`; Input→Window/Document focus delivery refinements) — Input→Desktop and Compositor→Desktop present closed; RoboJS→Desktop page script closed in 16.16 (`RoboDesktopScript`)
+- **X.1** Wire and integrate Phases 0-15 with each other ✅ (Base->Mem->Containers->Unicode/I18N->Font->Text->Graphics->Display->Window->HTML->CSS->Layout->Paint->Render->Desktop->Compositor)
+- **X.2** Close remaining consumer seams among completed phases — Input→Desktop ✅; Compositor→Desktop ✅; RoboJS→Desktop page script ✅ (`RoboDesktopScript`); DesktopBridge/`data-command` and focus-delivery refinements remain Phase 14 work
 
 ---
 
@@ -313,6 +313,8 @@ Completed stack today: **Phases 0-12**, **Phase 15** and **Phase 16** (RoboJS mo
 
 # Phase 14 - Beautiful Desktop Shell
 
+Product shell (menu, dock, windows, settings). Visual **density / materials / motion** beyond this phase live in **Phases 44–47** — do not declare the Beautiful OS gate done until those are green.
+
 14.0 Out-of-flow placement ✅
 14.1 Desktop shell architecture
 14.2 React application entry
@@ -370,8 +372,8 @@ Completed stack today: **Phases 0-12**, **Phase 15** and **Phase 16** (RoboJS mo
 14.54 Light / dark appearance
 14.55 Reduced motion
 14.56 Responsive desktop layout
-14.57 Display scale
-14.58 Desktop motion system
+14.57 Display scale (foundation; full HiDPI product path is Phase 44)
+14.58 Desktop motion system (foundation; full pacing/recording polish is Phase 46)
 14.59 Window open/close motion
 14.60 Microinteractions
 14.61 Desktop accessibility foundation
@@ -465,7 +467,7 @@ Completed stack today: **Phases 0-12**, **Phase 15** and **Phase 16** (RoboJS mo
 # Phase 19 - Complete Layout & Rendering
 
 19.1 Intrinsic sizing ✅
-19.2 Percentage resolution
+19.2 Percentage resolution ✅
 19.3 Advanced flex layout
 19.4 Advanced grid layout
 19.5 Absolute/fixed positioning ✅
@@ -995,6 +997,79 @@ Completed stack today: **Phases 0-12**, **Phase 15** and **Phase 16** (RoboJS mo
 43.19 Full A-to-Z application test
 43.20 Runtime API freeze
 43.21 Roboticela Runtime 1.0 validation
-43.22 Beautiful OS release gate
+43.22 Beautiful OS release gate (requires Phases 44–47 green)
 43.23 Wire and integrate Phase 43 with all completed phases
+
+# Phase 44 - HiDPI / Retina Visual Density
+
+Goal: screenshots and screen recordings look sharp on modern displays — logical UI × physical scale, never soft 1× upscales.
+
+44.1 Logical vs physical pixel contract (points × scale)
+44.2 Default display scale 2.0 for host demos and QEMU HD profiles
+44.3 Window / framebuffer allocation at physical pixels
+44.4 Layout and CSS `px` remain logical; paint/raster at device scale
+44.5 Text outlines scaled once into device space (no bitmap upscale)
+44.6 Icon and asset `@1x` / `@2x` / `@3x` (vector preferred)
+44.7 Cursor and chrome decorations at device scale
+44.8 Screenshot / PNG export at physical resolution
+44.9 Screen-recording capture path at framebuffer resolution
+44.10 Host HiDPI probe (Win32 / display scale) wired to Desktop
+44.11 QEMU HD profile (e.g. 2560×1600 @ 2× logical 1280×800)
+44.12 Scale-change invalidation (resize + DPI change)
+44.13 Fractional scale policy (1.25 / 1.5 / 1.75) — named support or refuse
+44.14 HiDPI visual conformance gallery
+44.15 Wire and integrate Phase 44 with all completed phases
+
+# Phase 45 - Materials, Lighting & Surface Craft
+
+Goal: depth and premium surfaces without clutter — glass, soft elevation, continuous corners, restrained light.
+
+45.1 Continuous corner radii (large cards / windows)
+45.2 Soft elevation shadows (light and dark themes)
+45.3 Backdrop blur / vibrancy materials (panel, dock, menus)
+45.4 Translucent fills with correct alpha over wallpaper
+45.5 Separators as hairlines, not heavy boxes
+45.6 Wallpaper system with subtle sheen / depth (not flat fill only)
+45.7 Window materials (title bar, content plate, inactive dimming)
+45.8 Focus rings that match brand tokens
+45.9 Light / dark material pairs (token-resolved, never mixed hex)
+45.10 Reduced-transparency accessibility mode
+45.11 Material performance budget (blur tiles, damage)
+45.12 Materials visual gallery + screenshot gate
+45.13 Wire and integrate Phase 45 with all completed phases
+
+# Phase 46 - Motion, Timing & Recording Polish
+
+Goal: 60 fps feel on video — easing, paced presents, no jank under pointer.
+
+46.1 VSync-backed present for Desktop (compositor interval clock)
+46.2 Frame pacing and late-frame counting (honest, not hidden)
+46.3 Pointer / cursor motion coalescing at display rate
+46.4 Window open / close / minimize / raise motion
+46.5 Workspace and Mission-Control-class transitions
+46.6 Dock / launcher microinteractions
+46.7 Scroll inertia and eased scroll offset (compositor tracks)
+46.8 Reduced-motion mode (snap to end)
+46.9 Animation curve standard (`cubic-bezier(0.28, 0.11, 0.32, 1)`)
+46.10 Duration scale (150 / 300 / 600 ms) as the only motion vocabulary
+46.11 Recording-safe demo script (fixed scenes, no clock flicker)
+46.12 Motion visual / video conformance
+46.13 Wire and integrate Phase 46 with all completed phases
+
+# Phase 47 - Premium OS Experience Gate
+
+Goal: the product bar — someone recording the desktop sees Apple-class clarity, craft, and calm UX.
+
+47.1 Premium design system freeze (tokens, type, spacing, radius, shadow)
+47.2 Desktop shell product surfaces complete (menu, dock, windows, settings)
+47.3 HiDPI + materials + motion integration audit
+47.4 Screenshot gallery at 2× (Desktop, Chrome, Document, Materials)
+47.5 Screen-recording acceptance clip (60 s, no jank, crisp type)
+47.6 Typography & glyph quality audit at UI sizes 11–28 px @ 2×
+47.7 Contrast and accessibility pass (WCAG-minded, reduced motion/transparency)
+47.8 Performance budget: frame time, blur cost, memory under premium scene
+47.9 No Chromium/Skia/V8 in product path (boundary scan green)
+47.10 Independent-runtime visual validation (Phase 40 feeds this gate)
+47.11 Premium UX sign-off checklist (human + automated)
+47.12 Wire and integrate Phase 47 with all completed phases — Beautiful OS premium release
 
