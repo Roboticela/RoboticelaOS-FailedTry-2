@@ -173,6 +173,15 @@ Result LayoutGetCapabilities(LayoutCapabilities *out)
      * no `@font-face`. A build that installs no provider measures with the single attached face.
      */
     out->fontRequest = RoboLayoutFontRequestImplemented;
+    /*
+     * And 19.1's, the first capability about a box's **contents** rather than the box's own geometry:
+     * the widest unbreakable piece (`min-content`), the whole content unwrapped (`max-content`), and
+     * the clamp between them (`fit-content`), each measured from shaped RoboText metrics and each
+     * reachable from a declared `width` keyword through the sizing resolver. **Not** "sizing is
+     * finished": no replaced-element intrinsic dimensions, no intrinsic height as a function of width
+     * (that is wrapping), and no flex/grid/table intrinsic sizing (19.3/19.4/19.6).
+     */
+    out->intrinsicSizing = RoboLayoutIntrinsicSizingImplemented;
     out->painting = 0;
     return RoboOk;
 }

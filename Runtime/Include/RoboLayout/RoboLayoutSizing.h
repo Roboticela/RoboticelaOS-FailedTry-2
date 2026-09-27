@@ -79,6 +79,7 @@
 #include "RoboLayout/RoboLayoutConstraints.h"
 #include "RoboLayout/RoboLayoutDiagnostics.h"
 #include "RoboLayout/RoboLayoutGeometry.h"
+#include "RoboLayout/RoboLayoutIntrinsic.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -114,11 +115,23 @@ typedef enum LayoutDimensionKind {
      * `AUTO` is a statement about CSS's default. They resolve the same way today;
      * they will not when percentages arrive.
      */
-    RoboLayoutDimensionUnresolved = 2
+    RoboLayoutDimensionUnresolved = 2,
+    /**
+     * An intrinsic request -- `min-content`, `max-content` or `fit-content` (19.1).
+     *
+     * A fourth kind rather than another `UNRESOLVED`, because the two say different
+     * things: `UNRESOLVED` is "declared, and not resolvable in this build" and an
+     * intrinsic request *is* resolvable -- from the box's contents, measured by
+     * `RoboLayoutIntrinsic.h`. It resolves from the contents' intrinsic size when a
+     * caller has recorded one, and degrades to the available width (exactly as `AUTO`
+     * does) when it has not, which is the same honest degradation 10.5 documents for a
+     * pass with no metrics source.
+     */
+    RoboLayoutDimensionIntrinsic = 3
 } LayoutDimensionKind;
 
 /** Number of defined dimension kinds. */
-#define RoboLayoutDimensionKindCount 3u
+#define RoboLayoutDimensionKindCount 4u
 
 /** Non-zero when @p kind is one of the three above. */
 int LayoutDimensionKindIsKnown(LayoutDimensionKind kind);
@@ -144,6 +157,9 @@ typedef struct LayoutDimension {
     LayoutDimensionKind kind;
     /** The px length, when @c kind is DEFINITE. Undefined otherwise. */
     GfxPixelX length;
+    /** Which intrinsic width was asked for, when @c kind is INTRINSIC. Undefined
+     *  otherwise; `NONE` in a cleared record. */
+    LayoutIntrinsicKind intrinsicKind;
 } LayoutDimension;
 
 /** Clear @p dimension to `AUTO` -- "nothing determines this". Safe on NULL. */
@@ -162,12 +178,22 @@ LayoutDimension LayoutDimensionDefinite(GfxPixelX length);
 /** The `UNRESOLVED` dimension: declared, and not resolvable in this build. */
 LayoutDimension LayoutDimensionUnresolved(void);
 
+/** An `INTRINSIC` dimension: `min-content`, `max-content` or `fit-content` (19.1).
+ *  A `NONE` @p intrinsicKind is refused by nothing here -- it is a maker, not a door
+ *  -- but a dimension built with it is not valid (see `LayoutDimensionIsValid`). */
+LayoutDimension LayoutDimensionIntrinsic(LayoutIntrinsicKind intrinsicKind);
+
 /** Non-zero when @p dimension is `auto`. 0 for NULL. */
 int LayoutDimensionIsAuto(const LayoutDimension *dimension);
 /** Non-zero when @p dimension is `DEFINITE`. 0 for NULL. */
 int LayoutDimensionIsDefinite(const LayoutDimension *dimension);
 /** Non-zero when @p dimension is `UNRESOLVED`. 0 for NULL. */
 int LayoutDimensionIsUnresolved(const LayoutDimension *dimension);
+/** Non-zero when @p dimension is `INTRINSIC`. 0 for NULL. */
+int LayoutDimensionIsIntrinsic(const LayoutDimension *dimension);
+/** The intrinsic kind of an `INTRINSIC` @p dimension, or `RoboLayoutIntrinsicNone`
+ *  for NULL or a dimension of another kind. */
+LayoutIntrinsicKind LayoutDimensionIntrinsicKindOf(const LayoutDimension *dimension);
 
 /**
  * Non-zero when @p dimension is internally consistent: a `DEFINITE` one has a
@@ -216,11 +242,14 @@ typedef enum LayoutDimensionSource {
     /** An `auto` (or unresolvable) width, filled from the containing block. */
     RoboLayoutDimensionSourceAvailable = 2,
     /** An `auto` (or unresolvable) height, taken from the contents' extent. */
-    RoboLayoutDimensionSourceContent = 3
+    RoboLayoutDimensionSourceContent = 3,
+    /** An intrinsic `width` (`min-content`/`max-content`/`fit-content`), taken
+     *  from the subtree's measured intrinsic size (19.1). */
+    RoboLayoutDimensionSourceIntrinsic = 4
 } LayoutDimensionSource;
 
 /** Number of defined sources. */
-#define RoboLayoutDimensionSourceCount 4u
+#define RoboLayoutDimensionSourceCount 5u
 
 /** Non-zero when @p source is one of the four above. */
 int LayoutDimensionSourceIsKnown(LayoutDimensionSource source);
@@ -274,6 +303,18 @@ typedef struct LayoutSizing {
     /** What the contents turned out to be: the `auto` height's answer. */
     LayoutSize content;
     int hasContent;
+
+    /**
+     * The subtree's intrinsic size, when a caller has measured one (19.1).
+     *
+     * The input an `INTRINSIC` dimension resolves from. It is *set by the caller* and
+     * not computed here, because measuring the subtree needs the metrics seam and this
+     * record has no tree in it -- exactly as `content` is set by whoever laid the
+     * children out. Unset means "nobody measured this", and an `INTRINSIC` width then
+     * degrades to the available width, which is the same answer `AUTO` gives.
+     */
+    LayoutIntrinsicSize intrinsic;
+    int hasIntrinsic;
 
     /* ---- the answer ---- */
 
@@ -400,6 +441,29 @@ Result LayoutSizingSetContent(LayoutSizing *sizing,
 
 /** Non-zero when the contents' extent has been recorded. 0 for NULL. */
 int LayoutSizingHasContent(const LayoutSizing *sizing);
+
+/**
+ * Record the subtree's intrinsic size (19.1).
+ *
+ * A separate door from `LayoutSizingSetContent` because they are different facts: the
+ * content *extent* is what an `auto` height resolves from and exists only after the
+ * children were laid out, while the intrinsic *size* is what an intrinsic width resolves
+ * from and is a measurement taken before anything is placed.
+ *
+ * @return RoboOk; RoboInvalidArgument for NULL @p sizing or an @p intrinsicSize
+ *         that is not valid (a negative width, or `min > max`).
+ */
+Result LayoutSizingSetIntrinsic(LayoutSizing *sizing,
+                                                LayoutIntrinsicSize intrinsicSize,
+                                                LayoutDiag *diag);
+
+/** Non-zero when an intrinsic size has been recorded. 0 for NULL. */
+int LayoutSizingHasIntrinsic(const LayoutSizing *sizing);
+
+/** Read the recorded intrinsic size. @return RoboOk; RoboInvalidArgument for NULL
+ *  arguments; RoboNotFound when it was never set. */
+Result LayoutSizingIntrinsic(const LayoutSizing *sizing,
+                                         LayoutIntrinsicSize *out);
 
 /** Read the recorded contents extent. @return RoboOk; RoboInvalidArgument for
  *  NULL arguments; RoboNotFound when it was never set. */

@@ -335,3 +335,19 @@ which is the mistake this boundary exists to make visible. What 10.13 needed fro
 layer is the one thing it already gave the padding and border layers: the border box a
 result carries, which is what an extent is measured against once the borders are
 subtracted.
+
+*19.1's outcome row:* the first phase to *extend* this layer's vocabulary rather than
+leave it alone, and it is worth saying exactly how far. `LayoutDimensionKind` gained a
+fourth enumerator (`INTRINSIC`) and `LayoutDimensionSource` a fifth
+(`INTRINSIC`), the record gained the measured size (`has_intrinsic` / `intrinsic`), and
+`LayoutSizingResolveWidth` gained one branch. What did **not** change is the rule this
+document is about: a resolved size is still the answer to one question, and it is still
+what a box's children are laid out into. An intrinsic width that a caller has measured
+resolves to that measurement and *deviates from* the available width — a `max-content`
+box may be narrower than its containing block — while an intrinsic width a caller has
+**not** measured falls through to the `AUTO` branch and fills the containing block, so
+a build that never calls `LayoutSizingSetIntrinsic` behaves exactly as it did before
+19.1. That is the same "no provider, the single face" arrival condition 12.17 gave this
+module, asked about a measurement instead of a font: the new capability is *available*
+and, until a caller records a measurement, inert. `IntrinsicSizing.md` is the phase's
+authority.

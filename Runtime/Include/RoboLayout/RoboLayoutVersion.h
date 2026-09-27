@@ -340,9 +340,9 @@
 #define ROBO_LAYOUT_VERSION_H
 
 #define RoboLayoutVersionMajor 0
-#define RoboLayoutVersionMinor 17
+#define RoboLayoutVersionMinor 18
 #define RoboLayoutVersionPatch 0
-#define RoboLayoutVersionString "0.17.0"
+#define RoboLayoutVersionString "0.18.0"
 
 /** 1 once the Phase 10 surface is frozen (not yet — see header comment). */
 #define RoboLayoutApiFrozen 0
@@ -780,5 +780,22 @@
  * figure. `font-request` would be claiming those if it were named for "fonts are finished".
  */
 #define RoboLayoutFontRequestImplemented 1
+
+/**
+ * 1 once this build measures a subtree's intrinsic size (19.1).
+ *
+ * The tenth capability that is about a *question* rather than a box's own declarations, and the first
+ * that answers before anything is placed. `min-content` is the widest unbreakable piece of the content
+ * -- for text, the widest word, found by decoding the node's bytes and splitting on CSS's collapsible
+ * whitespace and then measuring each segment through the 10.5 metrics seam -- and `max-content` is the
+ * whole content unwrapped. `fit-content` is the clamp between them.
+ *
+ * What it does **not** claim: no replaced-element intrinsic dimensions (an `<img>`'s own size is
+ * image loading's, and this module has no way to ask), no intrinsic height as a function of width
+ * (wrapping is line breaking's), and no flex/grid/table intrinsic sizing -- those consume these two
+ * numbers and are 19.3, 19.4 and 19.6. `intrinsic-sizing` would be claiming those if it were named
+ * for "sizing is finished".
+ */
+#define RoboLayoutIntrinsicSizingImplemented 1
 
 #endif /* ROBO_LAYOUT_VERSION_H */

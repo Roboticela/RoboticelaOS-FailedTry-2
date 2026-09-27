@@ -133,11 +133,13 @@ typedef enum LayoutDiagnosticDomain {
     /** Invalidation: the states, the reasons, the style classifier, the propagation. */
     RoboLayoutDomainInvalidation = 21,
     /** Out-of-flow placement: the containing block, the two axes, the used origin (14.0). */
-    RoboLayoutDomainAbsolute = 22
+    RoboLayoutDomainAbsolute = 22,
+    /** Intrinsic sizing: min-content, max-content, fit-content and the measurement (19.1). */
+    RoboLayoutDomainIntrinsic = 23
 } LayoutDiagnosticDomain;
 
 /** Number of defined diagnostic domains. */
-#define RoboLayoutDomainCount 23u
+#define RoboLayoutDomainCount 24u
 
 /** Non-zero if @p domain is a defined diagnostic domain enumerator. */
 int LayoutDiagnosticDomainIsKnown(LayoutDiagnosticDomain domain);

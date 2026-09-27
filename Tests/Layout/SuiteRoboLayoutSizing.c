@@ -395,6 +395,8 @@ static void TestSizingDimension(void)
                       "definite");
     RoboCheckStrEq(LayoutDimensionKindName(RoboLayoutDimensionUnresolved),
                       "unresolved");
+    RoboCheckStrEq(LayoutDimensionKindName(RoboLayoutDimensionIntrinsic),
+                      "intrinsic");
     RoboCheckStrEq(LayoutDimensionKindName((LayoutDimensionKind)77),
                       "unknown");
 }
@@ -406,8 +408,11 @@ static void TestSizingVocabulary(void)
     RoboCheckEqInt(LayoutDimensionKindIsKnown(RoboLayoutDimensionAuto), 1);
     RoboCheckEqInt(LayoutDimensionKindIsKnown(RoboLayoutDimensionDefinite), 1);
     RoboCheckEqInt(LayoutDimensionKindIsKnown(RoboLayoutDimensionUnresolved), 1);
+    /* 19.1's kind: a `width: max-content` is neither a px length nor "nothing settled
+     * this", it is a request to measure the contents, so it is a fourth kind. */
+    RoboCheckEqInt(LayoutDimensionKindIsKnown(RoboLayoutDimensionIntrinsic), 1);
     RoboCheckEqInt(LayoutDimensionKindIsKnown((LayoutDimensionKind)9), 0);
-    RoboCheckEqInt((int)RoboLayoutDimensionKindCount, 3);
+    RoboCheckEqInt((int)RoboLayoutDimensionKindCount, 4);
 
     RoboCheckEqInt(LayoutDimensionSourceIsKnown(RoboLayoutDimensionSourceNone),
                       1);
@@ -417,9 +422,13 @@ static void TestSizingVocabulary(void)
         LayoutDimensionSourceIsKnown(RoboLayoutDimensionSourceAvailable), 1);
     RoboCheckEqInt(
         LayoutDimensionSourceIsKnown(RoboLayoutDimensionSourceContent), 1);
+    /* 19.1's source: an intrinsic width's number came from the contents' measured
+     * size, which is a fourth question the same number can answer. */
+    RoboCheckEqInt(
+        LayoutDimensionSourceIsKnown(RoboLayoutDimensionSourceIntrinsic), 1);
     RoboCheckEqInt(LayoutDimensionSourceIsKnown((LayoutDimensionSource)9),
                       0);
-    RoboCheckEqInt((int)RoboLayoutDimensionSourceCount, 4);
+    RoboCheckEqInt((int)RoboLayoutDimensionSourceCount, 5);
 
     RoboCheckStrEq(LayoutDimensionSourceName(RoboLayoutDimensionSourceNone),
                       "none");
@@ -429,6 +438,8 @@ static void TestSizingVocabulary(void)
                       "available");
     RoboCheckStrEq(LayoutDimensionSourceName(RoboLayoutDimensionSourceContent),
                       "content");
+    RoboCheckStrEq(LayoutDimensionSourceName(RoboLayoutDimensionSourceIntrinsic),
+                      "intrinsic");
     RoboCheckStrEq(LayoutDimensionSourceName((LayoutDimensionSource)77),
                       "unknown");
     RoboCheckEqInt(LayoutDimensionSourceEqual(RoboLayoutDimensionSourceDeclared,

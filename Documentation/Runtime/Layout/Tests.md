@@ -52,6 +52,7 @@ phase that made it.
 | `SuiteRoboLayoutFontSelect.c` | `layout.fontselect.*` | 8 | is the request offered to a caller-supplied provider in author order, does the first answer win, and is a miss told apart from a failure? |
 | `SuiteRoboLayoutConformance.c` | `layout.conformance.*` | 7 | the whole-product questions no single suite can ask |
 | `SuiteRoboLayoutIntegration.c` | `layout.integration.*` | 12 | do the fourteen layers agree with *each other* on one document, and is a whole tree's geometry the geometry the layers promise? |
+| `SuiteRoboLayoutIntrinsic.c` | `layout.intrinsic.*` | 16 | are min-content and max-content measured through the metrics seam rather than a byte count, do a box's children combine the way CSS says, and does an intrinsic dimension resolve from the answer? |
 
 ### 10.1 — the module surface (`layout.module.*`)
 
@@ -1713,3 +1714,53 @@ stylesheet, so `<p>` is `display: inline` (CSS's own initial, which the registry
 context is established, and the measurer is never asked. The case passed its `texts >= 1` neighbour either
 way, because a *text object* is built regardless. The lesson is the one §5 of `FontRequest.md` states for a
 different reason: a document that measures nothing is not a document that fails to measure.
+
+## 22. What the 19.1 suite found
+
+Sixteen cases, four groups — the vocabulary, the record, the measurement, the sizing
+plumbing — and the first suite in this directory whose subject is a *measurement of
+the contents* rather than a placement.
+
+**1. The seam must be reached with the right spans, and a call count is how that is
+asserted.** `layout.intrinsic.text_min_max` measures `hello world` and asserts 110
+max-content, 50 min-content, and `script.calls == 3`: the whole node, then each of
+two words. A build that measured the whole node and called its width the widest word
+would answer the same numbers for a one-word node and the wrong ones here, so the
+count is what distinguishes "the words were found" from "a number was produced".
+`layout.intrinsic.text_long_word` is the counterpart (one word: min equals max, two
+calls — the whole node and its single word, because the whole node is always
+measured for max-content).
+
+**2. The unit is a code point, and the case proves the decode rather than agreeing
+with it.** `layout.intrinsic.text_multilingual` reads the node's code-point count
+back through `LayoutTextNodeCodePoints` (`héllo wörld` → 11) *and* measures it, so a
+build that counted bytes would fail at 130 where this one answers 110. The
+13-byte/11-code-point split is the smallest text that tells the two apart.
+
+**3. The zero has its reason written into the case.**
+`layout.intrinsic.text_whitespace` (a whitespace-only node: no word, so min 0 and
+max 30) and `layout.intrinsic.unmeasured` (no metrics source, so every run measures
+zero) are asserted with the reason in the case, in the same spirit as
+`layout.text.pass_unmeasured` — a zero that is the documented degradation rather
+than an oversight.
+
+**4. Two `NONE`/miss distinctions, and the implementation was wrong on one of
+them.** The first draft of `LayoutIntrinsicMeasureObject` answered `RoboNotFound` for
+a `NONE` id *and* for a non-live one; `layout.intrinsic.refusals` asserted the
+convention every other door in the module follows — `RoboInvalidArgument` for a
+`NONE` id (a caller bug) and `RoboNotFound` for an id that names no live box (a
+miss) — and the implementation was corrected to match. The suite is the thing that
+found it.
+
+**5. Production code must not call a test macro, and the first draft did.**
+`RoboLayoutIntrinsic.c` used `RoboCheckEqInt` in its first version; the rewrite uses
+none, which is the module's own rule (assertions live in suites, not in the module)
+and would otherwise link the test framework into the runtime.
+
+**6. The version pin is four places, and one of them is a loop.**
+§21's story repeated: raising the module to `0.18.0` reddened
+`layout.module.version`, `layout.module.allocator_balance` (64 checks, because its
+loop re-asserts the version on every iteration), `layout.conformance.statement` and
+`layout.conformance.capabilities`'s implemented count — plus the capability table in
+three suites, `RoboLayoutDomainCount` in three, and both dimension
+kind/source counts. §21 predicted exactly this shape for every remaining goal.

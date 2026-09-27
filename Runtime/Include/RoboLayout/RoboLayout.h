@@ -362,6 +362,22 @@ typedef struct LayoutCapabilities {
      * `font-request` would be claiming those if it were named for "fonts are finished".
      */
     int fontRequest;
+    /**
+     * Measuring a subtree's intrinsic size (19.1). **1** since 19.1.
+     *
+     * A claim about the *build* and not about a pass: this build can measure a box's
+     * `min-content` and `max-content` widths from shaped RoboText metrics -- the
+     * widest word, and the whole content unwrapped -- and resolve `fit-content` as the
+     * clamp between them, and a declared `width: min-content`/`max-content`/
+     * `fit-content` reaches the sizing resolver through it. Kept narrow for the same
+     * reason the other flags are: **no replaced-element intrinsic dimensions** (an
+     * `<img>`'s own size is the image-loading seam's, which this module cannot ask),
+     * **no intrinsic height as a function of width** (wrapping is line breaking's),
+     * and **no flex/grid/table intrinsic sizing**, which are 19.3, 19.4 and 19.6.
+     * `intrinsic-sizing` would be claiming those if it were named for "sizing is
+     * finished".
+     */
+    int intrinsicSizing;
     /** Painting a box. **0**: Phase 11. */
     int painting;
 } LayoutCapabilities;

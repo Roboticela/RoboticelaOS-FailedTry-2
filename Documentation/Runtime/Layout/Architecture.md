@@ -834,7 +834,7 @@ visible omission rather than a silent gap.
 
 ## 13. The capability model
 
-`LayoutCapabilities` is fifteen `int` fields in declaration order, and one
+`LayoutCapabilities` is twenty-five `int` fields in declaration order, and one
 of them is deliberately 0:
 
 | Field | this build | Filled by |
@@ -858,11 +858,27 @@ of them is deliberately 0:
 | `padding` | 1 | 10.10 |
 | `border` | 1 | 10.11 |
 | `positioning` | 1 | 10.12 |
+| `out_of_flow` | 1 | 14.0 |
 | `overflow` | 1 | 10.13 |
+| `invalidation` | 1 | 10.14 |
+| `font_request` | 1 | 12.17 |
+| `intrinsic_sizing` | 1 | 19.1 |
 | `painting` | **0** | Phase 11 |
 
 The table is in declaration order rather than in the order fields landed, so the
 positional walk below stays a walk of the struct and not of a history.
+
+`intrinsic_sizing` is 19.1's field and its wording is as narrow as the sizing one:
+it says this build can **measure the contents** — min-content (the widest word),
+max-content (the whole content on one line) and the fit-content clamp between them,
+through the metrics seam rather than a character count — and that an `INTRINSIC`
+dimension resolves from that measurement with `RoboLayoutDimensionSourceIntrinsic`.
+It does **not** say intrinsic height as a function of width (that is line breaking),
+replaced-element intrinsic dimensions (an image-loading seam that is 17.5's),
+or flex/grid/table intrinsic sizing (19.3, 19.4, 19.6, each of which consumes these
+two numbers). A build with the sizing record and no measurement of what is inside it
+would have satisfied every field above it, which is why the field exists
+(`IntrinsicSizing.md`).
 
 A caller that checked only the version string would conclude that 0.1.0 lays boxes
 out. The three doors §1 lists answer that together: `geometry` says **the build**
@@ -923,7 +939,7 @@ rather than unfinished:
 | anonymous boxes | a later goal | every box knows which context it participates in and which it establishes (10.2); the pass counts the boxes it declined (`block.inline_level_skipped`, `inline.block_level_declined`) and the boxes nothing containing was placed for (`block.unreached`) |
 | ~~baselines~~ **done in 10.7**; still absent: `line-height` as a resolved used value, alignment, `text-align`, `vertical-align` | 10.7, and a later goal for the rest | every line carries an ascent, a descent and the kind they came from, its height **is** their sum, and every member is placed from them (`Baselines.md`); what is not claimed is a `line-height` computation, a resolved used value, or any of the alignment properties |
 | text **shaping** — glyph substitution, positioning, ligature, kerning, bidi reordering, Unicode line breaking, whitespace collapsing, fragmentation | Phase 14, and 10.6's successor for the last two | a run's width is the **sum of its glyphs' advances**, which is what an unshaped run is; a participant too wide for its line **overflows** rather than breaking, guarded by `cursor > 0`; `LayoutTextIsCollapsibleWhitespace` is the predicate the builder applies and the one a collapsing rule will have to agree with |
-| `min-width`, `max-width`, `min-height`, `max-height` as **properties** (neither 9.11 nor a later CSS goal has registered them yet); `box-sizing`; percentages and relative units for both axes; shrink-to-fit | 10.11+, and a RoboCSS goal for the properties | the sizing layer *has* a minimum and a maximum and clamps through them (`Sizing.md` §6), so the arrival of the properties is a read rather than a redesign; `box-sizing: border-box` is one branch at the place 10.10 hands the layer a number |
+| `min-width`, `max-width`, `min-height`, `max-height` as **properties** (neither 9.11 nor a later CSS goal has registered them yet); `box-sizing`; percentages and relative units for both axes; applied shrink-to-fit | 10.11+, and a RoboCSS goal for the properties | the sizing layer *has* a minimum and a maximum and clamps through them (`Sizing.md` §6), so the arrival of the properties is a read rather than a redesign; `box-sizing: border-box` is one branch at the place 10.10 hands the layer a number; ~~intrinsic sizing~~ **done in 19.1** — min-content/max-content/fit-content are measured through the metrics seam and resolve as a fourth dimension kind, so what is still absent is intrinsic *height* as a function of width (line breaking), replaced-element dimensions, and flex/grid/table intrinsic sizing (`IntrinsicSizing.md`) |
 | ~~declared **width** and **height**~~ **done in 10.8**; still absent: a declared size on a **block** box beyond a bare `px` length, and `width` on a text object | 10.11+ | a block box lays its children out **into** its resolved width and is measured against its declared height (10.8); an atomic inline resolves width, contents and height in that order; a `%` is recorded as unresolved and filled from the containing block rather than guessed |
 | margin **collapsing** | a later goal | margins are *summed* and placed (10.9): a box sits at its margin origin, a horizontal `auto` distributes the leftover beside a declared width, and a parent stacks its children by their margin boxes — with the transparency rule collapsing needs already in *both* directions (10.3's transparent block container and 10.4's transparent inline box) and the four used values in one record, so collapsing becomes a rule **over those numbers** rather than over declarations (`Margins.md` §6) |
 | ~~padding~~ **done in 10.10**; still absent: `box-sizing: border-box`, a percentage padding (read, counted and used as zero), and padding on a **transparent inline box** | a later goal each | a box's `size` is its **padding** box built on the sizing layer's answer, its contents begin inside it, an `auto` width fills what the margins and the padding left, and the used padding is readable from the object (`Padding.md`) |

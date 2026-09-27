@@ -138,7 +138,8 @@ int LayoutStyleClassify(const CssComputedStyle *style,
 int LayoutDimensionKindIsKnown(LayoutDimensionKind kind)
 {
     return kind == RoboLayoutDimensionAuto || kind == RoboLayoutDimensionDefinite ||
-           kind == RoboLayoutDimensionUnresolved;
+           kind == RoboLayoutDimensionUnresolved ||
+           kind == RoboLayoutDimensionIntrinsic;
 }
 
 const char *LayoutDimensionKindName(LayoutDimensionKind kind)
@@ -150,6 +151,8 @@ const char *LayoutDimensionKindName(LayoutDimensionKind kind)
         return "definite";
     case RoboLayoutDimensionUnresolved:
         return "unresolved";
+    case RoboLayoutDimensionIntrinsic:
+        return "intrinsic";
     default:
         break;
     }
@@ -166,6 +169,7 @@ void LayoutDimensionInit(LayoutDimension *dimension)
      * 0 is a *size* an author can ask for. */
     dimension->kind = RoboLayoutDimensionAuto;
     dimension->length = 0;
+    dimension->intrinsicKind = RoboLayoutIntrinsicNone;
 }
 
 LayoutDimension LayoutDimensionAuto(void)
@@ -182,6 +186,7 @@ LayoutDimension LayoutDimensionDefinite(GfxPixelX length)
 
     dimension.kind = RoboLayoutDimensionDefinite;
     dimension.length = length;
+    dimension.intrinsicKind = RoboLayoutIntrinsicNone;
     return dimension;
 }
 
@@ -191,6 +196,17 @@ LayoutDimension LayoutDimensionUnresolved(void)
 
     dimension.kind = RoboLayoutDimensionUnresolved;
     dimension.length = 0;
+    dimension.intrinsicKind = RoboLayoutIntrinsicNone;
+    return dimension;
+}
+
+LayoutDimension LayoutDimensionIntrinsic(LayoutIntrinsicKind intrinsicKind)
+{
+    LayoutDimension dimension;
+
+    dimension.kind = RoboLayoutDimensionIntrinsic;
+    dimension.length = 0;
+    dimension.intrinsicKind = intrinsicKind;
     return dimension;
 }
 
@@ -209,6 +225,19 @@ int LayoutDimensionIsUnresolved(const LayoutDimension *dimension)
     return dimension && dimension->kind == RoboLayoutDimensionUnresolved;
 }
 
+int LayoutDimensionIsIntrinsic(const LayoutDimension *dimension)
+{
+    return dimension && dimension->kind == RoboLayoutDimensionIntrinsic;
+}
+
+LayoutIntrinsicKind LayoutDimensionIntrinsicKindOf(const LayoutDimension *dimension)
+{
+    if (!dimension || dimension->kind != RoboLayoutDimensionIntrinsic) {
+        return RoboLayoutIntrinsicNone;
+    }
+    return dimension->intrinsicKind;
+}
+
 int LayoutDimensionIsValid(const LayoutDimension *dimension)
 {
     if (!dimension) {
@@ -216,6 +245,12 @@ int LayoutDimensionIsValid(const LayoutDimension *dimension)
     }
     if (!LayoutDimensionKindIsKnown(dimension->kind)) {
         return 0;
+    }
+    if (dimension->kind == RoboLayoutDimensionIntrinsic) {
+        /* An intrinsic dimension names *which* intrinsic width; `NONE` names none,
+         * which is the shape a caller that forgot the argument builds. */
+        return LayoutIntrinsicKindIsKnown(dimension->intrinsicKind) &&
+               dimension->intrinsicKind != RoboLayoutIntrinsicNone;
     }
     /* Only a length can be wrong: a non-negative px length is the whole of what
      * `DEFINITE` means, and the other two kinds carry no number at all. */
@@ -249,6 +284,9 @@ int LayoutDimensionEqual(const LayoutDimension *a,
     /* The length is compared only where it means something, so two `auto`s built
      * by different paths -- one from `init`, one from `dimension_auto` -- are equal
      * rather than equal-by-luck. */
+    if (a->kind == RoboLayoutDimensionIntrinsic) {
+        return a->intrinsicKind == b->intrinsicKind;
+    }
     if (a->kind != RoboLayoutDimensionDefinite) {
         return 1;
     }
@@ -262,7 +300,7 @@ int LayoutDimensionEqual(const LayoutDimension *a,
 int LayoutDimensionSourceIsKnown(LayoutDimensionSource source)
 {
     return source >= RoboLayoutDimensionSourceNone &&
-           source <= RoboLayoutDimensionSourceContent;
+           source <= RoboLayoutDimensionSourceIntrinsic;
 }
 
 const char *LayoutDimensionSourceName(LayoutDimensionSource source)
@@ -276,6 +314,8 @@ const char *LayoutDimensionSourceName(LayoutDimensionSource source)
         return "available";
     case RoboLayoutDimensionSourceContent:
         return "content";
+    case RoboLayoutDimensionSourceIntrinsic:
+        return "intrinsic";
     default:
         break;
     }
@@ -565,6 +605,41 @@ Result LayoutSizingContent(const LayoutSizing *sizing,
     return RoboOk;
 }
 
+Result LayoutSizingSetIntrinsic(LayoutSizing *sizing,
+                                                LayoutIntrinsicSize intrinsicSize,
+                                                LayoutDiag *diag)
+{
+    if (!sizing) {
+        return RoboLayoutDiag(diag, RoboLayoutDomainSizing, RoboInvalidArgument,
+                                "sizing is NULL");
+    }
+    if (!LayoutIntrinsicSizeIsValid(&intrinsicSize)) {
+        return RoboLayoutDiag(diag, RoboLayoutDomainIntrinsic, RoboInvalidArgument,
+                                "the intrinsic size is invalid");
+    }
+    sizing->intrinsic = intrinsicSize;
+    sizing->hasIntrinsic = 1;
+    return RoboOk;
+}
+
+int LayoutSizingHasIntrinsic(const LayoutSizing *sizing)
+{
+    return sizing && sizing->hasIntrinsic;
+}
+
+Result LayoutSizingIntrinsic(const LayoutSizing *sizing,
+                                         LayoutIntrinsicSize *out)
+{
+    if (!sizing || !out) {
+        return RoboInvalidArgument;
+    }
+    if (!sizing->hasIntrinsic) {
+        return RoboNotFound;
+    }
+    *out = sizing->intrinsic;
+    return RoboOk;
+}
+
 /* ------------------------------------------------------------------ */
 /* Resolving                                                           */
 /* ------------------------------------------------------------------ */
@@ -652,6 +727,26 @@ Result LayoutSizingResolveWidth(LayoutSizing *sizing,
     if (sizing->width.kind == RoboLayoutDimensionDefinite) {
         base = sizing->width.length;
         source = RoboLayoutDimensionSourceDeclared;
+    } else if (sizing->width.kind == RoboLayoutDimensionIntrinsic &&
+               sizing->hasIntrinsic) {
+        /*
+         * An intrinsic width resolves from the contents' measured size, which the
+         * caller recorded through `LayoutSizingSetIntrinsic` (19.1). `fit-content`
+         * additionally needs the available width, and when a caller has recorded none
+         * it clamps against the max-content width -- "as wide as the content wants,
+         * but no wider" -- which is the answer with the most evidence behind it.
+         */
+        if (sizing->width.intrinsicKind == RoboLayoutIntrinsicFitContent) {
+            GfxPixelX available = sizing->hasAvailableWidth
+                                      ? sizing->available.width
+                                      : sizing->intrinsic.maxContent;
+
+            base = LayoutIntrinsicResolveFitContent(&sizing->intrinsic, available);
+        } else {
+            base = LayoutIntrinsicSizeWidth(&sizing->intrinsic,
+                                            sizing->width.intrinsicKind);
+        }
+        source = RoboLayoutDimensionSourceIntrinsic;
     } else {
         /*
          * `AUTO` and `UNRESOLVED` take the same branch, and the header argues why

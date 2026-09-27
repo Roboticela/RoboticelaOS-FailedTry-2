@@ -97,6 +97,8 @@ const char *LayoutDiagnosticDomainName(LayoutDiagnosticDomain domain)
         return "invalidation";
     case RoboLayoutDomainAbsolute:
         return "absolute";
+    case RoboLayoutDomainIntrinsic:
+        return "intrinsic";
     default:
         return "unknown";
     }

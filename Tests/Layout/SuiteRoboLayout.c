@@ -43,10 +43,10 @@ static void TestModuleVersion(void)
     I32 patch = -1;
 
     RoboCheckEqInt(RoboLayoutVersionMajor, 0);
-    RoboCheckEqInt(RoboLayoutVersionMinor, 17);
+    RoboCheckEqInt(RoboLayoutVersionMinor, 18);
     RoboCheckEqInt(RoboLayoutVersionPatch, 0);
-    RoboCheckStrEq(RoboLayoutVersionString, "0.17.0");
-    RoboCheckStrEq(LayoutVersionString(), "0.17.0");
+    RoboCheckStrEq(RoboLayoutVersionString, "0.18.0");
+    RoboCheckStrEq(LayoutVersionString(), "0.18.0");
 
     RoboCheckEqInt(LayoutGetVersion(&major, &minor, &patch), RoboOk);
     RoboCheckEqInt(major, RoboLayoutVersionMajor);
@@ -124,6 +124,7 @@ static const struct {
     { "overflow", 1 },
     { "invalidation", 1 },
     { "font_request", 1 },
+    { "intrinsic_sizing", 1 },
     { "painting", 0 }
 };
 
@@ -227,6 +228,14 @@ static void TestModuleCapabilities(void)
      * set and no measurement could not have satisfied this one.
      */
     RoboCheckEqInt(caps.overflow, RoboLayoutOverflowImplemented);
+    /*
+     * And `intrinsicSizing`, the field 19.1 added -- the first in this struct whose claim
+     * is about the *contents* rather than about the box: min-content and max-content are
+     * what a box's children ask for before any containing block has a say, which is neither
+     * a size (10.8) nor an overflow (10.13). A build with the whole sizing record and no
+     * measurement of what is inside it would have satisfied every field above it.
+     */
+    RoboCheckEqInt(caps.intrinsicSizing, RoboLayoutIntrinsicSizingImplemented);
     RoboCheckEqInt(caps.painting, 0);
     /* Both halves of the third row, so a build that set one of the pair without the
      * other is caught here rather than by a caller that trusted the constant. */
@@ -314,7 +323,7 @@ static void TestModuleDiagnosticDomains(void)
     size_t index;
     size_t seen[RoboLayoutDomainCount];
 
-    RoboCheckEqInt((int)RoboLayoutDomainCount, 23);
+    RoboCheckEqInt((int)RoboLayoutDomainCount, 24);
     RoboCheckEqInt((int)RoboLayoutDomainNone, 0);
     RoboCheckEqInt(LayoutDiagnosticDomainIsKnown(RoboLayoutDomainTextLayout), 1);
     RoboCheckEqInt(LayoutDiagnosticDomainIsKnown(RoboLayoutDomainSizing), 1);
@@ -324,7 +333,8 @@ static void TestModuleDiagnosticDomains(void)
     RoboCheckEqInt(LayoutDiagnosticDomainIsKnown(RoboLayoutDomainPosition), 1);
     RoboCheckEqInt(LayoutDiagnosticDomainIsKnown(RoboLayoutDomainOverflow), 1);
     RoboCheckEqInt(LayoutDiagnosticDomainIsKnown(RoboLayoutDomainInvalidation), 1);
-    RoboCheckEqInt(LayoutDiagnosticDomainIsKnown((LayoutDiagnosticDomain)23), 0);
+    RoboCheckEqInt(LayoutDiagnosticDomainIsKnown(RoboLayoutDomainIntrinsic), 1);
+    RoboCheckEqInt(LayoutDiagnosticDomainIsKnown((LayoutDiagnosticDomain)24), 0);
     RoboCheckEqInt(LayoutDiagnosticDomainIsKnown((LayoutDiagnosticDomain)200), 0);
 
     /* Every enumerator answers, every name is non-NULL, and no two names are the
@@ -389,13 +399,19 @@ static void TestModuleDiagnosticDomains(void)
      * slotting beside the geometry domains whose conclusions it expires. */
     RoboCheckStrEq(LayoutDiagnosticDomainName(RoboLayoutDomainInvalidation),
                       "invalidation");
-    /* 14.0's, and it is the newest for a stated reason: placing a box out of flow is a
-     * question about *containment* rather than about a box's own geometry, which is why it
-     * ends the list rather than slotting beside the layers it reads (the insets, the sizing,
-     * the overflow it deliberately does not fold in). */
+    /* 14.0's, no longer the newest: placing a box out of flow is a question about
+     * *containment* rather than about a box's own geometry, which is why it ended the list
+     * rather than slotting beside the layers it reads. */
     RoboCheckStrEq(LayoutDiagnosticDomainName(RoboLayoutDomainAbsolute), "absolute");
-    RoboCheckEqInt((int)RoboLayoutDomainAbsolute,
+    /* 19.1's, and it *is* the newest for a stated reason: a box's intrinsic size is a
+     * measurement of its contents taken before anything is placed, which is neither a box's
+     * own geometry (where 14.0's conclusion lives) nor a truth expired by a change (10.14's),
+     * so it ends the list rather than slotting beside the resolvers that read the answer. */
+    RoboCheckStrEq(LayoutDiagnosticDomainName(RoboLayoutDomainIntrinsic), "intrinsic");
+    RoboCheckEqInt((int)RoboLayoutDomainIntrinsic,
                       (int)RoboLayoutDomainCount - 1);
+    RoboCheckEqInt((int)RoboLayoutDomainAbsolute,
+                      (int)RoboLayoutDomainIntrinsic - 1);
     RoboCheckEqInt((int)RoboLayoutDomainOverflow,
                       (int)RoboLayoutDomainInvalidation - 1);
     RoboCheckEqInt((int)RoboLayoutDomainPosition,
@@ -593,7 +609,7 @@ static void TestModuleAllocatorBalance(void)
         RoboCheckEqInt(LayoutGetVersion(&caps.objectModel, &caps.constraints,
                                                   &caps.resultModel),
                           RoboOk);
-        RoboCheckStrEq(LayoutVersionString(), "0.17.0");
+        RoboCheckStrEq(LayoutVersionString(), "0.18.0");
         RoboCheckEqInt(LayoutGeometryIsImplemented(), 1);
         memset(buffer, 0, sizeof(buffer));
         strncpy(buffer, LayoutObjectKindName(RoboLayoutObjectBox),

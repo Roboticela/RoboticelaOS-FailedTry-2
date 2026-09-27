@@ -256,6 +256,6 @@ The rows are walked in chunks of `CSS_HOST_MAX_ELEMENTS`, exactly as §4 does, a
 It adds no production code, no vocabulary, no registry row and no capability — the module moves to `0.38.0` for the *promises*, exactly as 9.16 moved it to `0.16.0`. It does not fuzz, and it does not test layout, paint or the DOM: the real-DOM pipelines remain in `Tests/Suites/SuiteRoboCssDomSelect.c`.
 
 ```bash
-./scripts/robo test-css                      # 791 tests
+./scripts/robo test-css                      # 807 tests
 ./Out/RoboTest.host.exe --filter css.conformance   # 17 cases
 ```
