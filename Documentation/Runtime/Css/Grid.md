@@ -146,7 +146,19 @@ inherited a template would place itself into its parent's grid.
 - the capability, the version, the kind name and the diagnostic domain; and
 - determinism, by structural equality of two computations of one declaration.
 
-`TestCss.ps1 -Target Host` is the gate (676 cases with this suite), and a grid change
+`TestCss.ps1 -Target Host` is the gate (807 cases with this suite), and a grid change
 is not done until `TestLayout`, `TestPaint`, `TestHtml` and `TestDesktop`
-(`-Target Host`) also pass — the layout side will read these values, so a change here
-is a change to what it reads even though nothing in this phase lays a grid out.
+(`-Target Host`) also pass — the layout side reads these values, so a change here is a
+change to what it reads.
+
+## 7. The layout half (Phase 19.4)
+
+Nothing above changes to lay a grid out. 19.4 reads every value this phase carries — the
+two track lists, the two `grid-auto-*` lists, `grid-auto-flow`, the four line placements
+and the two gutters — through the readers above and sizes and places the container's
+in-flow children with them; the display values `grid` and `inline-grid` join 9.12's table
+as two rows and an inner kind. The algorithm, its counters and what it deliberately does
+not claim are `../Layout/GridLayout.md`. Two things stay this phase's own and are
+*not* widened by 19.4: the declarations are carried as `PRESERVED` computed values (the
+layout pass reads the records, it does not re-parse the tokens), and a shorthand is still
+not expanded here or there.

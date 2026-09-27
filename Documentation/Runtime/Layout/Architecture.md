@@ -867,6 +867,7 @@ of them is deliberately 0:
 | `intrinsic_sizing` | 1 | 19.1 |
 | `percentage_resolution` | 1 | 19.2 |
 | `flex_layout` | 1 | 19.3 |
+| `grid_layout` | 1 | 19.4 |
 | `painting` | **0** | Phase 11 |
 
 The table is in declaration order rather than in the order fields landed, so the
@@ -879,10 +880,11 @@ through the metrics seam rather than a character count — and that an `INTRINSI
 dimension resolves from that measurement with `RoboLayoutDimensionSourceIntrinsic`.
 It does **not** say intrinsic height as a function of width (that is line breaking),
 replaced-element intrinsic dimensions (an image-loading seam that is 17.5's),
-or grid/table intrinsic sizing (19.4, 19.6, each of which consumes these two
-numbers). 19.3's flex pass *is* a consumer and is built: an item with no
-`flex-basis` and no definite main size takes its measured content size as its flex
-base (`FlexLayout.md`). A build with the sizing record and no measurement of what is inside it
+or table intrinsic sizing (19.6, which consumes these two numbers). 19.3's flex pass *is* a
+consumer and is built — an item with no `flex-basis` and no definite main size takes its
+measured content size as its flex base (`FlexLayout.md`) — and so is 19.4's grid pass, where a
+`min-content`/`max-content`/`auto` track takes a floor and a ceiling from its items
+(`GridLayout.md`). A build with the sizing record and no measurement of what is inside it
 would have satisfied every field above it, which is why the field exists
 (`IntrinsicSizing.md`).
 
@@ -894,11 +896,12 @@ percentage takes the containing block's **width** (CSS's rule, though a vertical
 margin would look right against the height in a square box), `width`/`height` take
 the matching extent, and `left`/`right` take the width while `top`/`bottom` take the
 height. A percentage with no base degrades to `UNRESOLVED` and is used as zero. It
-does **not** say grid-track percentages (19.4), percentage `min-width`/`max-width`
+does **not** say percentage `min-width`/`max-width`
 bounds, a percentage inset on an **out-of-flow** box (14.0's contract, left untouched),
 `calc()` or a viewport unit (`PercentageResolution.md`). A percentage `flex-basis` is
 19.3's and is resolved by the flex pass against the container's main size when that is
-definite (`FlexLayout.md`).
+definite (`FlexLayout.md`). A percentage **track** is 19.4's and resolves against the grid
+container's content box on its own axis (`GridLayout.md`).
 
 `flex_layout` is 19.3's field, and its wording is as narrow as the two above: it says a
 box whose **inner** display is `flex` (`display: flex` or `display: inline-flex`) lays
@@ -915,6 +918,27 @@ is no flex **root** box (the tree root establishes the initial block context wha
 it computes to), no `baseline` or reversed inline axis on a **`column`**, no content
 floor for a **scroll container**, no `gap`, no shorthand expansion, no replaced
 elements and no vertical writing mode (`FlexLayout.md`).
+
+`grid_layout` is 19.4's field, and its wording is as narrow as the three above: it says a box
+whose **inner** display is `grid` (`display: grid` or `display: inline-grid`) places its
+in-flow children as **grid items** into a two-dimensional set of **tracks** — the two track
+lists read as value records (a breadth, `minmax()`, an expanded `repeat()`, `fr` as a share of
+the free space) and sized here from their declarations and the items' measured content,
+implicit tracks created where placement needs them and sized by the two `grid-auto-*`
+lists, each item placed by its four line longhands or by the **auto-placement** algorithm
+following `grid-auto-flow` (`dense` included) without growing the axis the flow advances
+along, a spanning item contributing to the intrinsic tracks it spans, the two gutters coming
+out before the fractions are shared, `justify-content`/`align-content` distributing the tracks
+of a definite container (`normal`/`stretch` growing its `auto` tracks),
+`align-items`/`align-self` aligning an item in the block axis of its area (with `stretch`
+growing an `auto` height and `baseline` lining a row's first baselines up), an `auto` inline
+size stretching across the area, an `auto` margin **absorbing** the free space in its own axis
+ahead of the alignment properties, and `direction: rtl` reversing the column order — and
+establishes a `RoboLayoutFcGrid` context of its own. It does **not** say "grid is finished":
+there is no grid **root** box, no `justify-items`/`justify-self`/`place-*`, no named lines or
+`grid-template-areas`, no `subgrid`, no `repeat(auto-fill)`/`repeat(auto-fit)`, no shorthand
+expansion, no masonry, no `order`-modified placement order, no replaced elements or
+`aspect-ratio`, and no vertical writing mode (`GridLayout.md`).
 
 A caller that checked only the version string would conclude that 0.1.0 lays boxes
 out. The three doors §1 lists answer that together: `geometry` says **the build**
@@ -986,7 +1010,7 @@ rather than unfinished:
 | damage, invalidation | a later goal | an invalidation that withdraws geometry rather than keeping a stale conclusion |
 | painting anything | Phase 11 | `painting` capability = 0 |
 | reading a property other than `display`, a declared `width`/`height`, the four margins, the four paddings, the twelve border longhands, `position` with its four insets, `overflow-x`/`overflow-y` with the `overflow` shorthand, and 18.3's flex longhands (`flex-direction`, `flex-wrap`, `flex-grow`, `flex-shrink`, `flex-basis`, `order`, `justify-content`, `align-items`, `align-self`, `align-content`) | a later goal | the borrowed style is there; the read is the later goal's, and since 10.8 through 10.13 (and 19.3 for the flex family) a read goes through the sizing, margin, padding, border, position, overflow or flex layer rather than into a result record |
-| **flex** and **grid** and **table** layout beyond 19.3 | 19.4, 19.6 | a box whose inner display is `flex` establishes a `RoboLayoutFcFlex` context and has its in-flow children placed by the flex pass (`FlexLayout.md`); `grid` and the table display types are still refused by 9.12's vocabulary, and only flex is on this list's own account |
+| ~~**flex** layout~~ **done in 19.3**, ~~**grid** layout~~ **done in 19.4**; **table** layout beyond them | 19.6 | a box whose inner display is `flex` establishes a `RoboLayoutFcFlex` context and has its in-flow children placed by the flex pass (`FlexLayout.md`), and one whose inner display is `grid` establishes a `RoboLayoutFcGrid` context placed by the grid pass (`GridLayout.md`); the table display types are still refused by 9.12's vocabulary |
 
 Three of these are worth a sentence more.
 

@@ -1183,7 +1183,15 @@ static int32_t LayoutGridItemBaseline(const LayoutWalk *walk,
         }
         child = childObject->NextSibling;
     }
-    return item->blockInsets;
+    /*
+     * The documented bottom-edge fallback: an item with no baseline-bearing child stands
+     * on its own **block-end margin edge**, exactly as the flex pass reports one. The
+     * item's contents have been laid out by the time this is asked (step 5), so the
+     * fallback is a real edge rather than the item's start -- which is the difference
+     * between an item that `align-items: baseline` leaves alone and one it drops by its
+     * own block size.
+     */
+    return item->contentH + item->blockInsets;
 }
 
 Result LayoutGridWalkContents(LayoutWalk *walk,
@@ -1478,6 +1486,8 @@ Result LayoutGridWalkContents(LayoutWalk *walk,
                                                   : item->columnStart;
                 size_t outerCursor = outerIsColumn ? columnCursor : rowCursor;
                 size_t innerCursor = outerIsColumn ? rowCursor : columnCursor;
+                size_t sparseOuter = outerCursor;
+                size_t sparseInner = innerCursor;
                 size_t column = 0u;
                 size_t row = 0u;
 
@@ -1494,6 +1504,11 @@ Result LayoutGridWalkContents(LayoutWalk *walk,
                 if (sweep == 1 && outerFixed) {
                     continue;
                 }
+                /* The position the *sparse* cursor had reached, kept for the one thing a
+                 * dense flow is for: telling a placement that backfilled a hole from one
+                 * that merely followed the cursor. */
+                sparseOuter = outerCursor;
+                sparseInner = innerCursor;
                 if (declarations.dense) {
                     outerCursor = 0u;
                     innerCursor = 0u;
@@ -1516,7 +1531,23 @@ Result LayoutGridWalkContents(LayoutWalk *walk,
                                    item->rowStart, item->rowEnd);
                 walk->block->grid.autoPlaced++;
                 if (declarations.dense) {
-                    walk->block->grid.denseItems++;
+                    /*
+                     * `denseItems` counts the items a dense flow actually **backfilled** --
+                     * the ones placed *earlier in the flow order* than the sparse cursor had
+                     * reached -- rather than every item a dense flow placed. The sparse
+                     * cursor is outer-major and inner-minor, which is the order the flow
+                     * advances in, so "earlier" is one comparison of the pair.
+                     */
+                    size_t placedOuter = outerIsColumn ? item->columnStart
+                                                       : item->rowStart;
+                    size_t placedInner = outerIsColumn ? item->rowStart
+                                                       : item->columnStart;
+
+                    if (placedOuter < sparseOuter ||
+                        (placedOuter == sparseOuter &&
+                         placedInner < sparseInner)) {
+                        walk->block->grid.denseItems++;
+                    }
                 }
                 /* The sparse cursor advances along the inner axis and keeps the outer
                  * one, which is what makes a sparse placement never look back. */
@@ -1564,17 +1595,6 @@ Result LayoutGridWalkContents(LayoutWalk *walk,
             item->id = RoboLayoutNodeIdNone;
             continue;
         }
-        if (item->columnEnd > explicitColumns) {
-            walk->block->grid.implicitTracks +=
-                item->columnEnd -
-                (item->columnStart > explicitColumns ? item->columnStart
-                                                     : explicitColumns);
-        }
-        if (item->rowEnd > explicitRows) {
-            walk->block->grid.implicitTracks +=
-                item->rowEnd -
-                (item->rowStart > explicitRows ? item->rowStart : explicitRows);
-        }
         if (item->columnEnd - item->columnStart > 1u ||
             item->rowEnd - item->rowStart > 1u) {
             walk->block->grid.spanningItems++;
@@ -1585,6 +1605,16 @@ Result LayoutGridWalkContents(LayoutWalk *walk,
     rowSet.count = rows;
     walk->block->grid.columns += columns;
     walk->block->grid.rows += rows;
+    /*
+     * The implicit grid's own extent per axis: the tracks the final grid has **beyond the
+     * two templates**, counted once per track. It is a fact about the grid rather than
+     * about the items, which is why it is computed from the two counts here and not from
+     * each placement: three items that reach one implicit track created one track.
+     */
+    walk->block->grid.implicitTracks +=
+        columns > explicitColumns ? columns - explicitColumns : 0u;
+    walk->block->grid.implicitTracks +=
+        rows > explicitRows ? rows - explicitRows : 0u;
 
     /* ---- 4. size the columns --------------------------------------- */
 

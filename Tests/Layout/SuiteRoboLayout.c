@@ -43,10 +43,10 @@ static void TestModuleVersion(void)
     I32 patch = -1;
 
     RoboCheckEqInt(RoboLayoutVersionMajor, 0);
-    RoboCheckEqInt(RoboLayoutVersionMinor, 20);
+    RoboCheckEqInt(RoboLayoutVersionMinor, 21);
     RoboCheckEqInt(RoboLayoutVersionPatch, 0);
-    RoboCheckStrEq(RoboLayoutVersionString, "0.20.0");
-    RoboCheckStrEq(LayoutVersionString(), "0.20.0");
+    RoboCheckStrEq(RoboLayoutVersionString, "0.21.0");
+    RoboCheckStrEq(LayoutVersionString(), "0.21.0");
 
     RoboCheckEqInt(LayoutGetVersion(&major, &minor, &patch), RoboOk);
     RoboCheckEqInt(major, RoboLayoutVersionMajor);
@@ -127,6 +127,7 @@ static const struct {
     { "intrinsic_sizing", 1 },
     { "percentage_resolution", 1 },
     { "flex_layout", 1 },
+    { "grid_layout", 1 },
     { "painting", 0 }
 };
 
@@ -339,7 +340,7 @@ static void TestModuleDiagnosticDomains(void)
     size_t index;
     size_t seen[RoboLayoutDomainCount];
 
-    RoboCheckEqInt((int)RoboLayoutDomainCount, 25);
+    RoboCheckEqInt((int)RoboLayoutDomainCount, 26);
     RoboCheckEqInt((int)RoboLayoutDomainNone, 0);
     RoboCheckEqInt(LayoutDiagnosticDomainIsKnown(RoboLayoutDomainTextLayout), 1);
     RoboCheckEqInt(LayoutDiagnosticDomainIsKnown(RoboLayoutDomainSizing), 1);
@@ -351,7 +352,8 @@ static void TestModuleDiagnosticDomains(void)
     RoboCheckEqInt(LayoutDiagnosticDomainIsKnown(RoboLayoutDomainInvalidation), 1);
     RoboCheckEqInt(LayoutDiagnosticDomainIsKnown(RoboLayoutDomainIntrinsic), 1);
     RoboCheckEqInt(LayoutDiagnosticDomainIsKnown(RoboLayoutDomainFlex), 1);
-    RoboCheckEqInt(LayoutDiagnosticDomainIsKnown((LayoutDiagnosticDomain)25), 0);
+    RoboCheckEqInt(LayoutDiagnosticDomainIsKnown(RoboLayoutDomainGrid), 1);
+    RoboCheckEqInt(LayoutDiagnosticDomainIsKnown((LayoutDiagnosticDomain)26), 0);
     RoboCheckEqInt(LayoutDiagnosticDomainIsKnown((LayoutDiagnosticDomain)200), 0);
 
     /* Every enumerator answers, every name is non-NULL, and no two names are the
@@ -425,11 +427,17 @@ static void TestModuleDiagnosticDomains(void)
      * own geometry (where 14.0's conclusion lives) nor a truth expired by a change (10.14's),
      * so it ends the list rather than slotting beside the resolvers that read the answer. */
     RoboCheckStrEq(LayoutDiagnosticDomainName(RoboLayoutDomainIntrinsic), "intrinsic");
-    /* 19.3's, and it *is* the newest: a flex context is a third way to lay contents
-     * out, so its failures land in their own domain rather than in the block one. */
+    /* 19.3's: a flex context is a third way to lay contents out, so its failures land
+     * in their own domain rather than in the block one. */
     RoboCheckStrEq(LayoutDiagnosticDomainName(RoboLayoutDomainFlex), "flex");
-    RoboCheckEqInt((int)RoboLayoutDomainFlex,
+    /* 19.4's, and it *is* the newest for the same reason a fourth time: a grid context
+     * is a fourth way to lay contents out, and it has a second axis a flex container
+     * does not. */
+    RoboCheckStrEq(LayoutDiagnosticDomainName(RoboLayoutDomainGrid), "grid");
+    RoboCheckEqInt((int)RoboLayoutDomainGrid,
                       (int)RoboLayoutDomainCount - 1);
+    RoboCheckEqInt((int)RoboLayoutDomainFlex,
+                      (int)RoboLayoutDomainGrid - 1);
     RoboCheckEqInt((int)RoboLayoutDomainIntrinsic,
                       (int)RoboLayoutDomainFlex - 1);
     RoboCheckEqInt((int)RoboLayoutDomainAbsolute,
@@ -631,7 +639,7 @@ static void TestModuleAllocatorBalance(void)
         RoboCheckEqInt(LayoutGetVersion(&caps.objectModel, &caps.constraints,
                                                   &caps.resultModel),
                           RoboOk);
-        RoboCheckStrEq(LayoutVersionString(), "0.20.0");
+        RoboCheckStrEq(LayoutVersionString(), "0.21.0");
         RoboCheckEqInt(LayoutGeometryIsImplemented(), 1);
         memset(buffer, 0, sizeof(buffer));
         strncpy(buffer, LayoutObjectKindName(RoboLayoutObjectBox),

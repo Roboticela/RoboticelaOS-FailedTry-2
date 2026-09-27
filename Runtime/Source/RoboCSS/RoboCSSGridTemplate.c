@@ -188,24 +188,137 @@ static int GridComponentIsReference(const CssValue *component)
            CssValueFunctionNamed(component, "env");
 }
 
-/** Whether the whole value is (or contains) a reference. */
+/**
+ * Whether the value is, or **contains anywhere**, a reference.
+ *
+ * The walk is over `CssValueChild`, so it descends into a list, a `minmax()`, a
+ * `repeat()` and a block alike: substitution happens before a value is interpreted and
+ * can change how many components there are *inside* a function as readily as beside
+ * one, so `minmax(40px, var(--rest))` is carried exactly as `40px var(--rest)` is.
+ */
 static int GridValueHasReference(const CssValue *value)
 {
-    size_t count = CssValueSignificantCount(value);
+    size_t count;
     size_t index;
 
-    if (count == 0u) {
+    if (!value) {
         return 0;
     }
-    if (count == 1u) {
-        return GridComponentIsReference(CssValueSignificantAt(value, 0u));
+    if (GridComponentIsReference(value)) {
+        return 1;
     }
+    count = CssValueChildCount(value);
     for (index = 0u; index < count; index++) {
-        if (GridComponentIsReference(CssValueSignificantAt(value, index))) {
+        if (GridValueHasReference(CssValueChild(value, index))) {
             return 1;
         }
     }
     return 0;
+}
+
+/** Whether @p value is the comma that separates two arguments of a function. */
+static int GridComponentIsComma(const CssValue *value)
+{
+    return value && value->kind == RoboCssValueKindToken &&
+           value->token.type == RoboCssTokenComma;
+}
+
+/**
+ * How many comma-separated arguments @p function has, or 0 when its argument list is
+ * not one.
+ *
+ * A function's arguments are its **children**, not the function value's own
+ * components: `CssValueSignificantAt()` walks a *list*, and a function is one
+ * component, so asking it for "component 0" of `minmax(40px, 1fr)` answers the
+ * function itself. Splitting on commas is therefore this reader's job, and a run of
+ * significant components between commas counts as one argument -- `repeat(2, 40px 80px)`
+ * has two arguments, the second of them two track sizes.
+ *
+ * An empty argument (`minmax(40px,)`, `repeat(, 1fr)`) and a trailing comma make the
+ * whole list malformed rather than a list with fewer arguments, which is CSS's own
+ * reading and the reason this returns 0 rather than a count for them.
+ */
+static size_t GridFunctionArgumentCount(const CssValue *function)
+{
+    size_t count = 0u;
+    size_t index;
+    int runHasComponent = 0;
+
+    if (!function || function->kind != RoboCssValueKindFunction) {
+        return 0u;
+    }
+    for (index = 0u; index < CssValueChildCount(function); index++) {
+        const CssValue *child = CssValueChild(function, index);
+
+        if (GridComponentIsComma(child)) {
+            if (!runHasComponent) {
+                return 0u;
+            }
+            count++;
+            runHasComponent = 0;
+            continue;
+        }
+        if (CssValueIsTrivia(child)) {
+            continue;
+        }
+        runHasComponent = 1;
+    }
+    if (!runHasComponent) {
+        return 0u;
+    }
+    return count + 1u;
+}
+
+/**
+ * The @p componentIndex-th significant component of @p function's @p argumentIndex-th
+ * argument, or NULL when there is no such component.
+ *
+ * The one door the three function readers share, so that `minmax()`'s two arguments,
+ * `fit-content()`'s one and `repeat()`'s count and track-size list are all read the
+ * same way and a comma is never mistaken for a track size.
+ */
+static const CssValue *GridFunctionArgument(const CssValue *function,
+                                            size_t argumentIndex,
+                                            size_t componentIndex)
+{
+    size_t index;
+    size_t argument = 0u;
+    size_t component = 0u;
+    int runHasComponent = 0;
+
+    if (!function || function->kind != RoboCssValueKindFunction) {
+        return NULL;
+    }
+    for (index = 0u; index < CssValueChildCount(function); index++) {
+        const CssValue *child = CssValueChild(function, index);
+
+        if (GridComponentIsComma(child)) {
+            if (!runHasComponent) {
+                return NULL;
+            }
+            argument++;
+            component = 0u;
+            runHasComponent = 0;
+            continue;
+        }
+        if (CssValueIsTrivia(child)) {
+            continue;
+        }
+        if (argument == argumentIndex && component == componentIndex) {
+            return child;
+        }
+        component++;
+        runHasComponent = 1;
+    }
+    return NULL;
+}
+
+/** Whether @p function's @p argumentIndex-th argument is exactly one component. */
+static int GridFunctionArgumentIsSingle(const CssValue *function,
+                                        size_t argumentIndex)
+{
+    return GridFunctionArgument(function, argumentIndex, 0u) != NULL &&
+           GridFunctionArgument(function, argumentIndex, 1u) == NULL;
 }
 
 /* ------------------------------------------------------------------ */
@@ -281,12 +394,15 @@ static int GridBreadthFromComponent(const CssValue *component,
 
     /* ---- `fit-content(<length-percentage>)` ---------------------- */
     if (component->kind == RoboCssValueKindFunction) {
-        const CssValue *limit = CssValueSingle(component);
+        const CssValue *limit;
         CssNumeric numeric;
 
-        if (!CssValueFunctionNamed(component, "fit-content") || !limit) {
+        if (!CssValueFunctionNamed(component, "fit-content") ||
+            GridFunctionArgumentCount(component) != 1u ||
+            !GridFunctionArgumentIsSingle(component, 0u)) {
             return 0;
         }
+        limit = GridFunctionArgument(component, 0u, 0u);
         if (CssNumericFromValue(limit, &numeric) != RoboCssNumericParseResolved) {
             return 0;
         }
@@ -402,16 +518,20 @@ static int GridTrackSizeFromComponent(const CssValue *component,
         return 0;
     }
     if (CssValueFunctionNamed(component, "minmax")) {
-        const CssValue *minimum = CssValueSignificantAt(component, 0u);
-        const CssValue *maximum = CssValueSignificantAt(component, 1u);
+        const CssValue *minimum;
+        const CssValue *maximum;
         CssGridTrackSize size;
 
-        /* Exactly two: a third component is a declaration CSS refuses rather than
-         * a `minmax()` this build reads halfway. */
-        if (!minimum || !maximum ||
-            CssValueSignificantAt(component, 2u) != NULL) {
+        /* Exactly two arguments, each of them **one** component: a third argument and
+         * a two-component argument are both a declaration CSS refuses rather than a
+         * `minmax()` this build reads halfway. */
+        if (GridFunctionArgumentCount(component) != 2u ||
+            !GridFunctionArgumentIsSingle(component, 0u) ||
+            !GridFunctionArgumentIsSingle(component, 1u)) {
             return 0;
         }
+        minimum = GridFunctionArgument(component, 0u, 0u);
+        maximum = GridFunctionArgument(component, 1u, 0u);
         CssGridTrackSizeInit(&size);
         if (!GridBreadthFromComponent(minimum, &size.minimum)) {
             return 0;
@@ -517,13 +637,20 @@ static GridRead GridListAppend(CssGridTrackList *list,
 static GridRead GridListExpandRepeat(const CssValue *repeat,
                                      CssGridTrackList *list)
 {
-    const CssValue *first = CssValueSignificantAt(repeat, 0u);
-    size_t innerCount;
+    const CssValue *first;
     CssNumeric numeric;
     int64_t count = 0;
     size_t outer;
     size_t inner;
 
+    /* Exactly two arguments: the count and the track-size list it repeats. A
+     * `repeat(3)` repeats nothing and a `repeat(3 4, 1fr)` names two counts, and both
+     * are declarations CSS refuses rather than a repetition this build guesses at. */
+    if (GridFunctionArgumentCount(repeat) != 2u ||
+        !GridFunctionArgumentIsSingle(repeat, 0u)) {
+        return GRID_READ_INVALID;
+    }
+    first = GridFunctionArgument(repeat, 0u, 0u);
     if (!first) {
         return GRID_READ_INVALID;
     }
@@ -547,18 +674,16 @@ static GridRead GridListExpandRepeat(const CssValue *repeat,
         !CssNumericIntegerValue(numeric, &count) || count < 1) {
         return GRID_READ_INVALID;
     }
-    innerCount = CssValueSignificantCount(repeat);
-    if (innerCount < 2u) {
-        /* `repeat(3)` repeats nothing, which is not a track list. */
-        return GRID_READ_INVALID;
-    }
     for (outer = 0u; outer < (size_t)count; outer++) {
-        for (inner = 1u; inner < innerCount; inner++) {
+        for (inner = 0u; ; inner++) {
+            const CssValue *component = GridFunctionArgument(repeat, 1u, inner);
             CssGridTrackSize size;
             GridRead read;
 
-            if (!GridTrackSizeFromComponent(
-                    CssValueSignificantAt(repeat, inner), &size)) {
+            if (!component) {
+                break;
+            }
+            if (!GridTrackSizeFromComponent(component, &size)) {
                 return GRID_READ_INVALID;
             }
             read = GridListAppend(list, &size);

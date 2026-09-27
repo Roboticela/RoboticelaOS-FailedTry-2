@@ -140,9 +140,12 @@ typedef struct LayoutGridCounters {
     size_t columns;
     /** Row tracks the pass sized, explicit and implicit together. */
     size_t rows;
-    /** Tracks created beyond the two templates, because a placement named a line
-     *  past the last explicit one. The counter that says whether the implicit grid
-     *  was real work or merely declared. */
+    /** Tracks the final grid has **beyond the two templates**: the implicit extents on
+     *  both axes, counted once per track rather than once per item that reached it. A
+     *  placement that named a line past the last explicit one and an automatic placement
+     *  that ran out of tracks both count here, because both create tracks the templates
+     *  did not declare. The counter that says whether the implicit grid was real work or
+     *  merely declared. */
     size_t implicitTracks;
     /** Items the placement resolved from their four longhands on **both** axes. An item
      *  definite on only one axis is placed by the cursor in that axis's band, so it is
@@ -152,9 +155,11 @@ typedef struct LayoutGridCounters {
     /** Items the **auto-placement** algorithm placed, including the ones it placed
      *  against a definite line on one axis and a cursor position on the other. */
     size_t autoPlaced;
-    /** Items whose flow was **dense**, so the placement could backfill a hole an
-     *  earlier item left. `grid-auto-flow`'s density is the one thing it changes:
-     *  which *order* the items appear in. */
+    /** Items a dense flow actually **backfilled**: the ones placed earlier in the flow
+     *  order than the sparse cursor had reached. `grid-auto-flow`'s density is the one
+     *  thing it changes -- which *order* the items appear in -- so the counter answers
+     *  "did looking back matter?" rather than "was the flow dense?", and it is
+     *  deliberately not the same number as `autoPlaced` under a dense flow. */
     size_t denseItems;
     /** Items spanning more than one track on either axis. Their contribution to a
      *  track is the distributed one, which is a different arithmetic from a

@@ -79,6 +79,7 @@ static const struct {
     { "intrinsic_sizing", 1 },
     { "percentage_resolution", 1 },
     { "flex_layout", 1 },
+    { "grid_layout", 1 },
     { "painting", 0 }
 };
 
@@ -106,11 +107,11 @@ static void TestConformanceCapabilities(void)
             implemented++;
         }
     }
-    /* Twenty-six of twenty-seven. Asserted as a count as well as field by field, so a build
+    /* Twenty-seven of twenty-eight. Asserted as a count as well as field by field, so a build
      * that turned one on and one off at the same time -- which field-by-field would
      * still catch, but a reader would have to diff to see -- is visible at a
-     * glance. The twenty-seventh is `painting`, and it is the only one that is 0. */
-    RoboCheckEqInt(implemented, 26u);
+     * glance. The twenty-eighth is `painting`, and it is the only one that is 0. */
+    RoboCheckEqInt(implemented, 27u);
 
     /*
      * The four that matter are the direction pair, the field that names both, and
@@ -1113,7 +1114,7 @@ static void TestConformanceStatement(void)
      * the build claiming it does not.
      */
     RoboCheckEqInt(LayoutGeometryIsImplemented(), 1);
-    RoboCheckStrEq(LayoutVersionString(), "0.20.0");
+    RoboCheckStrEq(LayoutVersionString(), "0.21.0");
     RoboCheckEqInt(RoboLayoutApiFrozen, 0);
 
     /*

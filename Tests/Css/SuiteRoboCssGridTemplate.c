@@ -650,7 +650,7 @@ static void TestGridTemplateLinePlacements(void)
 static void TestGridTemplateWriters(void)
 {
     CssGridTrackList list;
-    char small[4];
+    char small[RoboCssGridTrackListTextMax];
     size_t length = 0u;
 
     CssFixture();
@@ -658,16 +658,18 @@ static void TestGridTemplateWriters(void)
     RoboCheckEqInt(GridReadTracks("grid-template-columns: 40px 1fr", 1, &list),
                    (int)RoboCssGridTrackListParseTracks);
 
-    /* Too small for `40px 1fr`, and the length it needed is reported. */
+    /* Too small for `40px 1fr`, and the length it needed is reported. The refused call
+     * is given the capacity the *text* needs anyway -- a writer told it has room and
+     * then handed a shorter buffer is the one thing this discipline exists to prevent,
+     * and the case below is a check of the arithmetic rather than of a buffer. */
     small[0] = 'x';
     small[1] = '\0';
-    RoboCheckEqInt(CssGridTrackListWrite(&list, small, sizeof(small), &length,
-                                         NULL),
+    RoboCheckEqInt(CssGridTrackListWrite(&list, small, 4u, &length, NULL),
                    RoboNotSupported);
     RoboCheckStrEq(small, "");
     RoboCheckEqInt((int)length, 8);
-    /* Exactly big enough is enough: seven bytes plus the NUL. */
-    RoboCheckEqInt(CssGridTrackListWrite(&list, small, 8u, &length, NULL),
+    /* Exactly big enough is enough: the eight bytes of `40px 1fr` plus the NUL. */
+    RoboCheckEqInt(CssGridTrackListWrite(&list, small, 9u, &length, NULL),
                    RoboOk);
     RoboCheckStrEq(small, "40px 1fr");
 
@@ -694,12 +696,16 @@ static void TestGridTemplateWriters(void)
     /* A line placement's writer, with the same discipline. */
     {
         CssGridLinePlacement placement;
-        char tiny[4];
+        char tiny[RoboCssGridLinePlacementTextMax];
 
         RoboCheckEqInt(GridReadLine("grid-row-end: span 10000", &placement),
                        (int)RoboCssGridLineParsePlacement);
-        RoboCheckEqInt(CssGridLinePlacementWrite(&placement, tiny, sizeof(tiny),
-                                                 &length, NULL),
+        /* The refusal is asked with a capacity that really is too small and a buffer
+         * that really is large enough for its own capacity -- the one rule a test of a
+         * buffer discipline has to keep, or it proves the overflow rather than the
+         * refusal. */
+        RoboCheckEqInt(CssGridLinePlacementWrite(&placement, tiny, 4u, &length,
+                                                 NULL),
                        RoboNotSupported);
         RoboCheckStrEq(tiny, "");
         RoboCheckEqInt((int)length, 10);
@@ -718,9 +724,9 @@ static void TestGridTemplateWriters(void)
 
 /* ------------------------------------------------------------------ */
 
-void TestRegisterRoboCssGridTemplate(void);
+void TestRegisterCssGridTemplate(void);
 
-void TestRegisterRoboCssGridTemplate(void)
+void TestRegisterCssGridTemplate(void)
 {
     TestRegister("css.gridtemplate.breadth_kinds", TestGridTemplateBreadthKinds);
     TestRegister("css.gridtemplate.tracks", TestGridTemplateSimpleTracks);

@@ -111,27 +111,29 @@ ROOT     the initial formatting context, established by the root box and by
 BLOCK    participants are laid out in the block direction, one after another.
 INLINE   participants are laid out in the inline direction, along a line.
 FLEX     participants are flex items, laid out along a main axis (19.3).
+GRID     participants are grid items, placed into tracks (19.4).
 ```
 
 The phase shipped four kinds and named the reason there was no fifth. **19.3 is the
 fifth**, and it arrives exactly the way this section said a kind would: `FLEX` was
 added as a row (`display: flex`/`inline-flex`) *and* the algorithm that honours it
-(`RoboLayoutFlex.c`, the third formatting context the build lays out). `grid`,
-`table`, `ruby` and `multicol` are still deliberately **not** enumerators, for the
-original reason: an enumerator with no row behind it is a name the module can spell
-and cannot honour. A caller that asked for `ROBO_LAYOUT_FC_GRID` would get a kind no
-algorithm in the build produces. They join as rows when their contexts exist,
-exactly as `flex` did.
+(`RoboLayoutFlex.c`, the third formatting context the build lays out). **19.4 is the
+sixth**, arriving the same way a second time: `GRID` is a row (`display: grid` /
+`inline-grid`) plus the algorithm that honours it (`RoboLayoutGrid.c`, the fourth
+formatting context the build lays out). `table`, `ruby` and `multicol` are still
+deliberately **not** enumerators, for the original reason: an enumerator with no row
+behind it is a name the module can spell and cannot honour. They join as rows when
+their contexts exist, exactly as `flex` and then `grid` did.
 
-`RoboLayoutFcKindCount` is `5` since 19.3, and it counts `NONE`. A later phase
+`RoboLayoutFcKindCount` is `6` since 19.4, and it counts `NONE`. A later phase
 that adds a kind widens an array and adds a row; nothing else in the module needs
 to move.
 
 ### 3.1 `ROOT` is a block container, in the module's own opinion
 
 `LayoutFcKindIsBlockContainer(kind)` answers `1` for `ROOT` and `BLOCK`,
-`0` for `INLINE` and `FLEX` (a flex container is not a block container — that is
-exactly the distinction the display's inner column carries, §4) and for an
+`0` for `INLINE`, `FLEX` and `GRID` (a flex or grid container is not a block container —
+that is exactly the distinction the display's inner column carries, §4) and for an
 undefined enumerator. It exists as a predicate rather
 than as a comparison a caller writes, because the two later passes ask it *first*:
 
@@ -157,27 +159,31 @@ LayoutFcKind LayoutFcEstablishes(CssDisplay display,
                                                 int has_block_level_child,
                                                 int is_root,
                                                 int is_out_of_flow,
-                                                int is_flex_item);
+                                                int is_flex_item,
+                                                int is_grid_item);
 ```
 
-Five inputs as of 19.3, because the rules are stated in terms of five facts: what the
+Six inputs as of 19.4, because the rules are stated in terms of six facts: what the
 box's **computed** display is, whether it has a block-level child, whether it is the
 root, whether it is **out of flow** (14.0: an `absolute`/`fixed`/`sticky` box, or
-`sticky`, which is still in flow), and whether it is a **flex item** (19.3: it
-participates in a flex context). The complete table:
+`sticky`, which is still in flow), whether it is a **flex item** (19.3: it
+participates in a flex context) and whether it is a **grid item** (19.4: it
+participates in a grid context). The complete table:
 
-| display | outer / inner | root? | block-level child? | out of flow? | flex item? | establishes |
-|---|---|---|---|---|---|---|
-| `none` | — (generates no box) | — | — | — | — | `NONE` |
-| `inline` | inline / flow | no | — | — | — | `NONE` |
-| `block` | block / flow | **yes** | — | — | — | `ROOT` |
-| `inline` | inline / flow | **yes** | — | — | — | `ROOT` |
-| `flex` / `inline-flex` | — / flex | no | — | — | — | `FLEX` |
-| `block` | block / flow | no | no | **yes** | — | `BLOCK` — 14.0 |
-| `block` | block / flow | no | yes | no | **yes** | `BLOCK` — 19.3 |
-| `block` | block / flow | no | yes | no | no | `NONE` — transparent |
-| `block` | block / flow | no | no | no | no | `INLINE` |
-| `inline-block` | inline / flow-root | no | — | — | — | `BLOCK` |
+| display | outer / inner | root? | block-level child? | out of flow? | flex item? | grid item? | establishes |
+|---|---|---|---|---|---|---|---|
+| `none` | — (generates no box) | — | — | — | — | — | `NONE` |
+| `inline` | inline / flow | no | — | — | — | — | `NONE` |
+| `block` | block / flow | **yes** | — | — | — | — | `ROOT` |
+| `inline` | inline / flow | **yes** | — | — | — | — | `ROOT` |
+| `flex` / `inline-flex` | — / flex | no | — | — | — | — | `FLEX` |
+| `grid` / `inline-grid` | — / grid | no | — | — | — | — | `GRID` |
+| `block` | block / flow | no | no | **yes** | — | — | `BLOCK` — 14.0 |
+| `block` | block / flow | no | yes | no | **yes** | any | `BLOCK` — 19.3 |
+| `block` | block / flow | no | yes | no | any | **yes** | `BLOCK` — 19.4 |
+| `block` | block / flow | no | yes | no | no | no | `NONE` — transparent |
+| `block` | block / flow | no | no | no | no | no | `INLINE` |
+| `inline-block` | inline / flow-root | no | — | — | — | — | `BLOCK` |
 
 Two rows carry more than they look like they do.
 

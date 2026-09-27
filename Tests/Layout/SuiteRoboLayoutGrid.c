@@ -847,7 +847,9 @@ static void TestGridImplicitRows(void)
     RoboCheckEqInt(LayoutGridYOf(&fixture, 2u), 40);
     RoboCheckEqInt(stats.block.grid.columns, 1u);
     RoboCheckEqInt(stats.block.grid.rows, 3u);
-    RoboCheckEqInt(stats.block.grid.implicitTracks, 6u);
+    /* One implicit column and three implicit rows: four tracks beyond the two empty
+     * templates, counted as tracks rather than as the six reaches that created them. */
+    RoboCheckEqInt(stats.block.grid.implicitTracks, 4u);
 
     LayoutGridEnd(&fixture);
 }
@@ -964,7 +966,10 @@ static void TestGridBothAxesPlaced(void)
     RoboCheckEqInt(LayoutGridYOf(&fixture, 1u), 0);
     RoboCheckEqInt(stats.block.grid.placedItems, 1u);
     RoboCheckEqInt(stats.block.grid.autoPlaced, 1u);
-    RoboCheckEqInt(stats.block.grid.rows, 3u);
+    /* Two rows: the line the placed item named (row line 2, so rows 0 and 1 exist) and
+     * the row the auto-placed item landed in -- one implicit row per item that needed
+     * one, and no third track for a placement nobody made. */
+    RoboCheckEqInt(stats.block.grid.rows, 2u);
 
     LayoutGridEnd(&fixture);
 }
@@ -1075,7 +1080,6 @@ static void TestGridAlignItems(void)
     LayoutGridBody(&rules[0], 100.0);
     LayoutGridRuleText(&rules[0], "grid-template-rows: 100px 100px 100px");
     LayoutGridRuleInit(&rules[1], "div", 0, RoboCssDisplayBlock);
-    LayoutGridRulePx(&rules[1], "height", 20.0);
     LayoutGridRuleInit(&rules[2], "div", 1, RoboCssDisplayBlock);
     LayoutGridRulePx(&rules[2], "height", 20.0);
     LayoutGridRuleAlign(&rules[2], "align-self", RoboCssFlexAlignFlexEnd);
@@ -1317,13 +1321,14 @@ static void TestGridCountersBalance(void)
     /*
      * The accounting identity the block record states: every in-flow child of a grid
      * container is either an item that was placed or one the pass counted as skipped,
-     * and `blocksPlaced` -- the number every direction contributes to -- agrees with
-     * the grid's own count.
+     * and the grid's items are exactly what the container contributes to `blocksPlaced`
+     * -- the two ancestor blocks (`html` and `body`, the container being `body`) above
+     * them, and nothing of the grid's own for the container itself.
      */
     RoboCheckEqInt(stats.block.grid.containers, 1u);
     RoboCheckEqInt(stats.block.grid.itemsPlaced, 4u);
     RoboCheckEqInt(stats.block.grid.itemsSkipped, 0u);
-    RoboCheckEqInt(stats.block.blocksPlaced, stats.block.grid.itemsPlaced);
+    RoboCheckEqInt(stats.block.blocksPlaced, stats.block.grid.itemsPlaced + 2u);
     RoboCheckEqInt(stats.block.grid.columns, 2u);
     RoboCheckEqInt(stats.block.grid.rows, 2u);
     RoboCheckEqInt(stats.block.grid.itemsPlaced + stats.block.grid.itemsSkipped,
