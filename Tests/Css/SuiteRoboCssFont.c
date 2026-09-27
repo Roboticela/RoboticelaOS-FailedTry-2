@@ -1038,8 +1038,8 @@ static void TestFontCapabilities(void)
     RoboCheckEqInt(caps.defaultStyles, 0);
     RoboCheckEqInt(caps.stylesheetLoading, 0);
 
-    RoboCheckEqInt(RoboCssVersionMinor, 36);
-    RoboCheckStrEq(CssVersionString(), "0.36.0");
+    RoboCheckEqInt(RoboCssVersionMinor, 37);
+    RoboCheckStrEq(CssVersionString(), "0.37.0");
 
     /* The shape names a diagnostic prints, one per new computation, and the domain
      * the vocabulary reports under. */

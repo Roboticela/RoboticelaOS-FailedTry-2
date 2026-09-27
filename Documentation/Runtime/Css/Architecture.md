@@ -1005,6 +1005,40 @@ radius geometry is left to the layout/paint phase. One capability joins the tabl
 (`borderDecorations`), one computation joins the closed-vocabulary body, and the module
 moves to `0.36.0`.
 
+### The filter family (18.19)
+
+The filter family (`RoboCSSFilter.h`) is the first this build types whose **value is an
+ordered list of functions whose order is the meaning**: `blur(2px) grayscale(100%)` is
+not `grayscale(100%) blur(2px)`. So the property grammar is a carried list and the
+phase's typed deliverable is the **name vocabulary** the list is built from — eleven
+`<filter-function>` names with the classifications a consumer reads — exactly the role
+18.7's `CssTransformFunction` plays for `transform`.
+
+The classifications are three independent questions rather than one tree. The functions
+split by what they *do*: a reference (`url`), two **spatial** ones that move pixels
+(`blur`, `drop-shadow`) and eight **colour** ones that change pixels in place. `url()`
+is in neither of the latter two — it is a reference — so a consumer that read "not
+spatial" as "colour" would apply a colour matrix to an SVG filter. And they split by
+what they *take*: a `<length>` for `blur` and `drop-shadow`, an `<angle>` for
+`hue-rotate`, a `<color>` for `drop-shadow`, and a bare number-or-percentage **amount**
+for the seven whose omitted argument defaults to `1` — which is why the grammar has to
+allow a function written with no argument at all. The four columns are independent and
+not one enumeration: `drop-shadow` takes both a length and a colour, and `hue-rotate`
+an angle and no amount.
+
+Two rows join the table (`filter`, `backdrop-filter`), both non-inherited and both
+carried, with the initial value `none` — which is a value, not an empty list. No
+computation joins the closed-vocabulary body, because no property's grammar *is* a
+closed set here: a list is wider than any closed set, and the vocabulary lives where a
+consumer can reach it rather than in the normaliser. That is 18.7's split, restated for
+filters.
+
+The boundary is stated rather than implied: nothing here blurs a pixel, shifts a shadow,
+mixes a colour matrix, fetches an SVG filter or measures anything. A value says *which filter* a renderer
+applies; the pixels belong to the phase that has a surface. One capability joins the
+table (`filters`), one diagnostic domain (`RoboCssDomainFilter`), and the module moves
+to `0.37.0`.
+
 ### Colour
 
 A *colour* is the one shape whose meaning is arithmetic, so since 9.9 it is a type

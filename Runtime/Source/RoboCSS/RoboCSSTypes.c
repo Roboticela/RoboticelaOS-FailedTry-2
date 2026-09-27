@@ -432,6 +432,8 @@ const char *CssDiagnosticDomainName(CssDiagnosticDomain domain)
         return "text";
     case RoboCssDomainImage:
         return "image";
+    case RoboCssDomainFilter:
+        return "filter";
     default:
         return "unknown";
     }

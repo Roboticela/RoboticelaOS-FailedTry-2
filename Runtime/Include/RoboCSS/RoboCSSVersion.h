@@ -1021,6 +1021,36 @@
  *
  * One capability joins the table (`borderDecorations`).
  *
+ * 0.37.0 is Phase 18.19, **CSS filters**, and it is the first family this build types
+ * whose *value* is a **list of functions applied in order** — `blur(2px)
+ * grayscale(100%)` is not `grayscale(100%) blur(2px)`. So the property itself is a
+ * carried list, exactly as `transform`'s is, and what the phase adds is the **name
+ * vocabulary** the list is built from: eleven `<filter-function>` names — `url`,
+ * `blur`, `brightness`, `contrast`, `drop-shadow`, `grayscale`, `hue-rotate`,
+ * `invert`, `opacity`, `saturate`, `sepia` — with the classifications a consumer
+ * reads.
+ *
+ * The classifications are three independent questions. The functions split by what
+ * they *do*: a reference (`url`), two **spatial** ones that move pixels (`blur`,
+ * `drop-shadow`) and eight **colour** ones that change pixels in place. `url()` is in
+ * neither of the latter two — it is a reference — so a consumer that read "not
+ * spatial" as "colour" would apply a colour matrix to an SVG reference. And they split
+ * by what they *take*: a `<length>` for `blur` and `drop-shadow`, an `<angle>` for
+ * `hue-rotate`, a `<color>` for `drop-shadow`, and a bare number-or-percentage
+ * **amount** for the seven whose omitted argument defaults to `1`. That last fact is
+ * why the grammar may see a function with no argument at all.
+ *
+ * Two rows join the table (`filter`, `backdrop-filter`), both non-inherited and both
+ * carried, with the initial value `none` — which is a value, not an empty list.
+ *
+ * The boundary is stated rather than implied: nothing here blurs a pixel, shifts a
+ * shadow, mixes a colour matrix, fetches an SVG filter or measures anything. A value
+ * says *which filter* a renderer applies; the pixels belong to the phase that has a
+ * surface.
+ *
+ * One capability joins the table (`filters`) and one diagnostic domain
+ * (`RoboCssDomainFilter`).
+ *
  * The surface will keep growing for the whole of Phase 9, so API freeze is
  * NOT claimed here (RoboCssApiFrozen=0).
  */
@@ -1029,9 +1059,9 @@
 #define ROBO_CSS_VERSION_H
 
 #define RoboCssVersionMajor 0
-#define RoboCssVersionMinor 36
+#define RoboCssVersionMinor 37
 #define RoboCssVersionPatch 0
-#define RoboCssVersionString "0.36.0"
+#define RoboCssVersionString "0.37.0"
 
 /** 1 once the Phase 9 surface is frozen (not yet — see header comment). */
 #define RoboCssApiFrozen 0

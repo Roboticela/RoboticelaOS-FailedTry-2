@@ -465,6 +465,10 @@ Result CssGetCapabilities(CssCapabilities *out)
      * and the border-radius rows. What it does not claim is border painting, a
      * border-image slicer or the radius geometry. */
     out->borderDecorations = 1;
+    /* The filter family (18.19): the `<filter-function>` name vocabulary over the
+     * carried `filter`/`backdrop-filter` lists. What it does not claim is a filter
+     * engine -- no pixel is blurred, no shadow shifted and no SVG filter fetched. */
+    out->filters = 1;
     out->defaultStyles = 0;
     out->stylesheetLoading = 0;
     return RoboOk;

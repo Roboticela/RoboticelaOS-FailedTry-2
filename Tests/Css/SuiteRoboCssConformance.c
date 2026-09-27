@@ -426,7 +426,11 @@ static const CssConformanceInitial cssConformanceInitials[] = {
     {"margin-block", "preserved", "0"},
     {"margin-inline", "preserved", "0"},
     {"padding-block", "preserved", "0"},
-    {"padding-inline", "preserved", "0"}
+    {"padding-inline", "preserved", "0"},
+    /* 18.19's two rows: the carried filter lists. `none` is a value, not an empty
+     * list. */
+    {"filter", "preserved", "none"},
+    {"backdrop-filter", "preserved", "none"}
 };
 
 /**
@@ -763,6 +767,12 @@ static const CssConformanceDeclaration cssConformanceDeclarations[] = {
      "30% fill"},
     {"outline-style", "outline-style: dashed", "border-style", "dashed"},
     {"outline-width", "outline-width: thick", "keyword", "thick"},
+    /* 18.19: the filter lists are carried whole -- order included. */
+    {"filter", "filter: blur(2px) grayscale(100%)", "preserved",
+     "blur(2px) grayscale(100%)"},
+    {"filter", "filter: none", "preserved", "none"},
+    {"backdrop-filter", "backdrop-filter: brightness(0.5)", "preserved",
+     "brightness(0.5)"},
     {"outline-offset", "outline-offset: 2px", "preserved", "2px"},
     {"border-radius", "border-radius: 10px", "preserved", "10px"},
     {"border-top-left-radius", "border-top-left-radius: 5px 8px", "preserved",
@@ -1956,7 +1966,8 @@ static void TestCssConformanceCapabilitiesEveryFlag(void)
         {"text", 1},
         {"images", 1},
         {"blendModes", 1},
-        {"borderDecorations", 1}
+        {"borderDecorations", 1},
+        {"filters", 1}
     };
     CssCapabilities caps;
     int *asInts = (int *)&caps;
@@ -1995,11 +2006,13 @@ static void TestCssConformanceCapabilitiesEveryFlag(void)
     RoboCheckEqInt(caps.blendModes, 1);
     /* And for 18.18. */
     RoboCheckEqInt(caps.borderDecorations, 1);
+    /* And for 18.19. */
+    RoboCheckEqInt(caps.filters, 1);
 
     /* The frozen-surface flag is a promise about the phase, not a capability. */
     RoboCheckEqInt(RoboCssApiFrozen, 0);
     RoboCheckEqInt(RoboCssVersionMajor, 0);
-    RoboCheckEqInt(RoboCssVersionMinor, 36);
+    RoboCheckEqInt(RoboCssVersionMinor, 37);
 }
 
 void TestRegisterCssConformance(void);

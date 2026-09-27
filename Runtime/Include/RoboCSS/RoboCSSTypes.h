@@ -422,11 +422,14 @@ typedef enum CssDiagnosticDomain {
     RoboCssDomainText = 34,
     /** The image vocabulary: the `<image>` function kinds, the rendering and
      * object-fit sets and the orientation keywords (18.16). */
-    RoboCssDomainImage = 35
+    RoboCssDomainImage = 35,
+    /** The filter vocabulary: the `<filter-function>` names and their classifications
+     * (18.19). */
+    RoboCssDomainFilter = 36
 } CssDiagnosticDomain;
 
 /** Number of defined diagnostic domains. */
-#define RoboCssDomainCount 36u
+#define RoboCssDomainCount 37u
 
 /** Non-zero if @p domain is a defined diagnostic domain enumerator. */
 int CssDiagnosticDomainIsKnown(CssDiagnosticDomain domain);

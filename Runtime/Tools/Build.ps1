@@ -490,6 +490,10 @@ $ProdSrcs = @(
     # with image-orientation's keyword pair typed inside a carried declaration. It
     # opens no file, samples no stop and scales no pixel.
     (Join-Path $SourceDir "RoboCSS\RoboCSSImage.c"),
+    # The filter vocabulary (18.19): the `<filter-function>` name set (a reference, two
+    # spatial, eight colour) over the carried filter/backdrop-filter lists. It blurs no
+    # pixel and fetches no SVG filter.
+    (Join-Path $SourceDir "RoboCSS\RoboCSSFilter.c"),
     (Join-Path $SourceDir "RoboLayout\RoboLayout.c"),
     (Join-Path $SourceDir "RoboLayout\RoboLayoutTypes.c"),
     (Join-Path $SourceDir "RoboLayout\RoboLayoutDiagnostics.c"),
@@ -1005,6 +1009,9 @@ $SuiteSrcs = @(
     # The image suite (18.16): the function vocabulary, the rendering and object-fit
     # sets, the orientation keywords and the registry rows all of it is registered by.
     (Join-Path $TestsRoot "Css\SuiteRoboCssImage.c"),
+    # The filter suite (18.19): the function vocabulary, its classifications, the two
+    # carried rows and the capability.
+    (Join-Path $TestsRoot "Css\SuiteRoboCssFilter.c"),
     # The selector/DOM integration suite deliberately lives outside css/: it
     # includes both RoboCSS and RoboHTML, and the two are peers whose guards
     # forbid each other's headers. A suite that must see both belongs in neither.

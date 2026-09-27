@@ -128,7 +128,7 @@ static void TestCssRegistryStandardSet(void)
      *
      * A count is asserted rather than a lower bound so that a row added later is a
      * deliberate act rather than an accident. */
-    RoboCheckEqInt((int)CssPropertyRegistryCount(registry), 224);
+    RoboCheckEqInt((int)CssPropertyRegistryCount(registry), 226);
     /*
      * 18.15's twenty text rows move the inherited half by fourteen and the other by
      * six, and that split is the family's central fact stated as a count: an alignment,
@@ -156,7 +156,7 @@ static void TestCssRegistryStandardSet(void)
      * and expansion — not the cascade — is what distributes it. That is why the
      * inherited half moved by eighteen and the other by exactly one.
      */
-    RoboCheckEqInt((int)nonInherited, 167);
+    RoboCheckEqInt((int)nonInherited, 169);
 
     CssPropertyRegistryDestroy(registry);
 }
@@ -250,7 +250,9 @@ static void TestCssRegistryInheritedClassification(void)
         "border-radius", "border-top-left-radius", "border-top-right-radius",
         "border-bottom-right-radius", "border-bottom-left-radius",
         "outline", "outline-color", "outline-offset", "outline-style",
-        "outline-width"
+        "outline-width",
+        /* 18.19's two non-inherited filter rows: a filter is painted per element. */
+        "filter", "backdrop-filter"
     };
     CssPropertyRegistry *registry = NULL;
     size_t index;
@@ -596,7 +598,10 @@ static void TestCssRegistryInitialValues(void)
         {"outline-color", "currentcolor"},
         {"outline-offset", "0"},
         {"outline-style", "none"},
-        {"outline-width", "medium"}
+        {"outline-width", "medium"},
+        /* 18.19's two rows: the carried filter lists, both starting at `none`. */
+        {"filter", "none"},
+        {"backdrop-filter", "none"}
     };
     CssPropertyRegistry *registry = NULL;
     size_t index;

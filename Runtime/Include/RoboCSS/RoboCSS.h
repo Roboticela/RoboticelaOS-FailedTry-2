@@ -538,6 +538,18 @@ typedef struct CssCapabilities {
      * correct, and no function here cuts, tiles, rounds or draws anything.
      */
     int borderDecorations;
+    /**
+     * The filter family (18.19): the `<filter-function>` name vocabulary — eleven
+     * functions (a reference, two spatial, eight colour) with the classifications a
+     * consumer reads — over the `filter` and `backdrop-filter` declarations, which are
+     * carried lists because their grammar (an ordered sequence of functions) is wider
+     * than any closed set.
+     *
+     * What it does not claim is a filter engine: no function here blurs a pixel, shifts
+     * a shadow, mixes a colour matrix or fetches an SVG filter. A value says which
+     * filter a renderer applies; the pixels belong to the phase that has a surface.
+     */
+    int filters;
 } CssCapabilities;
 
 /** Zero every flag. Safe on NULL. */

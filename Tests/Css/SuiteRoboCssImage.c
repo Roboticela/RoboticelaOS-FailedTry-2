@@ -539,7 +539,7 @@ static void TestImageCapabilities(void)
                       0);
     RoboCheckStrEq(CssDiagnosticDomainName(RoboCssDomainImage), "image");
     RoboCheckEqInt(CssDiagnosticDomainIsKnown(RoboCssDomainImage), 1);
-    RoboCheckEqInt(RoboCssDomainCount, 36);
+    RoboCheckEqInt(RoboCssDomainCount, 37);
 }
 
 /** The same declaration computes to the same value twice, by structural equality. */

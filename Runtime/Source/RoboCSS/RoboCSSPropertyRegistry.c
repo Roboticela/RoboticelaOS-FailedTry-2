@@ -1605,7 +1605,26 @@ static const RegistryStandardEntry registryStandardEntries[] = {
       RoboCssPropertyFlagShorthand },
     { "padding-inline",      RoboCssPropertyInheritanceNonInherited,
       RoboCssPropertyComputationPreserve,   "0",
-      RoboCssPropertyFlagShorthand }
+      RoboCssPropertyFlagShorthand },
+
+    /*
+     * --- the filter family (18.19) ---
+     *
+     * Two rows, neither inherited, and both carried: a filter's value is an *ordered*
+     * list of functions (`blur(2px) grayscale(100%)` is not `grayscale(100%)
+     * blur(2px)`), and a grammar wider than any closed set. What the phase adds as a
+     * vocabulary is the `<filter-function>` name set (RoboCSSFilter.h), read by the
+     * phase that checks a list's function tokens against it -- the same split 18.7 drew
+     * for `transform` and its function-name set.
+     *
+     * `none` is the initial value and is a *value*, not an empty list: `filter: none`
+     * is the absence of a filter list, which is what an author who declared nothing and
+     * an element with an empty list do not share.
+     */
+    { "filter",            RoboCssPropertyInheritanceNonInherited,
+      RoboCssPropertyComputationPreserve,   "none",      0 },
+    { "backdrop-filter",   RoboCssPropertyInheritanceNonInherited,
+      RoboCssPropertyComputationPreserve,   "none",      0 }
 };
 
 Result CssPropertyRegistryCreateStandard(
