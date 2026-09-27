@@ -193,7 +193,7 @@ static void TestCssComputedDefaultThenInherited(void)
      * registry's initial value, each normalised: `black` is a colour, `serif` is
      * a family list, `medium` is a keyword, and `text-indent`'s `0` is the one
      * bare number CSS lets a length be. */
-    RoboCheckEqInt((int)CssComputedStyleCount(root), 40);
+    RoboCheckEqInt((int)CssComputedStyleCount(root), 54);
     CssComputedIs(root, "color", "#000000");
     CssComputedFlagsAre(root, "color", "default");
     CssComputedIs(root, "font-family", "serif");
@@ -402,9 +402,16 @@ static void TestCssComputedUnresolvedAndInvalid(void)
      * see that instead of finding the property silently absent. */
     CssComputedFlagsAre(style, "color", "declared+invalid");
     RoboCheckEqInt(CssComputedStyleHasInvalid(style), 1);
-    /* Only the `calc()` and the invalid colour remain incomplete; the reference
-     * that used to be the third resolved to its fallback above. */
-    RoboCheckEqInt((int)CssComputedStyleIncompleteCount(style), 2);
+    /*
+     * Three entries remain incomplete, and the third is the family 18.15 adds: the
+     * reference that used to be second resolved to its fallback above, so the
+     * `calc()` and the invalid colour are two, and `text-emphasis-color` is the
+     * first *inherited* property in the table whose initial is a reference
+     * (`currentcolor`). Its default entry on this element cannot resolve, because the
+     * colour it would resolve against is the `color` this very rule declared invalid
+     * — which is why the count moves by one rather than by none.
+     */
+    RoboCheckEqInt((int)CssComputedStyleIncompleteCount(style), 3);
     /* The invalid entry does not corrupt its neighbours: `display` is fine. */
     CssComputedIs(style, "display", "block");
     CssComputedFlagsAre(style, "display", "declared");
@@ -793,7 +800,7 @@ static void TestCssComputedNoStylesheets(void)
     RoboCheckEqInt(CssComputedStyleCreate(&style, NULL), RoboOk);
 
     CssComputeOf(&fixture, div, style);
-    RoboCheckEqInt((int)CssComputedStyleCount(style), 40);
+    RoboCheckEqInt((int)CssComputedStyleCount(style), 54);
     CssComputedIs(style, "color", "#000000");
     CssComputedIs(style, "display", "<absent>");
     RoboCheckEqInt(CssComputedStyleIsTruncated(style), 0);

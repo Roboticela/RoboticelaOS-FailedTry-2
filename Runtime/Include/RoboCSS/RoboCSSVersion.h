@@ -882,6 +882,45 @@
  * One capability joins the table (`fonts`) and one diagnostic domain
  * (`RoboCssDomainFont`).
  *
+ * 0.33.0 is Phase 18.15, **CSS text**, and it is the family whose central fact is
+ * that **six words hide four independent questions**. `white-space` is spelled
+ * `normal | pre | nowrap | pre-wrap | pre-line | break-spaces`, and what those six
+ * actually say is whether runs of spaces collapse, whether newlines are preserved,
+ * whether a line wraps at all, and whether a *preserved* space may be broken after.
+ * `normal` and `pre-line` agree on the first and third and differ only on the
+ * second; `pre-wrap` and `break-spaces` agree on all three of the first and differ
+ * only on the fourth, which CSS Text 4 added `break-spaces` for. So the row carries
+ * four columns, and a consumer reads a classification rather than matching a
+ * spelling — a build that stored the keyword would have to know that `pre-line` is
+ * not "pre with wraps".
+ *
+ * Twenty rows join the table, and three of them are **upgrades in place** from the
+ * bare KEYWORD shape they had since 9.7 — `text-align`, `text-transform` and
+ * `white-space` — the same move 18.13 made for `direction` and 18.14 for
+ * `font-style`. Ten take a closed shape of their own: the three alignment sets
+ * (`text-align`, `text-align-last`, `text-justify`), `text-transform`, `white-space`,
+ * the four line-breaking controls (`word-break`, `overflow-wrap`, `line-break`,
+ * `hyphens`) and `text-decoration-style`. The rest have a grammar *wider* than any
+ * closed set — `text-decoration-line` is a **set** (`underline overline` is legal),
+ * `text-overflow` may be a `<string>`, `text-decoration-thickness` may be a length,
+ * `text-underline-position` is a set of two different questions, and the
+ * `text-emphasis-*` marks have no renderer here to draw them — so they are
+ * registered PRESERVED with the closed sets *inside* them typed in RoboCSSText.h,
+ * which is 18.7's and 18.14's split made once more.
+ *
+ * Two boundary decisions are stated rather than implied. `font-variant-ligatures`'
+ * precedent holds: nothing here wraps a line, distributes slack, finds a hyphenation
+ * point or changes a character's case, and no function takes or returns a line, a
+ * glyph id or a rectangle — a value says *what rule* a text pass follows, and where
+ * the line breaks is the phase that has a text engine (12.x). And the two
+ * classifications that look like one are asked separately on purpose: `start`/`end`
+ * are direction-relative and `left`/`right` are physical, while `center` is neither,
+ * so "not logical" must not be read as "physical" — the same pair `caption-side`'s
+ * block and inline axes are.
+ *
+ * One capability joins the table (`text`) and one diagnostic domain
+ * (`RoboCssDomainText`).
+ *
  * The surface will keep growing for the whole of Phase 9, so API freeze is
  * NOT claimed here (RoboCssApiFrozen=0).
  */
@@ -890,9 +929,9 @@
 #define ROBO_CSS_VERSION_H
 
 #define RoboCssVersionMajor 0
-#define RoboCssVersionMinor 32
+#define RoboCssVersionMinor 33
 #define RoboCssVersionPatch 0
-#define RoboCssVersionString "0.32.0"
+#define RoboCssVersionString "0.33.0"
 
 /** 1 once the Phase 9 surface is frozen (not yet — see header comment). */
 #define RoboCssApiFrozen 0

@@ -122,12 +122,41 @@ static const CssConformanceInitial cssConformanceInitials[] = {
     {"font-variant-position", "keyword", "normal"},
     {"font-variation-settings", "preserved", "normal"},
     {"font-weight", "keyword", "normal"},
+    /*
+     * The text family (18.15), in registry order. Ten rows are closed vocabularies
+     * and compute to a keyword; the rest are PRESERVED declarations whose grammar is
+     * wider than any closed set — a `text-decoration-line` set, a `text-overflow`
+     * string, a `text-decoration-thickness` length — and carry the author's tokens
+     * exactly as the grid track templates and `border-spacing` do.
+     *
+     * `text-align`, `text-transform` and `white-space` moved in place from the bare
+     * KEYWORD shape they had had since 9.7, and their kind and text are unchanged by
+     * that — the same "shape change, not a new property" row 18.13 recorded for
+     * `direction` and 18.14 for `font-style`. `text-emphasis-color` is the family's
+     * one *inherited* reference initial (`currentcolor`), so its computed text is the
+     * colour module's canonical spelling while its sibling `text-emphasis` carries the
+     * same word as a preserved token, exactly as `border` and `border-color` differ.
+     */
+    {"hyphens", "keyword", "manual"},
     {"letter-spacing", "keyword", "normal"},
+    {"line-break", "keyword", "auto"},
     {"line-height", "keyword", "normal"},
+    {"overflow-wrap", "keyword", "normal"},
+    {"tab-size", "preserved", "8"},
     {"text-align", "keyword", "start"},
+    {"text-align-last", "keyword", "auto"},
+    {"text-emphasis", "preserved", "none currentcolor"},
+    {"text-emphasis-color", "colour", "currentColor"},
+    {"text-emphasis-position", "preserved", "over right"},
+    {"text-emphasis-style", "preserved", "none"},
     /* A bare `0` is CSS's one number that *is* a length, and it arrives as `0px`. */
     {"text-indent", "length", "0px"},
+    {"text-justify", "keyword", "auto"},
+    {"text-shadow", "preserved", "none"},
     {"text-transform", "keyword", "none"},
+    {"text-underline-offset", "preserved", "auto"},
+    {"text-underline-position", "preserved", "auto"},
+    {"word-break", "keyword", "normal"},
     {"visibility", "keyword", "visible"},
     {"white-space", "keyword", "normal"},
     {"word-spacing", "keyword", "normal"},
@@ -209,6 +238,16 @@ static const CssConformanceInitial cssConformanceInitials[] = {
     {"padding-top", "length", "0px"},
     {"position", "position", "static"},
     {"right", "keyword", "auto"},
+    /* The non-inherited half of the text family (18.15): a decoration is painted per
+     * element, so a child of an underlined link is not underlined, and truncation
+     * belongs to the box that clips rather than to the text inside it. The shorthand
+     * carries the concatenation of its four longhands' initials, as `border` does. */
+    {"text-decoration", "preserved", "none currentcolor solid auto"},
+    {"text-decoration-color", "colour", "currentColor"},
+    {"text-decoration-line", "preserved", "none"},
+    {"text-decoration-style", "keyword", "solid"},
+    {"text-decoration-thickness", "preserved", "auto"},
+    {"text-overflow", "preserved", "clip"},
     {"top", "keyword", "auto"},
     {"width", "keyword", "auto"},
     {"z-index", "keyword", "auto"},
@@ -657,6 +696,29 @@ static const CssConformanceDeclaration cssConformanceDeclarations[] = {
     {"letter-spacing", "letter-spacing: 2px", "length", "2px"},
     {"visibility", "visibility: hidden", "keyword", "hidden"},
     {"box-sizing", "box-sizing: border-box", "keyword", "border-box"},
+    /* The text family (18.15): the ten closed vocabularies, one refusal per kind,
+     * and the carried half whose grammar is wider than any closed set — a decoration
+     * line set, an overflow marker and a thickness length all survive intact. */
+    {"text-align", "text-align: center", "keyword", "center"},
+    {"text-align", "text-align: middle", "invalid", "not a text-align value"},
+    {"text-align-last", "text-align-last: justify", "keyword", "justify"},
+    {"text-justify", "text-justify: inter-character", "keyword",
+     "inter-character"},
+    {"text-transform", "text-transform: uppercase", "keyword", "uppercase"},
+    {"white-space", "white-space: break-spaces", "keyword", "break-spaces"},
+    {"white-space", "white-space: banana", "invalid", "not a white-space value"},
+    {"word-break", "word-break: keep-all", "keyword", "keep-all"},
+    {"overflow-wrap", "overflow-wrap: anywhere", "keyword", "anywhere"},
+    {"line-break", "line-break: strict", "keyword", "strict"},
+    {"hyphens", "hyphens: auto", "keyword", "auto"},
+    {"text-decoration-style", "text-decoration-style: wavy", "keyword", "wavy"},
+    {"text-decoration-style", "text-decoration-style: banana", "invalid",
+     "not a text-decoration-style value"},
+    {"text-decoration-line", "text-decoration-line: underline overline",
+     "preserved", "underline overline"},
+    {"text-overflow", "text-overflow: ellipsis", "preserved", "ellipsis"},
+    {"text-decoration-thickness", "text-decoration-thickness: 3px",
+     "preserved", "3px"},
     /*
      * Opacity (11.9's prerequisite) — the one property whose value is a **range** rather
      * than a closed set, so the three shapes worth pinning are its number, its
@@ -1800,7 +1862,8 @@ static void TestCssConformanceCapabilitiesEveryFlag(void)
         {"media_queries", 1},
         {"container_queries", 1},
         {"logical_properties", 1},
-        {"fonts", 1}
+        {"fonts", 1},
+        {"text", 1}
     };
     CssCapabilities caps;
     int *asInts = (int *)&caps;
@@ -1831,11 +1894,13 @@ static void TestCssConformanceCapabilitiesEveryFlag(void)
      * two questions, because a flag is a promise about the build and a family is a
      * promise about a module. */
     RoboCheckEqInt(caps.fonts, 1);
+    /* And for 18.15, the same pair of promises. */
+    RoboCheckEqInt(caps.text, 1);
 
     /* The frozen-surface flag is a promise about the phase, not a capability. */
     RoboCheckEqInt(RoboCssApiFrozen, 0);
     RoboCheckEqInt(RoboCssVersionMajor, 0);
-    RoboCheckEqInt(RoboCssVersionMinor, 32);
+    RoboCheckEqInt(RoboCssVersionMinor, 33);
 }
 
 void TestRegisterCssConformance(void);

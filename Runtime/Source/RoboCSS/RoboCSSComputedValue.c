@@ -2037,6 +2037,67 @@ static int ComputedVocabularyFontVariantPositionKnown(CssSlice keyword)
     return CssFontVariantPositionSliceIsKnown(keyword);
 }
 
+/*
+ * The text vocabularies (18.15): ten predicates and the same make body.
+ *
+ * Ten rows because ten properties have a grammar that *is* their closed set. The
+ * rest of the family is carried PRESERVED, and the closed sets inside those
+ * declarations live in RoboCSSText.h where a consumer can reach them without this
+ * table pretending the whole grammar is closed: `text-decoration-line` is a *set*,
+ * `text-overflow` may be a string, `text-decoration-thickness` may be a length, and
+ * `text-underline-position` is a set of two different questions. That division is
+ * 18.7's, and 18.14 made the same split for the font family.
+ */
+static int ComputedVocabularyTextAlignKnown(CssSlice keyword)
+{
+    return CssTextAlignSliceIsKnown(keyword);
+}
+
+static int ComputedVocabularyTextAlignLastKnown(CssSlice keyword)
+{
+    return CssTextAlignLastSliceIsKnown(keyword);
+}
+
+static int ComputedVocabularyTextJustifyKnown(CssSlice keyword)
+{
+    return CssTextJustifySliceIsKnown(keyword);
+}
+
+static int ComputedVocabularyTextTransformKnown(CssSlice keyword)
+{
+    return CssTextTransformSliceIsKnown(keyword);
+}
+
+static int ComputedVocabularyWhiteSpaceKnown(CssSlice keyword)
+{
+    return CssWhiteSpaceSliceIsKnown(keyword);
+}
+
+static int ComputedVocabularyWordBreakKnown(CssSlice keyword)
+{
+    return CssWordBreakSliceIsKnown(keyword);
+}
+
+static int ComputedVocabularyOverflowWrapKnown(CssSlice keyword)
+{
+    return CssOverflowWrapSliceIsKnown(keyword);
+}
+
+static int ComputedVocabularyLineBreakKnown(CssSlice keyword)
+{
+    return CssLineBreakSliceIsKnown(keyword);
+}
+
+static int ComputedVocabularyHyphensKnown(CssSlice keyword)
+{
+    return CssHyphensSliceIsKnown(keyword);
+}
+
+static int ComputedVocabularyTextDecorationStyleKnown(CssSlice keyword)
+{
+    return CssTextDecorationStyleSliceIsKnown(keyword);
+}
+
 /**
  * A closed vocabulary whose value *is* its keyword, carried as one.
  *
@@ -2197,7 +2258,48 @@ static const ComputedVocabularyGrammar computedVocabularyGrammars[] = {
     { RoboCssPropertyComputationFontVariantPosition,
       ComputedVocabularyFontVariantPositionKnown, ComputedVocabularyKeywordMake,
       "not a single font-variant-position keyword",
-      "not a font-variant-position value" }
+      "not a font-variant-position value" },
+    /*
+     * The text vocabularies (18.15) are ten more rows in the same table, and their
+     * make door is the keyword-carrying one for the reason 18.5's rows recorded:
+     * nothing has a *typed representation* of a `white-space` or an alignment in the
+     * computed value yet, so an enumerator here would be a second copy of a table for
+     * a consumer that arrives with the line-breaking and text-painting phases. What
+     * the closed set buys is the refusal — `white-space: banana` and
+     * `text-align: middle` are mistakes rather than keywords carrying the letters —
+     * and what arrives is already the canonical spelling.
+     */
+    { RoboCssPropertyComputationTextAlign, ComputedVocabularyTextAlignKnown,
+      ComputedVocabularyKeywordMake, "not a single text-align keyword",
+      "not a text-align value" },
+    { RoboCssPropertyComputationTextAlignLast,
+      ComputedVocabularyTextAlignLastKnown, ComputedVocabularyKeywordMake,
+      "not a single text-align-last keyword", "not a text-align-last value" },
+    { RoboCssPropertyComputationTextJustify, ComputedVocabularyTextJustifyKnown,
+      ComputedVocabularyKeywordMake, "not a single text-justify keyword",
+      "not a text-justify value" },
+    { RoboCssPropertyComputationTextTransform,
+      ComputedVocabularyTextTransformKnown, ComputedVocabularyKeywordMake,
+      "not a single text-transform keyword", "not a text-transform value" },
+    { RoboCssPropertyComputationWhiteSpace, ComputedVocabularyWhiteSpaceKnown,
+      ComputedVocabularyKeywordMake, "not a single white-space keyword",
+      "not a white-space value" },
+    { RoboCssPropertyComputationWordBreak, ComputedVocabularyWordBreakKnown,
+      ComputedVocabularyKeywordMake, "not a single word-break keyword",
+      "not a word-break value" },
+    { RoboCssPropertyComputationOverflowWrap,
+      ComputedVocabularyOverflowWrapKnown, ComputedVocabularyKeywordMake,
+      "not a single overflow-wrap keyword", "not an overflow-wrap value" },
+    { RoboCssPropertyComputationLineBreak, ComputedVocabularyLineBreakKnown,
+      ComputedVocabularyKeywordMake, "not a single line-break keyword",
+      "not a line-break value" },
+    { RoboCssPropertyComputationHyphens, ComputedVocabularyHyphensKnown,
+      ComputedVocabularyKeywordMake, "not a single hyphens keyword",
+      "not a hyphens value" },
+    { RoboCssPropertyComputationTextDecorationStyle,
+      ComputedVocabularyTextDecorationStyleKnown, ComputedVocabularyKeywordMake,
+      "not a single text-decoration-style keyword",
+      "not a text-decoration-style value" }
 };
 
 /** The vocabulary grammar for @p computation, or NULL when it is not one. */
@@ -3084,6 +3186,23 @@ Result CssComputedValueCompute(
     case RoboCssPropertyComputationFontSynthesis:
     case RoboCssPropertyComputationFontVariantCaps:
     case RoboCssPropertyComputationFontVariantPosition:
+    /*
+     * And the text vocabularies (18.15) are ten more rows — the half of the text
+     * family whose grammar *is* a closed set. The other half is not here at all: a
+     * `text-decoration-line` set, a `text-overflow` string and a
+     * `text-decoration-thickness` length are PRESERVED declarations, and their own
+     * closed sets are reached through RoboCSSText.h rather than through this switch.
+     */
+    case RoboCssPropertyComputationTextAlign:
+    case RoboCssPropertyComputationTextAlignLast:
+    case RoboCssPropertyComputationTextJustify:
+    case RoboCssPropertyComputationTextTransform:
+    case RoboCssPropertyComputationWhiteSpace:
+    case RoboCssPropertyComputationWordBreak:
+    case RoboCssPropertyComputationOverflowWrap:
+    case RoboCssPropertyComputationLineBreak:
+    case RoboCssPropertyComputationHyphens:
+    case RoboCssPropertyComputationTextDecorationStyle:
         return ComputedComputeVocabulary(
             ComputedVocabularyGrammarFor(computation), out, specified, diag);
     case RoboCssPropertyComputationBackgroundImage:

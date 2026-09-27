@@ -128,8 +128,17 @@ static void TestCssRegistryStandardSet(void)
      *
      * A count is asserted rather than a lower bound so that a row added later is a
      * deliberate act rather than an accident. */
-    RoboCheckEqInt((int)CssPropertyRegistryCount(registry), 180);
-    RoboCheckEqInt((int)inherited, 40);
+    RoboCheckEqInt((int)CssPropertyRegistryCount(registry), 200);
+    /*
+     * 18.15's twenty text rows move the inherited half by fourteen and the other by
+     * six, and that split is the family's central fact stated as a count: an alignment,
+     * a transformation, a white-space rule, a line-breaking control and a decoration
+     * *style* describe how **text** is laid out, so a child inherits them, while the
+     * four `text-decoration-*` rows and `text-overflow` describe the box that draws or
+     * clips the text, so a child does not — and a link's underlined text would be every
+     * descendant of the link if the line propagated.
+     */
+    RoboCheckEqInt((int)inherited, 54);
     /* 18.3's twelve flexbox rows and 18.4's twenty grid rows are all non-inherited,
      * which is why only this half of the count moved: a flex container's direction, a
      * wrap rule, an alignment, a factor, a basis and an order are the box's own, and a
@@ -147,7 +156,7 @@ static void TestCssRegistryStandardSet(void)
      * and expansion — not the cascade — is what distributes it. That is why the
      * inherited half moved by eighteen and the other by exactly one.
      */
-    RoboCheckEqInt((int)nonInherited, 140);
+    RoboCheckEqInt((int)nonInherited, 146);
 
     CssPropertyRegistryDestroy(registry);
 }
@@ -177,7 +186,16 @@ static void TestCssRegistryInheritedClassification(void)
         "font-synthesis-position", "font-synthesis-small-caps",
         "font-synthesis-style", "font-synthesis-weight", "font-variant-alternates",
         "font-variant-caps", "font-variant-east-asian", "font-variant-ligatures",
-        "font-variant-numeric", "font-variant-position", "font-variation-settings"
+        "font-variant-numeric", "font-variant-position", "font-variation-settings",
+        /* 18.15's fourteen inherited text rows. The line-breaking controls, the
+         * alignment sets, `text-transform`, `white-space`, the shadows and the
+         * emphasis marks all describe how *text* is set, so a child inside a
+         * paragraph sits on the same rules; the decoration's own five rows are the
+         * non-inherited half asserted below. */
+        "hyphens", "line-break", "overflow-wrap", "tab-size", "text-align-last",
+        "text-emphasis", "text-emphasis-color", "text-emphasis-position",
+        "text-emphasis-style", "text-justify", "text-shadow",
+        "text-underline-offset", "text-underline-position", "word-break"
     };
     /* The eight the phase names as the things that must NOT propagate, plus the
      * box model's fourteen (9.11) — every one of which is the *opposite* of an
@@ -205,7 +223,12 @@ static void TestCssRegistryInheritedClassification(void)
          * computed value is the tokens an author wrote, and a shorthand marked
          * inherited would propagate a concatenation where CSS propagates each
          * longhand by its own rule. */
-        "font"
+        "font",
+        /* 18.15's six non-inherited text rows: a decoration is painted per element,
+         * so a child of an underlined link is not underlined, and truncation belongs
+         * to the box that clips rather than to the text inside it. */
+        "text-decoration", "text-decoration-color", "text-decoration-line",
+        "text-decoration-style", "text-decoration-thickness", "text-overflow"
     };
     CssPropertyRegistry *registry = NULL;
     size_t index;
@@ -489,7 +512,34 @@ static void TestCssRegistryInitialValues(void)
         {"font-variant-position", "normal"},
         {"font-variation-settings", "normal"},
         {"font",
-         "normal,_,normal,_,normal,_,normal,_,medium,/,normal,_,serif"}
+         "normal,_,normal,_,normal,_,normal,_,medium,/,normal,_,serif"},
+        /* 18.15's twenty text rows. Ten take a closed vocabulary and the rest are
+         * carried declarations whose grammar is wider than any closed set — a
+         * `text-decoration-line` set, a `text-overflow` string, a
+         * `text-decoration-thickness` length. `text-emphasis-color` is the family's
+         * one *inherited* reference initial (`currentcolor`), and `text-decoration`
+         * carries the concatenation of its four longhands exactly as `font` and
+         * `border` carry theirs. */
+        {"hyphens", "manual"},
+        {"line-break", "auto"},
+        {"overflow-wrap", "normal"},
+        {"tab-size", "8"},
+        {"text-align-last", "auto"},
+        {"text-emphasis", "none,_,currentcolor"},
+        {"text-emphasis-color", "currentcolor"},
+        {"text-emphasis-position", "over,_,right"},
+        {"text-emphasis-style", "none"},
+        {"text-justify", "auto"},
+        {"text-shadow", "none"},
+        {"text-underline-offset", "auto"},
+        {"text-underline-position", "auto"},
+        {"word-break", "normal"},
+        {"text-decoration", "none,_,currentcolor,_,solid,_,auto"},
+        {"text-decoration-color", "currentcolor"},
+        {"text-decoration-line", "none"},
+        {"text-decoration-style", "solid"},
+        {"text-decoration-thickness", "auto"},
+        {"text-overflow", "clip"}
     };
     CssPropertyRegistry *registry = NULL;
     size_t index;

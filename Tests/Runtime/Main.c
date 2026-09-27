@@ -289,6 +289,7 @@ void TestRegisterCssMedia(void);
 void TestRegisterCssContainer(void);
 void TestRegisterCssLogical(void);
 void TestRegisterCssFont(void);
+void TestRegisterCssText(void);
 void TestRegisterCssDomSelect(void);
 void TestRegisterLayout(void);
 void TestRegisterLayoutFormattingContext(void);
@@ -693,6 +694,7 @@ int main(int argc, char **argv)
     TestRegisterCssContainer();
     TestRegisterCssLogical();
     TestRegisterCssFont();
+    TestRegisterCssText();
     TestRegisterCssDomSelect();
 
     TestRegisterLayout();

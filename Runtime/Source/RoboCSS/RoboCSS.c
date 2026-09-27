@@ -443,6 +443,13 @@ Result CssGetCapabilities(CssCapabilities *out)
      * downstream emboldens or slants a face. `font-variant-ligatures`' vocabulary is
      * RoboText's (12.12). */
     out->fonts = 1;
+    /* The text family (18.15): the fourteen closed sets that describe a *rule* a text
+     * pass follows, over the registry rows that carry the other half. What it does not
+     * claim is a line breaker, a justifier, a hyphenator or a text transformer -- no
+     * line is wrapped, no slack distributed, no hyphenation point found, no case
+     * changed, and no function takes or returns a line, a glyph id or a rectangle.
+     * `direction` and `text-orientation` are 18.13's. */
+    out->text = 1;
     out->defaultStyles = 0;
     out->stylesheetLoading = 0;
     return RoboOk;

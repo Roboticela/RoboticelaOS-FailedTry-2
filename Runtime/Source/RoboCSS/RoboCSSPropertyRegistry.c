@@ -265,6 +265,26 @@ const char *CssPropertyComputationName(
         return "font-variant-caps";
     case RoboCssPropertyComputationFontVariantPosition:
         return "font-variant-position";
+    case RoboCssPropertyComputationTextAlign:
+        return "text-align";
+    case RoboCssPropertyComputationTextAlignLast:
+        return "text-align-last";
+    case RoboCssPropertyComputationTextJustify:
+        return "text-justify";
+    case RoboCssPropertyComputationTextTransform:
+        return "text-transform";
+    case RoboCssPropertyComputationWhiteSpace:
+        return "white-space";
+    case RoboCssPropertyComputationWordBreak:
+        return "word-break";
+    case RoboCssPropertyComputationOverflowWrap:
+        return "overflow-wrap";
+    case RoboCssPropertyComputationLineBreak:
+        return "line-break";
+    case RoboCssPropertyComputationHyphens:
+        return "hyphens";
+    case RoboCssPropertyComputationTextDecorationStyle:
+        return "text-decoration-style";
     default:
         return "unknown";
     }
@@ -644,16 +664,86 @@ static const RegistryStandardEntry registryStandardEntries[] = {
       RoboCssPropertyComputationPreserve,   "normal",     0 },
     { "font-weight",   RoboCssPropertyInheritanceInherited,
       RoboCssPropertyComputationFontWeight,"normal",     0 },
+    /*
+     * --- the text family (18.15) ---
+     *
+     * Fourteen inherited rows join this block, and three rows that were already
+     * here are **upgraded in place**: `text-align`, `text-transform` and
+     * `white-space` move off the bare KEYWORD shape and onto closed vocabularies,
+     * with their inheritance and initial values unchanged. The KEYWORD shape accepted
+     * any identifier, so `white-space: banana` used to compute to a keyword carrying
+     * the letters; the closed set is what refuses it.
+     *
+     * The family's rows split the same way 18.7's and 18.14's do. Nine take a typed
+     * shape — `text-align`, `text-align-last`, `text-justify`, `text-transform`,
+     * `white-space`, `word-break`, `overflow-wrap`, `line-break`, `hyphens` and
+     * `text-decoration-style` — and seven are carried declarations whose grammar is a
+     * *set* or a wider family: a decoration line list, an overflow marker that may be
+     * a string, a thickness, an underline position, an emphasis mark, an emphasis
+     * position and the two shorthands above them. `text-indent` keeps the shared
+     * length shape it has had since 9.11, and its `hanging`/`each-line` keywords are
+     * named as not read rather than silently dropped.
+     *
+     * `text-decoration-*` and `text-overflow` are the **non-inherited** half and live
+     * in the block below; `text-shadow`, `text-emphasis-*`, `text-underline-*` and the
+     * line-breaking controls are all inherited, which is why the inherited count
+     * moves by fourteen and the other by six.
+     */
+    { "hyphens",       RoboCssPropertyInheritanceInherited,
+      RoboCssPropertyComputationHyphens,    "manual",     0 },
     { "letter-spacing",RoboCssPropertyInheritanceInherited,
       RoboCssPropertyComputationLength,     "normal",     0 },
+    { "line-break",    RoboCssPropertyInheritanceInherited,
+      RoboCssPropertyComputationLineBreak,  "auto",       0 },
     { "line-height",   RoboCssPropertyInheritanceInherited,
       RoboCssPropertyComputationLineHeight,"normal",     0 },
+    { "overflow-wrap", RoboCssPropertyInheritanceInherited,
+      RoboCssPropertyComputationOverflowWrap, "normal",   0 },
+    /* `tab-size` is carried: its grammar is `normal | <number> | <length>` with the
+     * number written as a bare token, which no closed set describes and this build
+     * has no tab stop to resolve. */
+    { "tab-size",      RoboCssPropertyInheritanceInherited,
+      RoboCssPropertyComputationPreserve,   "8",          0 },
     { "text-align",    RoboCssPropertyInheritanceInherited,
-      RoboCssPropertyComputationKeyword,    "start",      0 },
+      RoboCssPropertyComputationTextAlign,  "start",      0 },
+    { "text-align-last", RoboCssPropertyInheritanceInherited,
+      RoboCssPropertyComputationTextAlignLast, "auto",     0 },
+    /* The emphasis family is registered and **not typed**: its values are a shape
+     * list of eight kinds with a filled/open pair over them, and nothing in this
+     * build draws an emphasis mark. Carrying the declarations keeps the cascade and
+     * the computed style correct; typing the marks is the phase that draws one, and
+     * this is the boundary stated rather than implied.
+     *
+     * `text-emphasis-color` is a colour like every other colour, so it takes the 9.9
+     * shape rather than a string, and its `currentColor` initial is the registry's
+     * fifth *reference* initial. */
+    { "text-emphasis", RoboCssPropertyInheritanceInherited,
+      RoboCssPropertyComputationPreserve,   "none currentcolor",
+      RoboCssPropertyFlagShorthand },
+    { "text-emphasis-color", RoboCssPropertyInheritanceInherited,
+      RoboCssPropertyComputationColor,      "currentcolor", 0 },
+    { "text-emphasis-position", RoboCssPropertyInheritanceInherited,
+      RoboCssPropertyComputationPreserve,   "over right", 0 },
+    { "text-emphasis-style", RoboCssPropertyInheritanceInherited,
+      RoboCssPropertyComputationPreserve,   "none",       0 },
     { "text-indent",   RoboCssPropertyInheritanceInherited,
       RoboCssPropertyComputationLength,     "0",          0 },
+    { "text-justify",  RoboCssPropertyInheritanceInherited,
+      RoboCssPropertyComputationTextJustify,"auto",       0 },
+    /* `text-shadow` is inherited, which surprises people once and then makes sense:
+     * a shadow is a property of the *text*, so a `span` inside a shadowed paragraph
+     * casts the same shadow. Its grammar is a comma-separated list, which is why the
+     * row is carried. */
+    { "text-shadow",   RoboCssPropertyInheritanceInherited,
+      RoboCssPropertyComputationPreserve,   "none",       0 },
     { "text-transform",RoboCssPropertyInheritanceInherited,
-      RoboCssPropertyComputationKeyword,    "none",       0 },
+      RoboCssPropertyComputationTextTransform, "none",    0 },
+    { "text-underline-offset", RoboCssPropertyInheritanceInherited,
+      RoboCssPropertyComputationPreserve,   "auto",       0 },
+    { "text-underline-position", RoboCssPropertyInheritanceInherited,
+      RoboCssPropertyComputationPreserve,   "auto",       0 },
+    { "word-break",    RoboCssPropertyInheritanceInherited,
+      RoboCssPropertyComputationWordBreak,  "normal",     0 },
     /* `visibility` is a registered property of this table since 9.7 and its shape is
      * upgraded here: the KEYWORD shape accepted any identifier, so `visibility: banana`
      * computed to a keyword carrying the letters, which is exactly the silent failure
@@ -662,8 +752,11 @@ static const RegistryStandardEntry registryStandardEntries[] = {
      * the inheritance and initial value it always had. */
     { "visibility",    RoboCssPropertyInheritanceInherited,
       RoboCssPropertyComputationVisibility, "visible",    0 },
+    /* `white-space` is upgraded in place like `text-align` above: six spellings that
+     * used to compute to a keyword carrying any identifier now compute to the closed
+     * set whose four classifications are the property's actual content. */
     { "white-space",   RoboCssPropertyInheritanceInherited,
-      RoboCssPropertyComputationKeyword,    "normal",     0 },
+      RoboCssPropertyComputationWhiteSpace, "normal",     0 },
     { "word-spacing",  RoboCssPropertyInheritanceInherited,
       RoboCssPropertyComputationLength,     "normal",     0 },
 
@@ -969,6 +1062,37 @@ static const RegistryStandardEntry registryStandardEntries[] = {
       RoboCssPropertyComputationPosition,   "static",     0 },
     { "right",         RoboCssPropertyInheritanceNonInherited,
       RoboCssPropertyComputationEdgeOffset, "auto",      0 },
+    /*
+     * --- the non-inherited half of the text family (18.15) ---
+     *
+     * A decoration is painted per element, so the four `text-decoration-*` rows and
+     * the shorthand are non-inherited and live here rather than with the fourteen
+     * above — a child of an underlined `span` is not underlined, and a build that
+     * inherited the line would draw every descendant of a link as a link.
+     *
+     * Only one of the five takes a typed shape: `text-decoration-style` is its own
+     * closed set, while the line is a *set* (`underline overline` is legal), the
+     * colour is the shared 9.9 colour shape with the same `currentColor` initial every
+     * other colour property has, and the thickness is `auto | from-font | <length>`.
+     * `text-overflow` is here for the same reason: truncation is about the box that
+     * clips, not about the text inside it.
+     *
+     * `text-decoration`'s initial is the concatenation of its four longhands'
+     * initials, which is what CSS says and what makes the shorthand's own distribution
+     * agree with the longhands' values. */
+    { "text-decoration",       RoboCssPropertyInheritanceNonInherited,
+      RoboCssPropertyComputationPreserve,          "none currentcolor solid auto",
+      RoboCssPropertyFlagShorthand },
+    { "text-decoration-color", RoboCssPropertyInheritanceNonInherited,
+      RoboCssPropertyComputationColor,             "currentcolor", 0 },
+    { "text-decoration-line",  RoboCssPropertyInheritanceNonInherited,
+      RoboCssPropertyComputationPreserve,          "none",       0 },
+    { "text-decoration-style", RoboCssPropertyInheritanceNonInherited,
+      RoboCssPropertyComputationTextDecorationStyle, "solid",    0 },
+    { "text-decoration-thickness", RoboCssPropertyInheritanceNonInherited,
+      RoboCssPropertyComputationPreserve,          "auto",       0 },
+    { "text-overflow",         RoboCssPropertyInheritanceNonInherited,
+      RoboCssPropertyComputationPreserve,          "clip",       0 },
     { "top",           RoboCssPropertyInheritanceNonInherited,
       RoboCssPropertyComputationEdgeOffset, "auto",      0 },
     { "width",         RoboCssPropertyInheritanceNonInherited,

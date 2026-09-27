@@ -266,8 +266,8 @@ static void TestLogicalCapabilities(void)
     RoboCheckEqInt(caps.defaultStyles, 0);
     RoboCheckEqInt(caps.stylesheetLoading, 0);
 
-    RoboCheckEqInt(RoboCssVersionMinor, 32);
-    RoboCheckStrEq(CssVersionString(), "0.32.0");
+    RoboCheckEqInt(RoboCssVersionMinor, 33);
+    RoboCheckStrEq(CssVersionString(), "0.33.0");
     RoboCheckStrEq(CssDiagnosticDomainName(RoboCssDomainLogical), "logical");
     RoboCheckEqInt(CssDiagnosticDomainIsKnown(RoboCssDomainLogical), 1);
 }

@@ -601,11 +601,96 @@ typedef enum CssPropertyComputation {
      * property moves the glyphs a font supplies for it, while `vertical-align` moves
      * the box, and the latter belongs to 18.15.
      */
-    RoboCssPropertyComputationFontVariantPosition = 58
+    RoboCssPropertyComputationFontVariantPosition = 58,
+    /**
+     * One of the closed `text-align` vocabulary (18.15) — `start`, `end`, `left`,
+     * `right`, `center`, `justify` or `match-parent`.
+     *
+     * A shape of its own rather than a KEYWORD, and `text-align` had the KEYWORD shape
+     * since 9.7, so this is the third **upgrade in place** in two phases — the same
+     * move 18.13 made for `direction` and 18.14 for `font-style`. The row, its
+     * inheritance and its `start` initial value are unchanged and only the reading of
+     * the value becomes closed. What the closed set records is that the property's
+     * values are **two kinds of statement**: `start` and `end` are relative to the
+     * inline direction and `left` and `right` are physical, while `center` is neither
+     * — a distinction a keyword shape cannot carry and every consumer needs.
+     */
+    RoboCssPropertyComputationTextAlign = 59,
+    /**
+     * One of the closed `text-align-last` vocabulary (18.15) — `text-align`'s six
+     * values plus `auto`, which means "whatever `text-align` resolves to".
+     */
+    RoboCssPropertyComputationTextAlignLast = 60,
+    /**
+     * One of the closed `text-justify` vocabulary (18.15) — `auto`, `inter-word`,
+     * `inter-character` or `none`.
+     *
+     * `none` is the row worth reading: it does not name a method of justifying, it
+     * switches the justification the alignment asked for *off*, which is why the
+     * classification is "justifies" rather than "is a method".
+     */
+    RoboCssPropertyComputationTextJustify = 61,
+    /**
+     * One of the closed `text-transform` vocabulary (18.15) — six values in three
+     * groups: a case change, a *width* change and a *reading* change.
+     *
+     * The second upgrade in place this phase. `capitalize` is why the groups matter:
+     * it cases the first letter of each word, so "changes the case" is true of it
+     * while "transforms the string" is not.
+     */
+    RoboCssPropertyComputationTextTransform = 62,
+    /**
+     * One of the closed `white-space` vocabulary (18.15) — six values over four
+     * independent questions.
+     *
+     * The third upgrade in place, and the family's central table: `normal` and
+     * `pre-line` differ only in whether a newline survives, and `pre-wrap` and
+     * `break-spaces` agree on collapses/preserves/wraps and differ only in whether a
+     * *preserved* space may be broken after. A build that stored the keyword and
+     * tested it would have to know both of those facts at every call site.
+     */
+    RoboCssPropertyComputationWhiteSpace = 63,
+    /**
+     * One of the closed `word-break` vocabulary (18.15) — `normal`, `break-all`,
+     * `keep-all` or `break-word`.
+     */
+    RoboCssPropertyComputationWordBreak = 64,
+    /**
+     * One of the closed `overflow-wrap` vocabulary (18.15) — `normal`,
+     * `break-word` or `anywhere`.
+     *
+     * `break-word` and `anywhere` break identically and differ only in whether the
+     * break opportunities count towards the element's *intrinsic* size, so the value
+     * carries two classifications and a consumer reads the second one.
+     */
+    RoboCssPropertyComputationOverflowWrap = 65,
+    /**
+     * One of the closed `line-break` vocabulary (18.15) — a three-step strictness
+     * ladder (`loose`, `normal`, `strict`) with `auto` beside it and `anywhere`
+     * switching the script's rules off.
+     */
+    RoboCssPropertyComputationLineBreak = 66,
+    /**
+     * One of the closed `hyphens` vocabulary (18.15) — `none`, `manual` or `auto`.
+     *
+     * `manual` is the row that makes the two classifications worthwhile: it *enables*
+     * hyphenation while *inserting* nothing, so a value can be permissive without
+     * being generative.
+     */
+    RoboCssPropertyComputationHyphens = 67,
+    /**
+     * One of the closed `text-decoration-style` vocabulary (18.15) — `solid`,
+     * `double`, `dotted`, `dashed` or `wavy`.
+     *
+     * What a renderer needs is how the ink is laid down — one stroke, two strokes, a
+     * stroke with gaps, or a stroke that is not straight — and the row is the only
+     * place that knows. `double` is why "segmented" is separate from "not solid".
+     */
+    RoboCssPropertyComputationTextDecorationStyle = 68
 } CssPropertyComputation;
 
 /** Number of defined computations. */
-#define RoboCssPropertyComputationCount 59u
+#define RoboCssPropertyComputationCount 69u
 
 /** Non-zero when @p computation is a defined enumerator. */
 int CssPropertyComputationIsKnown(CssPropertyComputation computation);

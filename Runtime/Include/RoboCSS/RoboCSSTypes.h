@@ -416,11 +416,14 @@ typedef enum CssDiagnosticDomain {
     RoboCssDomainLogical = 32,
     /** The font vocabulary: the family, the size/stretch/kerning sets and the
      * `@font-face` descriptors (18.14). */
-    RoboCssDomainFont = 33
+    RoboCssDomainFont = 33,
+    /** The text vocabulary: alignment, transformation, white space, the
+     * line-breaking controls and the decoration/overflow sets (18.15). */
+    RoboCssDomainText = 34
 } CssDiagnosticDomain;
 
 /** Number of defined diagnostic domains. */
-#define RoboCssDomainCount 34u
+#define RoboCssDomainCount 35u
 
 /** Non-zero if @p domain is a defined diagnostic domain enumerator. */
 int CssDiagnosticDomainIsKnown(CssDiagnosticDomain domain);

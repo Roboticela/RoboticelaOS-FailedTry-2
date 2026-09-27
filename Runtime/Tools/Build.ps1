@@ -477,6 +477,14 @@ $ProdSrcs = @(
     # font-variant-numeric and -east-asian), and the descriptor vocabulary with
     # font-display. It opens no font and shapes no text.
     (Join-Path $SourceDir "RoboCSS\RoboCSSFont.c"),
+    # The text vocabulary (18.15): fourteen closed sets over the text family -- the
+    # typed shapes (text-align, text-align-last, text-justify, text-transform,
+    # white-space, word-break, overflow-wrap, line-break, hyphens and
+    # text-decoration-style) and the classified values inside carried declarations
+    # (text-decoration-line, text-overflow, text-decoration-thickness,
+    # text-underline-position). It wraps no line, finds no hyphenation point and
+    # changes no case.
+    (Join-Path $SourceDir "RoboCSS\RoboCSSText.c"),
     (Join-Path $SourceDir "RoboLayout\RoboLayout.c"),
     (Join-Path $SourceDir "RoboLayout\RoboLayoutTypes.c"),
     (Join-Path $SourceDir "RoboLayout\RoboLayoutDiagnostics.c"),
@@ -986,6 +994,9 @@ $SuiteSrcs = @(
     # The font suite (18.14): the twelve vocabularies, their classifications, the
     # inherited rows, the @font-face descriptors and the carried half of the family.
     (Join-Path $TestsRoot "Css\SuiteRoboCssFont.c"),
+    # The text suite (18.15): the fourteen vocabularies, their classifications, the
+    # inherited and non-inherited rows and the carried half of the family.
+    (Join-Path $TestsRoot "Css\SuiteRoboCssText.c"),
     # The selector/DOM integration suite deliberately lives outside css/: it
     # includes both RoboCSS and RoboHTML, and the two are peers whose guards
     # forbid each other's headers. A suite that must see both belongs in neither.

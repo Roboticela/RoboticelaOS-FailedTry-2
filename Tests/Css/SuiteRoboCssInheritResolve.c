@@ -25,7 +25,7 @@
  * the day a property is added — which is exactly the noise a count assertion
  * exists to avoid.
  */
-#define CSS_INHERITED_FAMILY 40u
+#define CSS_INHERITED_FAMILY 54u
 
 /** Collect @p ref's cascade and resolve it with @p parent (may be NULL). */
 static void CssLevelOf(CssInheritFixture *fixture,

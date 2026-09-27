@@ -484,6 +484,25 @@ typedef struct CssCapabilities {
      * layer that has one.
      */
     int fonts;
+    /**
+     * The text family (18.15): the fourteen closed sets that describe a *rule* a text
+     * pass follows — `text-align`, `text-align-last`, `text-justify`, `text-transform`,
+     * `white-space`, `word-break`, `overflow-wrap`, `line-break`, `hyphens` and
+     * `text-decoration-style` as typed shapes, and `text-decoration-line`,
+     * `text-overflow`, `text-decoration-thickness`, `text-decoration-color` and
+     * `text-underline-position` as classified values inside deliberately carried
+     * declarations.
+     *
+     * What it does not claim is a line breaker, a justifier, a hyphenator or a text
+     * transformer: nothing here wraps a line, distributes slack, finds a hyphenation
+     * point or changes a character's case, and no function takes or returns a line, a
+     * glyph id or a rectangle — `text-orientation` and `direction` belong to 18.13, and
+     * where a line breaks and
+     * which glyphs land on it belong to the phase that has a text engine (12.x). A
+     * value in this family says what rule the text pass follows; walking it is the
+     * layer that has a shaped line.
+     */
+    int text;
 } CssCapabilities;
 
 /** Zero every flag. Safe on NULL. */

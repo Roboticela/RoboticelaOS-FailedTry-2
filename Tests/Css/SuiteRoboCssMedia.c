@@ -326,8 +326,8 @@ static void TestMediaCapabilities(void)
     RoboCheckEqInt(caps.defaultStyles, 0);
     RoboCheckEqInt(caps.stylesheetLoading, 0);
 
-    RoboCheckEqInt(RoboCssVersionMinor, 32);
-    RoboCheckStrEq(CssVersionString(), "0.32.0");
+    RoboCheckEqInt(RoboCssVersionMinor, 33);
+    RoboCheckStrEq(CssVersionString(), "0.33.0");
     RoboCheckStrEq(CssDiagnosticDomainName(RoboCssDomainMedia), "media");
     RoboCheckEqInt(CssDiagnosticDomainIsKnown(RoboCssDomainMedia), 1);
     RoboCheckStrEq(CssMediaMatchName(RoboCssMediaMatchUnknown), "unknown");
@@ -342,7 +342,7 @@ static void TestMediaCapabilities(void)
 
         RoboCheckEqInt(CssPropertyRegistryCreateStandard(&registry, NULL),
                        RoboOk);
-        RoboCheckEqInt((int)CssPropertyRegistryCount(registry), 180);
+        RoboCheckEqInt((int)CssPropertyRegistryCount(registry), 200);
         CssPropertyRegistryDestroy(registry);
     }
 }

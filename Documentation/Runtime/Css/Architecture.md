@@ -821,6 +821,77 @@ over its seven longhands, nor the `@font-face` prelude grammar, nor
 (`fonts`), one diagnostic domain (`RoboCssDomainFont`), six computations join the
 closed-vocabulary body, and the module moves to `0.32.0`.
 
+### The text family (18.15)
+
+The text family (`RoboCSSText.h`) is the family whose central fact is that **six
+words hide four independent questions**. `white-space` is spelled
+`normal | pre | nowrap | pre-wrap | pre-line | break-spaces`, and what those six
+actually say is whether runs of spaces collapse, whether newlines are preserved,
+whether a line wraps at all, and whether a *preserved* space may be broken after:
+
+```text
+                     collapses  preserves  wraps  breaks after a preserved space
+normal                  yes        no        yes    no
+pre                     no         yes       no     no
+nowrap                  yes        no        no     no
+pre-wrap                no         yes       yes    no
+pre-line                yes        yes       yes    no
+break-spaces            no         yes       yes    yes
+```
+
+Two pairs in that table are why the row carries four columns rather than one flag.
+`normal` and `pre-line` agree on the first and third and differ only on whether a
+newline survives, so "which one is this" is not a question about collapsing or
+wrapping; `pre-wrap` and `break-spaces` agree on all three of the first columns and
+differ only on the fourth, which CSS Text 4 added `break-spaces` for. A build that
+stored the keyword and tested it would have to know both of those facts at every
+call site.
+
+The phase's second decision is that a classification is **never the negation of
+another**. `text-align`'s values are two kinds of statement — `start`/`end` are
+relative to the inline direction and `left`/`right` are physical, while `center` is
+neither — so `IsLogical` and `IsPhysical` are both false for it, and a consumer
+that read "not logical" as "physical" would map a `center` through a direction it
+has nothing to do with. The same shape recurs in `text-decoration-style`, where
+`double` is not "not solid" (it is two unbroken strokes, not a stroke with gaps),
+and in `text-decoration-line`, where `blink` draws no ink of its own.
+
+Twenty rows split by **grammar**: ten take a typed shape (`text-align`,
+`text-align-last`, `text-justify`, `text-transform`, `white-space`, `word-break`,
+`overflow-wrap`, `line-break`, `hyphens`, `text-decoration-style`), and ten are
+carried declarations whose closed sets live in the header for a consumer to read —
+`text-decoration-line` is a *set*, `text-overflow` may be a `<string>`,
+`text-decoration-thickness` may be a length, `text-underline-position` is a set of
+two different questions, and the `text-emphasis-*` marks have no renderer in this
+build to draw them. That is 18.7's and 18.14's split made once more.
+
+Three rows are **upgraded in place** — `text-align`, `text-transform` and
+`white-space` move off the bare KEYWORD shape they had since 9.7, so
+`white-space: banana` stops being a keyword carrying the letters while their
+inheritance and initials are unchanged — and `text-indent` deliberately does not
+move: its `hanging`/`each-line` keywords are named as not read rather than silently
+dropped, and the property keeps the shared length shape it has had since 9.11.
+
+Fourteen of the twenty rows are inherited and six are not, and the split is the
+family's central fact stated as a count. An alignment, a transformation, a
+white-space rule, a line-breaking control, a shadow and an emphasis mark describe
+how the **text** is set, so a child inherits them; a decoration is painted per
+element — a child of an underlined link is not underlined — so the four
+`text-decoration-*` rows and `text-overflow` describe the box that draws or clips
+the text and do not propagate. `text-emphasis-color` is the family's one inherited
+*reference* initial (`currentcolor`), which means its default entry resolves only
+where the element's own `color` is known — a fact about the cascade that shows up
+as one more incomplete entry on an element whose `color` is itself invalid.
+
+What the phase does not claim is a line breaker, a justifier, a hyphenator or a
+text transformer: nothing here wraps a line, distributes slack, finds a hyphenation
+point or changes a character's case, and `direction`, `writing-mode` and
+`text-orientation` are 18.13's. A value in this family says what rule a text pass
+follows; where the line breaks belongs to the phase that has a text engine (12.x).
+One capability joins the table (`text`), one diagnostic domain
+(`RoboCssDomainText`), ten computations join the closed-vocabulary body, and the
+module moves to `0.33.0`.
+
 ### Colour
 
 A *colour* is the one shape whose meaning is arithmetic, so since 9.9 it is a type
@@ -1305,7 +1376,18 @@ and `font-variant-position`) with `font-style` upgraded in place, and the rest
 carried with their inner sets typed (`font-stretch`'s keywords-and-percentages,
 `font-size`'s size keywords, `font-variant-numeric`'s and `-east-asian`'s axes) —
 plus the `@font-face` descriptor vocabulary, where the same spelling means a
-different thing and `font-display` is not a property at all.
+different thing and `font-display` is not a property at all. The fifteenth is the
+text family (18.15, §5 and `docs/Text.md`): twenty rows whose central fact is that
+`white-space`'s six words hide four independent questions (collapse spaces,
+preserve newlines, wrap, break after a preserved space) — ten closed vocabularies
+(`text-align`, `text-align-last`, `text-justify`, `text-transform`, `white-space`,
+`word-break`, `overflow-wrap`, `line-break`, `hyphens`, `text-decoration-style`)
+with `text-align`, `text-transform` and `white-space` upgraded in place, and the
+rest carried with their inner sets typed (`text-decoration-line`'s set,
+`text-overflow`'s string, `text-decoration-thickness`'s length,
+`text-underline-position`'s two questions) — and a split in which the decoration's
+five rows and `text-overflow` alone do not inherit, because they describe the box
+that draws or clips the text.
 
 Conformance (9.16) is behind us and it is the one phase that is *not* a subject: it
 adds no production code at all, which is why it is the only entry in this list that
