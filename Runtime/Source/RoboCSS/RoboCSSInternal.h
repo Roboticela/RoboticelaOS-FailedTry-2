@@ -204,6 +204,26 @@ const CssValue *CssValueSingle(const CssValue *value);
 int CssValueFunctionNamed(const CssValue *value, const char *name);
 
 /**
+ * How many *significant* components @p value holds, counting a bare token as one.
+ *
+ * The two shapes a declaration's value has, answered as one: a parsed value is a
+ * LIST (whose interior trivia is not a component) and a hand-built one may be a
+ * bare token, and a reader that walks components wants a count rather than a
+ * branch. 0 for a value that is nothing but trivia, and for NULL.
+ */
+size_t CssValueSignificantCount(const CssValue *value);
+
+/**
+ * The @p wanted'th significant component of @p value, or NULL when there are not
+ * that many.
+ *
+ * The indexed form the component walkers want -- a shorthand's sides, a grid
+ * track's `minmax()` halves -- so that "skip the trivia" is written once instead
+ * of once per reader.
+ */
+const CssValue *CssValueSignificantAt(const CssValue *value, size_t wanted);
+
+/**
  * A token's decoded text, lowercased, NUL-terminated in @p buffer.
  *
  * CSS keywords are ASCII case-insensitive and the canonical spelling is
@@ -247,6 +267,21 @@ double CssNumberClamp(double value, double low, double high);
 
 /** @p value rounded to the nearest integer, away from zero on a half. */
 int CssNumberRound(double value);
+
+/**
+ * @p value rendered canonically into @p out, NUL-terminated (19.4).
+ *
+ * The one formatter for a bare `double` as CSS text: `10` for a whole value,
+ * `1.5` for a fraction with no trailing zeroes, `0` for negative zero, and a
+ * compact exponent form for a value smaller than the fixed-point precision but
+ * not zero. `CssNumericWrite` builds every number this build writes on it, and
+ * 19.4's grid track writer uses it for a `<flex>`, whose `fr` unit is not in the
+ * unit table and therefore has no `CssNumeric` to go through.
+ *
+ * @return 1 on success; 0 when the text does not fit @p capacity, in which case
+ *         @p out is untouched.
+ */
+int CssMagnitudeRender(double value, char *out, size_t capacity);
 
 /* ------------------------------------------------------------------ */
 /* Module slot table                                                   */

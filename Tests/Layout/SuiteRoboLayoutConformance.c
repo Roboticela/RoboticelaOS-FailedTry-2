@@ -1146,7 +1146,7 @@ static void TestConformanceStatement(void)
     /* And the vocabulary 10.2 added instead: four kinds of context plus the
      * absence, of which ROOT is one and only one per tree, and 19.3's FLEX is the
      * third laying-out kind. */
-    RoboCheckEqInt((int)RoboLayoutFcKindCount, 5);
+    RoboCheckEqInt((int)RoboLayoutFcKindCount, 6);
     RoboCheckEqInt(LayoutFcKindIsBlockContainer(RoboLayoutFcRoot), 1);
     RoboCheckEqInt(LayoutFcKindIsBlockContainer(RoboLayoutFcInline), 0);
     RoboCheckEqInt(LayoutFcKindIsBlockContainer(RoboLayoutFcFlex), 0);

@@ -126,19 +126,22 @@ static void TestFcKinds(void)
 
     LayoutFixture();
 
-    RoboCheckEqInt((int)RoboLayoutFcKindCount, 5);
+    RoboCheckEqInt((int)RoboLayoutFcKindCount, 6);
     RoboCheckEqInt((int)RoboLayoutFcNone, 0);
     RoboCheckEqInt((int)RoboLayoutFcRoot, 1);
     RoboCheckEqInt((int)RoboLayoutFcBlock, 2);
     RoboCheckEqInt((int)RoboLayoutFcInline, 3);
     RoboCheckEqInt((int)RoboLayoutFcFlex, 4);
+    RoboCheckEqInt((int)RoboLayoutFcGrid, 5);
 
     RoboCheckEqInt(LayoutFcKindIsKnown(RoboLayoutFcNone), 1);
     RoboCheckEqInt(LayoutFcKindIsKnown(RoboLayoutFcRoot), 1);
     RoboCheckEqInt(LayoutFcKindIsKnown(RoboLayoutFcBlock), 1);
     RoboCheckEqInt(LayoutFcKindIsKnown(RoboLayoutFcInline), 1);
     RoboCheckEqInt(LayoutFcKindIsKnown(RoboLayoutFcFlex), 1);
-    RoboCheckEqInt(LayoutFcKindIsKnown((LayoutFcKind)5), 0);
+    RoboCheckEqInt(LayoutFcKindIsKnown(RoboLayoutFcGrid), 1);
+    RoboCheckEqInt(LayoutFcKindIsKnown((LayoutFcKind)5), 1);
+    RoboCheckEqInt(LayoutFcKindIsKnown((LayoutFcKind)6), 0);
     RoboCheckEqInt(LayoutFcKindIsKnown((LayoutFcKind)99), 0);
 
     /* Walked in enumerator order: a row whose table entry had drifted would still
@@ -166,6 +169,7 @@ static void TestFcKinds(void)
     RoboCheckStrEq(LayoutFcKindName(RoboLayoutFcBlock), "block");
     RoboCheckStrEq(LayoutFcKindName(RoboLayoutFcInline), "inline");
     RoboCheckStrEq(LayoutFcKindName(RoboLayoutFcFlex), "flex");
+    RoboCheckStrEq(LayoutFcKindName(RoboLayoutFcGrid), "grid");
     RoboCheckStrEq(LayoutFcKindName((LayoutFcKind)40), "unknown");
     RoboCheck(LayoutFcKindName((LayoutFcKind)40) != NULL);
 
@@ -179,6 +183,8 @@ static void TestFcKinds(void)
     /* A flex context is not a block container: its participants are flex items, and a
      * block pass that treated it as one would stack them (19.3). */
     RoboCheckEqInt(LayoutFcKindIsBlockContainer(RoboLayoutFcFlex), 0);
+    /* And neither is a grid context, for the same reason one axis later (19.4). */
+    RoboCheckEqInt(LayoutFcKindIsBlockContainer(RoboLayoutFcGrid), 0);
     RoboCheckEqInt(LayoutFcKindIsBlockContainer(RoboLayoutFcNone), 0);
     RoboCheckEqInt(LayoutFcKindIsBlockContainer((LayoutFcKind)70), 0);
 }
@@ -259,7 +265,7 @@ static void TestFcClassifyEstablishes(void)
     for (index = 0u; index < sizeof(table) / sizeof(table[0]); index++) {
         LayoutFcKind actual = LayoutFcEstablishes(
             table[index].display, table[index].hasBlockLevelChild, table[index].isRoot,
-            table[index].isOutOfFlow, /* isFlexItem */ 0);
+            table[index].isOutOfFlow, /* isFlexItem */ 0, /* isGridItem */ 0);
 
         RoboCheckMsg(actual == table[index].expected, table[index].why);
     }
@@ -288,7 +294,11 @@ static void TestFcClassifyDisplay(void)
         /* A flex container can establish (a flex context) and is not a block
          * container; `inline-flex` likewise (19.3). */
         { RoboCssDisplayFlex, 1, 0 },
-        { RoboCssDisplayInlineFlex, 1, 0 }
+        { RoboCssDisplayInlineFlex, 1, 0 },
+        /* And the grid pair repeats it once more (19.4): both can establish (a grid
+         * context) and neither is a block container. */
+        { RoboCssDisplayGrid, 1, 0 },
+        { RoboCssDisplayInlineGrid, 1, 0 }
     };
     size_t index;
 
@@ -311,14 +321,16 @@ static void TestFcClassifyDisplay(void)
         CssDisplay display = (CssDisplay)index;
 
         if (LayoutFcDisplayCanEstablish(display)) {
-            RoboCheckEqInt(LayoutFcEstablishes(display, 0, 0, 0, 0) !=
+            RoboCheckEqInt(LayoutFcEstablishes(display, 0, 0, 0, 0, 0) !=
                                   RoboLayoutFcNone,
                               1);
         }
         if (!CssDisplayGeneratesBox(display)) {
             RoboCheckEqInt(LayoutFcDisplayCanEstablish(display), 0);
-            RoboCheckEqInt(LayoutFcEstablishes(display, 0, 0, 0, 0), RoboLayoutFcNone);
-            RoboCheckEqInt(LayoutFcEstablishes(display, 0, 1, 0, 0), RoboLayoutFcNone);
+            RoboCheckEqInt(LayoutFcEstablishes(display, 0, 0, 0, 0, 0),
+                           (int)RoboLayoutFcNone);
+            RoboCheckEqInt(LayoutFcEstablishes(display, 0, 1, 0, 0, 0),
+                           (int)RoboLayoutFcNone);
         }
     }
 }
@@ -1146,6 +1158,67 @@ static void TestFcValidation(void)
 /* The allocator returns to its baseline                               */
 /* ------------------------------------------------------------------ */
 
+/**
+ * The two "is an item" flags, and why they are two.
+ *
+ * A flex item and a grid item answer the same question -- "my block-level child
+ * must not reach the context I participate in" -- and they answer it with two
+ * different arguments, because the caller has to know *which* context it is looking
+ * at to make the claim at all. The row that matters is the one where transparency
+ * would otherwise apply: a block container with a block-level child inside a flex
+ * or grid container (19.3, 19.4).
+ *
+ * The flags are asserted independently, and the pair of crossed rows is the reason: a
+ * build that read either one as "is an item of something" would answer BLOCK for a
+ * grid item's child that reached a flex context, and the block pass would then report
+ * a block-level box participating in a context that is not a block formatting one.
+ */
+static void TestFcClassifyItems(void)
+{
+    LayoutFixture();
+
+    struct {
+        int hasBlockLevelChild;
+        int isFlexItem;
+        int isGridItem;
+        LayoutFcKind expected;
+        const char *why;
+    } table[] = {
+        /* A grid item's block-level child: BLOCK, not transparent (19.4). */
+        { 1, 0, 1, RoboLayoutFcBlock, "grid item, block child" },
+        /* A flex item's, for the same reason (19.3). */
+        { 1, 1, 0, RoboLayoutFcBlock, "flex item, block child" },
+        /* Both flags set is the same answer rather than a contradiction: the two are
+         * separate facts about one box and either one is enough. */
+        { 1, 1, 1, RoboLayoutFcBlock, "both, block child" },
+        /* Neither: transparency, which is what a plain block container with a
+         * block-level child is. */
+        { 1, 0, 0, RoboLayoutFcNone, "neither, block child" },
+        /* And an item with *inline* content still establishes an inline context: the
+         * flags only change the answer where transparency would have applied. */
+        { 0, 0, 1, RoboLayoutFcInline, "grid item, inline content" },
+        { 0, 1, 0, RoboLayoutFcInline, "flex item, inline content" }
+    };
+    size_t index;
+
+    for (index = 0u; index < sizeof(table) / sizeof(table[0]); index++) {
+        LayoutFcKind actual = LayoutFcEstablishes(
+            RoboCssDisplayBlock, table[index].hasBlockLevelChild,
+            /* isRoot */ 0, /* isOutOfFlow */ 0, table[index].isFlexItem,
+            table[index].isGridItem);
+
+        RoboCheckMsg(actual == table[index].expected, table[index].why);
+    }
+
+    /* The inline-box rows use the inline display rather than the block one. */
+    RoboCheckEqInt(LayoutFcEstablishes(RoboCssDisplayInline, 0, 0, 0, 0, 1),
+                   (int)RoboLayoutFcNone);
+}
+
+/* ------------------------------------------------------------------ */
+/* The allocator returns to its baseline                               */
+/* ------------------------------------------------------------------ */
+
 static void TestFcAllocatorBalance(void)
 {
     size_t before;
@@ -1185,6 +1258,7 @@ void TestRegisterLayoutFormattingContext(void)
     TestRegister("layout.fc.kinds", TestFcKinds);
     TestRegister("layout.fc.classify.establishes", TestFcClassifyEstablishes);
     TestRegister("layout.fc.classify.display", TestFcClassifyDisplay);
+    TestRegister("layout.fc.classify.items", TestFcClassifyItems);
     TestRegister("layout.fc.record", TestFcRecord);
     TestRegister("layout.fc.tree.root", TestFcTreeRoot);
     TestRegister("layout.fc.tree.transparent", TestFcTreeTransparent);

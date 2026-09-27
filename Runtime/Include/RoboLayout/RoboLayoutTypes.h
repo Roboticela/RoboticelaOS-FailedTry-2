@@ -137,11 +137,13 @@ typedef enum LayoutDiagnosticDomain {
     /** Intrinsic sizing: min-content, max-content, fit-content and the measurement (19.1). */
     RoboLayoutDomainIntrinsic = 23,
     /** Flex layout: the container, the items, the lines, the two axes (19.3). */
-    RoboLayoutDomainFlex = 24
+    RoboLayoutDomainFlex = 24,
+    /** Grid layout: the tracks, the areas, the placement, the two axes (19.4). */
+    RoboLayoutDomainGrid = 25
 } LayoutDiagnosticDomain;
 
 /** Number of defined diagnostic domains. */
-#define RoboLayoutDomainCount 25u
+#define RoboLayoutDomainCount 26u
 
 /** Non-zero if @p domain is a defined diagnostic domain enumerator. */
 int LayoutDiagnosticDomainIsKnown(LayoutDiagnosticDomain domain);

@@ -1,5 +1,6 @@
 #include "service.h"
 #include "config.h"
+#include <robosys/display.h>
 #include <robosys/syscall.h>
 
 #define RoboSvcMax 12
@@ -92,6 +93,8 @@ int ServiceStart(RoboService *svc)
     svc->state = RoboSvcStarting;
     svc->ready = 0;
     svc->pid = 0;
+    if (NameIs(svc->cfg->name, "robo-runtime"))
+        (void)Display((int)RoboDispBootProgress, 0, 0, 0, 9420);
     if (gSelftest) {
         char *av[3];
         av[0] = (char *)svc->cfg->path;

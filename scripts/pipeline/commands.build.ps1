@@ -291,7 +291,7 @@ function Invoke-RoboBuildAll {
         } catch {
             Write-Host ("FAILED {0}: {1}" -f $stage.Id, $_.Exception.Message)
             Save-RoboBuildAllState -RepoRoot $repo -Configuration $configuration -Completed @($completed)
-            Write-Host ("RESUME state saved through {0} ({1}/{2}). Fix and re-run — objects already built stay cached." -f `
+            Write-Host ("RESUME state saved through {0} ({1}/{2}). Fix and re-run - objects already built stay cached." -f `
                 $(if ($completed.Count -gt 0) { $completed[-1] } else { "(none)" }), $completed.Count, $total)
             throw
         }

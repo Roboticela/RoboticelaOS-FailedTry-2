@@ -5,14 +5,14 @@
  *
  *   row        one value, its keyword, its outer display and its inner display
  *
- * Six rows today: the four 9.12 shipped plus `flex` and `inline-flex` (19.3). The
- * flex pair is exactly the extension the table was shaped for -- `flex` is an outer
- * of BLOCK with an inner of FLEX, `inline-flex` an outer of INLINE with the same
- * inner -- and no function below changed to add them. A later `contents` is a row
- * with an outer of NONE that is *not* the value `none`. Adding a row requires
- * touching no function below, which is the entire justification for the table:
- * every question in this module used to be a place a spelling could be compared
- * wrongly, and there is now exactly one place a spelling appears.
+ * Eight rows today: the four 9.12 shipped, the flex pair (19.3) and the grid pair
+ * (19.4). Each pair is exactly the extension the table was shaped for -- a
+ * block-level value and an atomic inline one sharing one inner -- and no function
+ * below changed to add either. A later `contents` is a row with an outer of NONE
+ * that is *not* the value `none`. Adding a row requires touching no function below,
+ * which is the entire justification for the table: every question in this module
+ * used to be a place a spelling could be compared wrongly, and there is now exactly
+ * one place a spelling appears.
  *
  * The keywords are lowercase and hyphenated because that is how CSS writes them
  * and how `CssDisplayWrite` must print them; matching is ASCII
@@ -54,7 +54,18 @@ static const DisplayRow displayVocabulary[] = {
     { RoboCssDisplayFlex,        "flex",         RoboCssDisplayOuterBlock,
       RoboCssDisplayInnerFlex },
     { RoboCssDisplayInlineFlex,  "inline-flex",  RoboCssDisplayOuterInline,
-      RoboCssDisplayInnerFlex }
+      RoboCssDisplayInnerFlex },
+    /*
+     * Phase 19.4 adds the grid pair, and it is the same two rows again rather than
+     * the same *row* twice: `display: grid` is block-level with a grid inner and
+     * `display: inline-grid` is its atomic inline sibling, exactly as the flex pair
+     * is. The four functions below answer for both without naming either, which is
+     * the whole claim the table was built to make.
+     */
+    { RoboCssDisplayGrid,        "grid",         RoboCssDisplayOuterBlock,
+      RoboCssDisplayInnerGrid },
+    { RoboCssDisplayInlineGrid,  "inline-grid",  RoboCssDisplayOuterInline,
+      RoboCssDisplayInnerGrid }
 };
 
 #define DISPLAY_VOCABULARY_COUNT \
@@ -246,6 +257,8 @@ const char *CssDisplayInnerName(CssDisplayInner inner)
         return "flow-root";
     case RoboCssDisplayInnerFlex:
         return "flex";
+    case RoboCssDisplayInnerGrid:
+        return "grid";
     default:
         return "unknown";
     }

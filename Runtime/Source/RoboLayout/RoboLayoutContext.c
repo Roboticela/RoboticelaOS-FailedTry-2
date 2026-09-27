@@ -169,19 +169,24 @@ static Result LayoutClassifyObject(LayoutTree *tree,
         {
             /* Phase 14.0: whether this box is out of flow is a fact about its *position*, read here
              * once rather than inside the classifier, which is a pure function of the facts it
-             * is handed (`RoboLayoutFormattingContext.h`). Phase 19.3: whether it is a flex item
-             * is a fact about the context it just joined, which is why it is read here too. */
+             * is handed (`RoboLayoutFormattingContext.h`). Phases 19.3 and 19.4: whether it is a
+             * flex item or a grid item is a fact about the context it just joined, which is why it
+             * is read here too -- and the two are read as two facts rather than one "is an item"
+             * flag because the *kind* of the context it joined is what the answer is a function of. */
             LayoutPosition declaredPosition = LayoutPositionOf(object->style);
             LayoutFormattingContext participating;
             int isFlexItem = 0;
+            int isGridItem = 0;
 
             if (LayoutTreeContext(tree, object->context, &participating, NULL) ==
                     RoboOk) {
                 isFlexItem = participating.kind == RoboLayoutFcFlex;
+                isGridItem = participating.kind == RoboLayoutFcGrid;
             }
             kind = LayoutFcEstablishes(
                 object->display, LayoutObjectHasBlockLevelChild(tree, object), 0,
-                LayoutAbsoluteIsOutOfFlow(&declaredPosition), isFlexItem);
+                LayoutAbsoluteIsOutOfFlow(&declaredPosition), isFlexItem,
+                isGridItem);
         }
         if (kind != RoboLayoutFcNone) {
             /* The new context's parent is the one the *owner* participates in, so

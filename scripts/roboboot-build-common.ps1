@@ -1021,7 +1021,7 @@ function Invoke-RoboBuildUserland {
     Add-Pack "/bin/thread-test" $elfs["thread-test"]
     Add-Pack "/bin/file-test" $elfs["file-test"]
     Add-Pack "/bin/network-test" $elfs["network-test"]
-    Add-Pack "/bin/robo-runtime" $elfs["robo-runtime"]
+    # Single install path — Exec loads via initrd FsOpen; a second 7.5 MB copy only slowed VFS import.
     Add-Pack "/System/runtime/robo-runtime" $elfs["robo-runtime"]
     # The system typeface pack (Phase 12.2). The guest discovers `/System/Fonts/` through its manifest
     # and draws the shell's labels with the face it resolves; without the face the desktop still paints,

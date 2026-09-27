@@ -415,6 +415,31 @@ typedef struct LayoutCapabilities {
      * `RoboLayoutFlexLayoutImplemented`.
      */
     int flexLayout;
+    /**
+     * Laying a **grid** formatting context out (19.4).
+     *
+     * **1** since 19.4. A box whose inner display is `grid` (`display: grid` or
+     * `display: inline-grid`) places its in-flow children as grid items into tracks
+     * on two axes: the explicit tracks from `grid-template-columns`/`-rows` (a
+     * breadth, `minmax()`, `repeat()` and `fr`, read by RoboCSS's own reader),
+     * implicit tracks sized by `grid-auto-columns`/`-rows` where a placement needs
+     * one, each item placed by its four line longhands or by the auto-placement
+     * algorithm (`grid-auto-flow`, `dense` included), spans distributed across the
+     * intrinsic tracks they cover, the `row-gap`/`column-gap` gutters between them,
+     * `justify-content`/`align-content` distributing the tracks of a definite
+     * container, `align-items`/`align-self` aligning an item in the block axis of
+     * its area (with `stretch` growing an `auto` height and `baseline` lining a
+     * row's first baselines up), an `auto` inline size stretching across the area,
+     * an `auto` margin absorbing the free space in its own axis, and `direction: rtl`
+     * reversing the column order.
+     *
+     * **Not** "grid is finished": no `justify-items`/`justify-self` (18.4's
+     * deferral, so inline alignment is always the initial behaviour), no named
+     * lines, no `grid-template-areas`, no `subgrid`, no `repeat(auto-fill)`/
+     * `repeat(auto-fit)`, no shorthand expansion, no masonry, no replaced elements
+     * and no vertical writing mode. See `RoboLayoutGridLayoutImplemented`.
+     */
+    int gridLayout;
     /** Painting a box. **0**: Phase 11. */
     int painting;
 } LayoutCapabilities;

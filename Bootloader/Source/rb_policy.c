@@ -3,10 +3,13 @@
 float SplashVisual(float realProgress, uint64_t elapsedMs, int minMs)
 {
     float cap;
+    float t;
     realProgress = Clampf(realProgress, 0.f, 1.f);
     if (minMs <= 0) return realProgress;
-    cap = (float)elapsedMs / (float)minMs;
-    if (cap > 1.f) cap = 1.f;
+    t = (float)elapsedMs / (float)minMs;
+    if (t > 1.f) t = 1.f;
+    /* Ease-out so the bar fills smoothly instead of racing linearly then stalling. */
+    cap = 1.f - (1.f - t) * (1.f - t);
     return realProgress < cap ? realProgress : cap;
 }
 

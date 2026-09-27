@@ -15,7 +15,7 @@
 #define RbMaxEnv 64
 #define RbMaxLine 1024
 #define RbEnvBlock 4096
-#define RbSplashMinMs 2000
+#define RbSplashMinMs 800
 #define RbSplashHandoff 0.40f
 #define RbBootlogCols 1024
 

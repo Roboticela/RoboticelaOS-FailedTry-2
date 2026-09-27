@@ -36,6 +36,7 @@
 #include "RoboLayout/RoboLayoutBlock.h"
 #include "RoboLayout/RoboLayoutBorder.h"
 #include "RoboLayout/RoboLayoutFlex.h"
+#include "RoboLayout/RoboLayoutGrid.h"
 #include "RoboLayout/RoboLayoutInline.h"
 #include "RoboLayout/RoboLayoutLineBox.h"
 #include "RoboLayout/RoboLayoutMargin.h"
@@ -169,6 +170,32 @@ Result LayoutInlineWalkContents(LayoutWalk *walk,
  * takes @p outExtent as the container's content extent.
  */
 Result LayoutFlexWalkContents(LayoutWalk *walk,
+                                          LayoutNodeId owner,
+                                          int32_t contentWidth,
+                                          int hasDefiniteHeight,
+                                          GfxPixelY definiteHeight,
+                                          GfxPixelY *outExtent);
+
+/**
+ * Lay out @p owner's contents as a **grid** formatting context and report the
+ * extent they reached (Phase 19.4). Defined by RoboLayoutGrid.c; called by the
+ * block pass for every box whose owned context is `RoboLayoutFcGrid`.
+ *
+ * @p hasDefiniteHeight / @p definiteHeight are the container's **content-box**
+ * height when its declarations determined one. They are what a `<flex>` **row**
+ * and a `stretch`-distributed `auto` row may grow into, and what an `align-content`
+ * has free space to distribute -- a container with an `auto` height sizes its rows
+ * to their contents and has no free space at all, which is why the two arguments
+ * are handed over rather than read from the container here. The **inline** size
+ * needs no such argument: the block pass resolved the container's width before it
+ * asked, exactly as it does for a flex row.
+ *
+ * The items are placed by this walk (each writing its own result and object
+ * records), so the caller does not place them again: it counts the container and
+ * takes @p outExtent as the container's content extent -- which is the sum of the
+ * rows and the block-axis gutters between them.
+ */
+Result LayoutGridWalkContents(LayoutWalk *walk,
                                           LayoutNodeId owner,
                                           int32_t contentWidth,
                                           int hasDefiniteHeight,

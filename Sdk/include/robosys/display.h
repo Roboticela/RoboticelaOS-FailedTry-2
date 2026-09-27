@@ -9,6 +9,8 @@
 #define RoboDispInput   4u
 #define RoboDispInject  5u
 #define RoboDispRelease 6u
+/** Guest boot progress (0..10000). Flags carry the value; no buffer. */
+#define RoboDispBootProgress 7u
 
 #define RoboDispNowait 1u
 

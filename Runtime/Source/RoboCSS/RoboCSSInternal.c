@@ -375,6 +375,66 @@ int CssValueFunctionNamed(const CssValue *value, const char *name)
     return CssBytesEqualAsciiCi(value->name.bytes, value->name.length, name);
 }
 
+/**
+ * The component @p wanted names when @p value is walked as components, or NULL.
+ *
+ * The one walk both of the doors below are built on, and the "trivia is not a
+ * component" rule is applied here rather than by each caller. A token is its own
+ * single component, which is why the non-list branch answers for `wanted == 0` and
+ * for nothing else.
+ */
+static const CssValue *CssValueComponentAt(const CssValue *value, size_t wanted,
+                                           size_t *outCount)
+{
+    const CssValue *found = NULL;
+    size_t count = 0u;
+    size_t index;
+
+    if (outCount) {
+        *outCount = 0u;
+    }
+    if (!value || value->kind == RoboCssValueKindNone) {
+        return NULL;
+    }
+    if (value->kind != RoboCssValueKindList) {
+        if (CssValueIsTrivia(value)) {
+            return NULL;
+        }
+        if (outCount) {
+            *outCount = 1u;
+        }
+        return wanted == 0u ? value : NULL;
+    }
+    for (index = 0u; index < value->children.count; index++) {
+        const CssValue *child = &value->children.items[index];
+
+        if (CssValueIsTrivia(child)) {
+            continue;
+        }
+        if (count == wanted) {
+            found = child;
+        }
+        count++;
+    }
+    if (outCount) {
+        *outCount = count;
+    }
+    return found;
+}
+
+size_t CssValueSignificantCount(const CssValue *value)
+{
+    size_t count = 0u;
+
+    (void)CssValueComponentAt(value, (size_t)-1, &count);
+    return count;
+}
+
+const CssValue *CssValueSignificantAt(const CssValue *value, size_t wanted)
+{
+    return CssValueComponentAt(value, wanted, NULL);
+}
+
 int CssTokenKeywordText(const CssToken *token,
                                 char *buffer,
                                 size_t capacity,

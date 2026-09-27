@@ -45,6 +45,8 @@ const char *LayoutFcKindName(LayoutFcKind kind)
         return "inline";
     case RoboLayoutFcFlex:
         return "flex";
+    case RoboLayoutFcGrid:
+        return "grid";
     default:
         return "unknown";
     }
@@ -97,10 +99,14 @@ int LayoutFcDisplayIsBlockContainer(CssDisplay display)
         return 0;
     }
     /* A block-level box with a **flow or flow-root** inner is a block container;
-     * a flex container is not -- its children are flex items, and that is exactly
-     * the distinction the inner column exists to carry. */
+     * a flex or grid container is not -- its children are items of an
+     * axis-distributing context, and that is exactly the distinction the inner
+     * column exists to carry. Both exclusions are asked of the inner column rather
+     * than named one at a time so that a third such inner display is a row here
+     * rather than a third comparison. */
     if (outer == RoboCssDisplayOuterBlock &&
-        MakeCssDisplayInner(display) != RoboCssDisplayInnerFlex) {
+        MakeCssDisplayInner(display) != RoboCssDisplayInnerFlex &&
+        MakeCssDisplayInner(display) != RoboCssDisplayInnerGrid) {
         return 1;
     }
     /* An atomic inline's *inner* box is one. It is a real box in CSS and not one
@@ -123,9 +129,10 @@ int LayoutFcDisplayCanEstablish(CssDisplay display)
     /* An inner display of flow-root is a new block formatting context by
      * definition -- which is what makes `inline-block` establish one without this
      * function naming it. An inner display of flex is a new **flex** context (19.3)
-     * by the same definition. */
+     * and one of grid a new **grid** context (19.4) by the same definition. */
     if (MakeCssDisplayInner(display) == RoboCssDisplayInnerFlowRoot ||
-        MakeCssDisplayInner(display) == RoboCssDisplayInnerFlex) {
+        MakeCssDisplayInner(display) == RoboCssDisplayInnerFlex ||
+        MakeCssDisplayInner(display) == RoboCssDisplayInnerGrid) {
         return 1;
     }
     return LayoutFcDisplayIsBlockContainer(display);
@@ -135,7 +142,8 @@ LayoutFcKind LayoutFcEstablishes(CssDisplay display,
                                                  int hasBlockLevelChild,
                                                  int isRoot,
                                                  int isOutOfFlow,
-                                                 int isFlexItem)
+                                                 int isFlexItem,
+                                                 int isGridItem)
 {
     if (!CssDisplayGeneratesBox(display)) {
         /* A display that generates no box has no contents, so there is nothing
@@ -164,6 +172,16 @@ LayoutFcKind LayoutFcEstablishes(CssDisplay display,
         return RoboLayoutFcFlex;
     }
     /*
+     * Phase 19.4: an inner display of `grid` establishes a grid formatting context.
+     * The same shape as the flex branch above and for the same reason -- the inner
+     * value *is* the context -- and it is asked before the out-of-flow and
+     * transparency questions because those are about a box's *children*, while this
+     * is about what the box does with them.
+     */
+    if (MakeCssDisplayInner(display) == RoboCssDisplayInnerGrid) {
+        return RoboLayoutFcGrid;
+    }
+    /*
      * Phase 14.0: an out-of-flow block container establishes a block context of its own, before the
      * transparency question below is asked. CSS 2.1 §9.4.1 lists "absolutely positioned elements"
      * among the boxes that establish a new block formatting context, and the reason the order
@@ -190,7 +208,7 @@ LayoutFcKind LayoutFcEstablishes(CssDisplay display,
          * block-level box participating in a flex context is exactly the contradiction the
          * block pass reports.
          */
-        if (isFlexItem) {
+        if (isFlexItem || isGridItem) {
             return RoboLayoutFcBlock;
         }
         /* Transparent: its block-level children participate in whatever it

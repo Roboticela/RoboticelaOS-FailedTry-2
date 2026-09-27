@@ -114,5 +114,5 @@ the test directories and the platform backends of the platforms a guest is not
 on compiling the deleted demo layer for two phases after the host had a real shell.
 A module added to `RuntimeModules` now reaches the guest image by having a source file.
 
-The program is packed twice, at `/bin/robo-runtime` and `/System/runtime/robo-runtime`,
-because init starts it by the second path and a shell would find it on the first.
+The program is packed once at `/System/runtime/robo-runtime`. Exec maps it
+zero-copy from the initrd image; a second `/bin` copy used to double VFS import cost.

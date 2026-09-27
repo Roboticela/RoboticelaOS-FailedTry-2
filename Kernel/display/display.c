@@ -249,11 +249,20 @@ uint64_t SysDisplay(RoboSyscallContext *ctx)
     }
     if (op == RoboDispInfo)
         return OpInfo(p, buf);
-    if (op == RoboDispPresent)
-        return OpPresent(p, buf);
+    if (op == RoboDispPresent) {
+        uint64_t r = OpPresent(p, buf);
+        if (r == 0)
+            KfbSplashEnd();
+        return r;
+    }
     if (op == RoboDispInput)
         return OpInput(p, buf, flags);
     if (op == RoboDispInject)
         return OpInject(p, buf);
+    if (op == RoboDispBootProgress) {
+        /* Any user process may advance the splash; claim is not required. */
+        KfbSplashSet((unsigned)flags);
+        return 0;
+    }
     return SysErr(RoboEinval);
 }

@@ -322,6 +322,20 @@ static Result LayoutBlockChildren(LayoutWalk *walk,
                                               hasPercentHeightBase,
                                               percentHeightBase, outExtent);
             }
+            /*
+             * Phase 19.4: a grid container's contents are grid **items**, and the
+             * grid pass places every one of them itself -- tracks, areas, alignment
+             * and all. The container's declared height is handed over for the same
+             * reason the flex pass is handed it: it is the size a `fr` or an
+             * `auto` **row** may grow into, and it is known here, before the
+             * container's own height is resolved, exactly as the percentage-height
+             * base is.
+             */
+            if (owned.kind == RoboLayoutFcGrid) {
+                return LayoutGridWalkContents(walk, object->id, contentWidth,
+                                              hasPercentHeightBase,
+                                              percentHeightBase, outExtent);
+            }
         }
     }
 
@@ -1227,6 +1241,7 @@ int LayoutBlockStatsEqual(const LayoutBlockStats *a,
            a->overflowUnresolved == b->overflowUnresolved &&
            a->emptyContainers == b->emptyContainers &&
            LayoutFlexCountersEqual(&a->flex, &b->flex) &&
+           LayoutGridCountersEqual(&a->grid, &b->grid) &&
            a->depthMax == b->depthMax;
 }
 

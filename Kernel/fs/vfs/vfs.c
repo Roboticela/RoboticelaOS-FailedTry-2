@@ -681,6 +681,19 @@ static int MkdirP(const char *path)
     return 0;
 }
 
+/*
+ * Large ELF payloads stay in the initrd image. Exec loads them with FsOpen (zero-copy).
+ * Copying multi-megabyte guests into RoboFS was the dominant post-splash delay on QEMU
+ * and real hardware. Fonts and small data still import so guest open/read works.
+ */
+#define VfsImportElfPassthroughBytes (256u * 1024u)
+
+static int VfsPayloadIsElf(const void *data, uint32_t size)
+{
+    const unsigned char *p = (const unsigned char *)data;
+    return size >= 4u && p[0] == 0x7fu && p[1] == 'E' && p[2] == 'L' && p[3] == 'F';
+}
+
 int VfsImportInitrd(void)
 {
     unsigned i, n;
@@ -690,14 +703,32 @@ int VfsImportInitrd(void)
     uint32_t size;
     RoboFile *f;
     int r;
+    uint64_t doneBytes = 0;
+    uint64_t totalBytes;
 
     if (!FsReady())
         return -RoboEnoent;
     n = FsFileCount();
+    totalBytes = FsPayloadBytes();
+    if (!totalBytes)
+        totalBytes = 1;
     for (i = 0; i < n; i++) {
         int64_t wr;
+        unsigned progress;
         if (!FsFileAt(i, name, ROBFS_NAME, &data, &size))
             continue;
+        doneBytes += size;
+        /* 7000..9000 while importing — keeps the bar moving instead of freezing near 98%. */
+        progress = 7000u + (unsigned)((doneBytes * 2000ull) / totalBytes);
+        if (progress > 9000u)
+            progress = 9000u;
+        KfbSplashSet(progress);
+
+        if (size >= VfsImportElfPassthroughBytes && VfsPayloadIsElf(data, size)) {
+            kinfo("VFS_IMPORT_PASS  %s  %u\n", name, (unsigned)size);
+            continue;
+        }
+
         r = MkdirP(name);
         if (r != 0 && r != -RoboEexist)
             return r;

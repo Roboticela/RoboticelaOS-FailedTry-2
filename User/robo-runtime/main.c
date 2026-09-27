@@ -88,7 +88,9 @@
 #include "RoboFont/RoboFontFace.h"
 #include "RoboFont/RoboFontFallback.h"
 #include "RoboFont/RoboFontLoader.h"
+#include "RoboFont/RoboFontSelection.h"
 #include "RoboFont/RoboFontSource.h"
+#include "RoboFont/RoboFontStyle.h"
 #include "RoboFont/RoboFontSystemPack.h"
 #include "RoboGraphics/RoboGraphics.h"
 #include "RoboGraphics/RoboGraphicsGlyph.h"
@@ -132,6 +134,12 @@
 #define GUEST_STATUS_MAX 24u
 
 static char gStatus[GUEST_STATUS_MAX];
+
+/** Keep the boot splash honest while the guest opens fonts and the desktop. */
+static void GuestBootProgress(unsigned progress)
+{
+    (void)Display((int)RoboDispBootProgress, 0, 0, 0, (int)progress);
+}
 
 /* ------------------------------------------------------------------ */
 /* Serial reporting                                                    */
@@ -1363,10 +1371,14 @@ int main(int argc, char **argv)
     int checkpoint = GuestCheckpoint(argc, argv);
     Result result;
 
+    memset(&typography, 0, sizeof(typography));
+
     if (checkpoint) {
         LogSetMinLevel(RoboLogDebug);
         serial("robo-runtime: the desktop shell (QEMU display)\n");
     }
+
+    GuestBootProgress(9450);
 
     if (!BaseIsInitialized() && BaseInit() != RoboOk) {
         GuestFail("base_init");
@@ -1388,6 +1400,7 @@ int main(int argc, char **argv)
         GuestStop();
     }
     (void)DisplayRefresh();
+    GuestBootProgress(9500);
 
     framebuffer = QemuFbCurrent();
     if (!framebuffer || (!framebuffer->ready && !framebuffer->headless)) {
@@ -1402,38 +1415,68 @@ int main(int argc, char **argv)
         SerialU32("ROBO_QEMU_FB_PIXFMT=", framebuffer->ready ? framebuffer->pixfmt : 0u);
     }
 
-    face = GuestFaceLoad(&faceStage);
-    if (checkpoint) {
-        if (!face) {
-            serial("ROBO_QEMU_FACE_FAIL ");
-            serial(faceStage);
-            serial(" ");
-            serial(GUEST_FACE_PATH);
-            serial("\n");
-        } else {
-            serial("ROBO_QEMU_FACE_OK\n");
-        }
-    }
-
     /*
-     * Phase 12.3: the shell draws from the pack's *roles*, not from the single face above.
-     *
-     * The face load stays because a pack that will not open must still leave a renderable desktop: the
-     * scene treats a NULL resolver as "draw everything with `config.face`", which is a worse checkpoint
-     * rather than a dead one. Opening the pack second is intentional -- its own registrations replace the
-     * hand-built face for every role, and `ROBO_QEMU_DESKTOP_UNSHAPED` is what tells the two apart.
+     * Open the pack first. A successful pack already has Inter registered — re-reading the
+     * same 856 KB face through GuestFaceLoad doubled cold-boot cost for no benefit. The direct
+     * face load stays only as the fallback when the pack will not open.
      */
+    GuestBootProgress(9600);
     if (!GuestTypographyOpen(&typography, &typographyStage)) {
         if (checkpoint) {
             serial("ROBO_QEMU_TYPOGRAPHY_FAIL ");
             serial(typographyStage);
             serial("\n");
         }
-    } else if (checkpoint) {
-        serial("ROBO_QEMU_TYPOGRAPHY_OK\n");
-        SerialU32("ROBO_QEMU_TYPOGRAPHY_ROLES=", (uint32_t)RoboTypographyRoleCount);
-        SerialU32("ROBO_QEMU_TYPOGRAPHY_FACES=",
-                  (uint32_t)FontSystemPackRegisteredFaces(typography.pack));
+        face = GuestFaceLoad(&faceStage);
+        if (checkpoint) {
+            if (!face) {
+                serial("ROBO_QEMU_FACE_FAIL ");
+                serial(faceStage);
+                serial(" ");
+                serial(GUEST_FACE_PATH);
+                serial("\n");
+            } else {
+                serial("ROBO_QEMU_FACE_OK\n");
+            }
+        }
+    } else {
+        FontSelection selection;
+
+        if (checkpoint) {
+            serial("ROBO_QEMU_TYPOGRAPHY_OK\n");
+            SerialU32("ROBO_QEMU_TYPOGRAPHY_ROLES=", (uint32_t)RoboTypographyRoleCount);
+            SerialU32("ROBO_QEMU_TYPOGRAPHY_FACES=",
+                      (uint32_t)FontSystemPackRegisteredFaces(typography.pack));
+        }
+        FontSelectionInit(&selection);
+        if (FontSystemPackResolveRole(typography.pack,
+                                      RoboFontSystemRoleUIText,
+                                      RoboFontWeightNormal,
+                                      RoboFontStretchNormal,
+                                      RoboFontStyleNormal,
+                                      &selection) == RoboOk &&
+            selection.found && selection.face) {
+            face = selection.face;
+            selection.face = NULL;
+            selection.found = 0;
+            if (checkpoint)
+                serial("ROBO_QEMU_FACE_OK\n");
+        }
+        FontSelectionClear(&selection);
+        if (!face) {
+            face = GuestFaceLoad(&faceStage);
+            if (checkpoint) {
+                if (!face) {
+                    serial("ROBO_QEMU_FACE_FAIL ");
+                    serial(faceStage);
+                    serial(" ");
+                    serial(GUEST_FACE_PATH);
+                    serial("\n");
+                } else {
+                    serial("ROBO_QEMU_FACE_OK\n");
+                }
+            }
+        }
     }
 
     GuestStatusText(framebuffer->ready ? framebuffer->width : RoboDesktopSceneDefaultWidth,
@@ -1449,12 +1492,14 @@ int main(int argc, char **argv)
     config.showCursor = 1;
     config.statusText = gStatus;
 
+    GuestBootProgress(9800);
     result = DesktopSceneOpen(&config, &scene, &diag);
     if (result != RoboOk) {
         SerialText("ROBO_QEMU_DESKTOP_FAIL ", diag.message ? diag.message : "(none)");
         GuestFail("scene_open");
         GuestStop();
     }
+    GuestBootProgress(9950);
     if (checkpoint) {
         serial("ROBO_QEMU_DESKTOP_OK\n");
         SerialText("ROBO_QEMU_DESKTOP_WINDOW=", RoboDesktopSceneWindowTitle);

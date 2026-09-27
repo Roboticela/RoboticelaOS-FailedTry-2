@@ -9,7 +9,8 @@
 #include "mm/heap/heap.h"
 #include "kio.h"
 
-#define RoboExecMaxBytes (512u * 1024u)
+/* Desktop runtime is multi-megabyte; keep headroom for future guest ELFs. */
+#define RoboExecMaxBytes (32u * 1024u * 1024u)
 
 static int gExecQuiet = 1;
 static ExecStatus gLastExec;
@@ -71,6 +72,20 @@ static int LoadFileBytes(const char *path, const void **data, size_t *size,
     *size = 0;
     *owned = 0;
 
+    /*
+     * Prefer the packed initrd image: zero-copy, no RoboExecMaxBytes ceiling from a
+     * prior VFS write, and the path that keeps multi-megabyte guests (robo-runtime)
+     * off the slow import+re-read round trip.
+     */
+    if (FsOpen(path, &initData, &initSize) && initData && initSize) {
+        if (initSize > RoboExecMaxBytes)
+            return 0;
+        *data = initData;
+        *size = (size_t)initSize;
+        *owned = 0;
+        return 1;
+    }
+
     r = VfsStatPath(path, &st);
     if (r == 0) {
         if (st.type == RoboVnodeDirectory || st.size == 0)
@@ -94,13 +109,6 @@ static int LoadFileBytes(const char *path, const void **data, size_t *size,
         *data = buf;
         *size = (size_t)st.size;
         *owned = 1;
-        return 1;
-    }
-
-    if (FsOpen(path, &initData, &initSize) && initData && initSize) {
-        *data = initData;
-        *size = (size_t)initSize;
-        *owned = 0;
         return 1;
     }
     return 0;

@@ -47,39 +47,53 @@
  *   BLOCK   participants are laid out in the block direction, one after another.
  *   INLINE  participants are laid out in the inline direction, along a line.
  *   FLEX    participants are flex items, laid out along a main axis (Phase 19.3).
+ *   GRID    participants are grid items, placed into tracks on two axes (19.4).
  *
- * GRID, TABLE, RUBY and MULTICOLUMN are deliberately **not** enumerators yet, for
+ * TABLE, RUBY and MULTICOLUMN are deliberately **not** enumerators yet, for
  * the reason Phase 9.12 refused to ship `display: flex`: an enumerator with no row
  * behind it is a name the module can spell and cannot honour, and a caller that
  * asked for it would get a kind no algorithm produces. 19.3 is the demonstration
  * that the rule is followed rather than just stated: `FLEX` arrived as a row *and*
- * the algorithm that honours it (`RoboLayoutFlex.c`) in the same change. The rest
- * join as rows when their contexts exist, exactly as `display` values do.
+ * the algorithm that honours it (`RoboLayoutFlex.c`) in the same change; 19.4 did
+ * the same for `GRID` and `RoboLayoutGrid.c`. The rest join as rows when their
+ * contexts exist, exactly as `display` values do.
+ *
+ * Every participant kind now has a step of its own in `LayoutFcMarkParticipant`,
+ * and the reason is not bookkeeping: a flex item and a grid item both need the
+ * "my child is block-level" rule to answer BLOCK rather than transparency (below),
+ * so the two participate in the *same* rule with two different flags, and a build
+ * that had one flag for "is an item of something" would let a grid item's
+ * block-level child reach the grid context — the same contradiction, one axis
+ * later.
  *
  * What establishes what
  *
  * `LayoutFcEstablishes` is the whole classification, and it is a pure
- * function of five facts: the box's computed `display`, whether the box has a
- * block-level child, whether it is the root, whether it is **out of flow** (14.0)
- * and whether it is a **flex item** (19.3). The rules are CSS's:
+ * function of six facts: the box's computed `display`, whether the box has a
+ * block-level child, whether it is the root, whether it is **out of flow** (14.0),
+ * whether it is a **flex item** (19.3) and whether it is a **grid item** (19.4).
+ * The rules are CSS's:
  *
  *   the root box establishes ROOT, whatever it computes to;
  *
- *   a box whose inner display is `flow-root` establishes BLOCK, and one whose
- *   inner display is `flex` establishes FLEX — because that is what those inner
- *   values *are*. In this build the first is `inline-block`, whose inner display
- *   9.12 records as `flow-root` precisely so that this phase would not have to
- *   special-case it; the second is the pair 19.3 added (`display: flex` and
- *   `display: inline-flex` share an inner, so one branch answers for both). Future
- *   `flow-root` and `grid` rows arrive here for free;
+ *   a box whose inner display is `flow-root` establishes BLOCK, one whose inner
+ *   display is `flex` establishes FLEX and one whose inner display is `grid`
+ *   establishes GRID — because that is what those inner values *are*. In this build
+ *   the first is `inline-block`, whose inner display 9.12 records as `flow-root`
+ *   precisely so that this phase would not have to special-case it; the second and
+ *   third are the pairs 19.3 and 19.4 added (`display: flex`/`inline-flex` and
+ *   `display: grid`/`inline-grid` each share an inner, so one branch answers for
+ *   each pair). A future `flow-root` row arrives here for free;
  *
  *   a box that is **out of flow** establishes a block context of its own (14.0,
  *   where the containing-block rules live), asked before the transparency rule;
  *
- *   a **flex item** with a block-level child establishes BLOCK rather than being
- *   transparent (19.3): its block-level child must not reach the flex context it
- *   itself participates in, because a block-level box participating in a flex
- *   context is exactly the contradiction the block pass reports;
+ *   a **flex item** or a **grid item** with a block-level child establishes BLOCK
+ *   rather than being transparent (19.3, 19.4, and the same rule for the same
+ *   reason twice): its block-level child must not reach the flex — or grid —
+ *   context it itself participates in, because a block-level box participating in
+ *   an axis-distributing context is exactly the contradiction the block pass
+ *   reports;
  *
  *   a block container with no block-level child establishes INLINE — CSS 2.1
  *   §9.4.2, and the reason a `<p>` with text in it has somewhere for a line box
@@ -173,11 +187,15 @@ typedef enum LayoutFcKind {
     /** Participants are **flex items**, laid out by Phase 19.3's flex algorithm
      *  along a main axis and aligned across it. Established by a box whose inner
      *  display is `flex` (`display: flex` or `display: inline-flex`). */
-    RoboLayoutFcFlex = 4
+    RoboLayoutFcFlex = 4,
+    /** Participants are **grid items**, placed by Phase 19.4's grid algorithm into
+     *  tracks on two axes. Established by a box whose inner display is `grid`
+     *  (`display: grid` or `display: inline-grid`). */
+    RoboLayoutFcGrid = 5
 } LayoutFcKind;
 
 /** Number of defined context kinds. NONE is one of them. */
-#define RoboLayoutFcKindCount 5u
+#define RoboLayoutFcKindCount 6u
 
 /** Non-zero when @p kind is a defined kind. NONE is defined. */
 int LayoutFcKindIsKnown(LayoutFcKind kind);
@@ -281,6 +299,12 @@ int LayoutFormattingContextEqual(const LayoutFormattingContext *a,
  *                              child establishes BLOCK rather than being transparent — otherwise
  *                              that child would be left participating in the flex context, which is
  *                              not a block-direction one.
+ *   @p isGridItem             the same fact for a **grid item** (19.4). It is a separate argument
+ *                              rather than "is an item" because a caller has to know *which* kind of
+ *                              context it is looking at to answer it at all, and because the two
+ *                              arrive at different times: the flex fact was 19.3's and the grid fact
+ *                              is 19.4's, and a build that had folded them together would have had
+ *                              this phase edit a parameter rather than add one.
  *
  * **An out-of-flow block container establishes a block context of its own** (Phase 14.0), and this
  * is CSS 2.1 §9.4.1's own list rather than this build's invention: a positioned box's contents are
@@ -303,7 +327,8 @@ LayoutFcKind LayoutFcEstablishes(CssDisplay display,
                                                 int hasBlockLevelChild,
                                                 int isRoot,
                                                 int isOutOfFlow,
-                                                int isFlexItem);
+                                                int isFlexItem,
+                                                int isGridItem);
 
 /**
  * Whether a box with @p display could *ever* establish a context in this build.

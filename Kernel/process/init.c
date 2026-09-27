@@ -47,6 +47,7 @@ void InitStart(const RoboBootInfo *info)
                       "-", "-", "-");
     started = 1;
     tests = KbootSelftest(info);
+    KfbSplashSet(9250);
 
     if (tests)
         kprintf("[ OK ] RoboFS mounted\n");
@@ -79,6 +80,7 @@ void InitStart(const RoboBootInfo *info)
         av.args[1][i] = 0;
     }
 
+    KfbSplashSet(9300);
     p = ProcessCreateInitElf(RoboInitPath, &av);
     if (!p) {
         PanicStartup(RoboInitPath,
@@ -87,6 +89,7 @@ void InitStart(const RoboBootInfo *info)
                       "create failed",
                       "memory allocation or ELF load");
     }
+    KfbSplashSet(9350);
     if (tests)
         kprintf("[ OK ] ELF loaded\n");
 

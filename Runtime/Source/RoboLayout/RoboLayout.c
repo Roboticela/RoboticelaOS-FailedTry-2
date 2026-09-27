@@ -198,6 +198,14 @@ Result LayoutGetCapabilities(LayoutCapabilities *out)
      * writing mode.
      */
     out->flexLayout = RoboLayoutFlexLayoutImplemented;
+    /*
+     * And `gridLayout`, the field 19.4 added. **Not** "grid is finished": a grid
+     * container sizes two axes of tracks and places its items into them -- but no
+     * `justify-items`/`justify-self`, no named lines, no `grid-template-areas`, no
+     * `subgrid`, no `auto-fill` repeat, no shorthand expansion, no masonry and no
+     * vertical writing mode.
+     */
+    out->gridLayout = RoboLayoutGridLayoutImplemented;
     out->painting = 0;
     return RoboOk;
 }

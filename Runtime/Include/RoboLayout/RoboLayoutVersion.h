@@ -340,9 +340,9 @@
 #define ROBO_LAYOUT_VERSION_H
 
 #define RoboLayoutVersionMajor 0
-#define RoboLayoutVersionMinor 20
+#define RoboLayoutVersionMinor 21
 #define RoboLayoutVersionPatch 0
-#define RoboLayoutVersionString "0.20.0"
+#define RoboLayoutVersionString "0.21.0"
 
 /** 1 once the Phase 10 surface is frozen (not yet — see header comment). */
 #define RoboLayoutApiFrozen 0
@@ -852,5 +852,39 @@
  * finished".
  */
 #define RoboLayoutFlexLayoutImplemented 1
+
+/**
+ * 1 once this build lays a **grid** formatting context out (19.4).
+ *
+ * A compiler constant rather than a runtime decision, read by the two doors that must not disagree --
+ * `LayoutGetCapabilities().gridLayout` and the suite that asserts both -- exactly as the other
+ * `RoboLayout*Implemented` macros are.
+ *
+ * What it claims, exactly: `display: grid` and `display: inline-grid` are real display values each
+ * establishing a grid formatting context; the two track lists are read as **value records** by
+ * RoboCSS's own reader (a breadth, `minmax()`, an expanded `repeat()`, and `fr` as a share of the
+ * free space) and sized here; implicit tracks are created where placement needs them and sized by
+ * the two `grid-auto-*` lists; each item is placed by its four line longhands (`<integer>`,
+ * `span <integer>`) or by the **auto-placement** algorithm following `grid-auto-flow`, `dense`
+ * included; an item spanning several tracks contributes to the intrinsic tracks it spans; the two
+ * gutters separate the tracks; `justify-content` and `align-content` distribute the tracks of a
+ * container whose size is definite (`normal`/`stretch` growing its `auto` tracks); `align-items`
+ * and `align-self` align an item in the block axis of its area, with `stretch` growing an `auto`
+ * height and `baseline` lining a row's first baselines up; an `auto` inline size stretches across
+ * the area; an `auto` margin **absorbs** the free space in its own axis ahead of the alignment
+ * properties; and `direction: rtl` reverses the column order.
+ *
+ * What it does **not** claim, each a feature a later goal or a later value owns: no
+ * `justify-items`/`justify-self` (18.4 deferred them, so an item's inline alignment is always the
+ * initial behaviour -- stretch an `auto` width, otherwise the area's inline start), no **named**
+ * lines and no `grid-template-areas` (both are carried in the declaration and place nothing), no
+ * `subgrid`, no `repeat(auto-fill)`/`repeat(auto-fit)` (their count is the container's used size),
+ * no **shorthand** expansion (`grid`, `grid-template`, `grid-row`, `grid-column`, `grid-area` and
+ * `gap` are read as carried declarations, as everywhere else in this build), no **masonry**, no
+ * grid **root** box, no `order`-modified placement order, no replaced elements or `aspect-ratio`,
+ * and no vertical writing mode. `grid-layout` would be claiming those if it were named for "grid
+ * is finished".
+ */
+#define RoboLayoutGridLayoutImplemented 1
 
 #endif /* ROBO_LAYOUT_VERSION_H */

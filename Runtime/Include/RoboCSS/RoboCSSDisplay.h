@@ -22,11 +22,11 @@
  * the same decision the unit vocabulary made in 9.10 and the box vocabulary made
  * in 9.11, and it is what makes the *next* display value an added row: 19.3 added
  * `flex` (an outer `block` with an inner `flex`) and `inline-flex` (an outer
- * `inline` with the same inner) as two rows and no function changed, and a future
- * `grid` is the same row again, `contents` a value that generates no box and is
- * therefore not `none`. This build supports the six values it implements and
- * rejects every other identifier, including the ones this table is deliberately
- * shaped to accept later.
+ * `inline` with the same inner) as two rows and no function changed; 19.4 added
+ * `grid` and `inline-grid` as the same pair once more; and `contents` will be a
+ * value that generates no box and is therefore not `none`. This build supports the
+ * eight values it implements and rejects every other identifier, including the
+ * ones this table is deliberately shaped to accept later.
  *
  * The inner column is not decoration, and it is why `inline-block` is not a
  * synonym for `inline` with a flag: an atomic inline-level box *is* an inline
@@ -99,11 +99,15 @@ typedef enum CssDisplay {
     /** `flex`: block-level, contents laid out as flex items (Phase 19.3). */
     RoboCssDisplayFlex = 4,
     /** `inline-flex`: inline-level atomic, contents laid out as flex items (19.3). */
-    RoboCssDisplayInlineFlex = 5
+    RoboCssDisplayInlineFlex = 5,
+    /** `grid`: block-level, contents placed into tracks (Phase 19.4). */
+    RoboCssDisplayGrid = 6,
+    /** `inline-grid`: inline-level atomic, contents placed into tracks (19.4). */
+    RoboCssDisplayInlineGrid = 7
 } CssDisplay;
 
 /** Number of defined display values. */
-#define RoboCssDisplayCount 6u
+#define RoboCssDisplayCount 8u
 
 /**
  * What kind of box a display value generates, or that it generates none.
@@ -141,11 +145,14 @@ typedef enum CssDisplayInner {
     RoboCssDisplayInnerFlowRoot = 2,
     /** A new **flex** formatting context of its own (Phase 19.3): the box is a flex
      *  container and its in-flow children are flex items. */
-    RoboCssDisplayInnerFlex = 3
+    RoboCssDisplayInnerFlex = 3,
+    /** A new **grid** formatting context of its own (Phase 19.4): the box is a grid
+     *  container and its in-flow children are grid items. */
+    RoboCssDisplayInnerGrid = 4
 } CssDisplayInner;
 
 /** Number of defined inner displays. */
-#define RoboCssDisplayInnerCount 4u
+#define RoboCssDisplayInnerCount 5u
 
 /** Non-zero when @p display is one of the six. NONE is defined. */
 int CssDisplayIsKnown(CssDisplay display);

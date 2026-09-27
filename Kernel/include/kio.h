@@ -28,6 +28,8 @@ void KfbLogPutc(char c, uint32_t rgb);
 void KfbPoll(void);
 
 void KfbSplashSet(unsigned progress);
+void KfbSplashEnd(void);
+int KfbSplashActive(void);
 
 int KbootDebug(const RoboBootInfo *info);
 int KbootCmdHas(const RoboBootInfo *info, const char *key);

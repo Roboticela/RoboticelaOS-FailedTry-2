@@ -881,8 +881,15 @@ CssNumericParse CssNumericFromValue(const CssValue *specified,
  * shape of every number this subsystem has emitted since 9.8 is fixed-point, and a
  * serialization that changes notation with the magnitude is harder to read and no
  * more correct.
+ *
+ * Non-static since 19.4, and only because a second writer needs it: a grid track's
+ * `<flex>` is a bare number CSS writes with the `fr` unit, and `fr` is not in this
+ * module's unit table, so `CssNumericWrite` cannot spell it. The alternative -- a
+ * second formatter in the grid module -- would be a second answer to "what does a
+ * `double` look like as CSS text", which is exactly the kind of duplicate this
+ * subsystem keeps refusing. The *rules* above are unchanged and still live here.
  */
-static int NumericRender(double value, char *out, size_t capacity)
+int CssMagnitudeRender(double value, char *out, size_t capacity)
 {
     char digits[NUMERIC_DIGITS_MAX];
     int whole = 0;
@@ -960,7 +967,7 @@ Result CssNumericWrite(CssNumeric numeric,
          * exactly as a cleared computed value does. */
         return RoboOk;
     }
-    if (!NumericRender(numeric.number, digits, sizeof(digits))) {
+    if (!CssMagnitudeRender(numeric.number, digits, sizeof(digits))) {
         return RoboCssDiag(diag, RoboCssDomainComputed, RoboNotSupported,
                              "the number does not fit its canonical form");
     }

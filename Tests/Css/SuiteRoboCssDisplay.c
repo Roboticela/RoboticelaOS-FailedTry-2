@@ -44,12 +44,13 @@
 static void TestDisplayVocabulary(void)
 {
     static const char *const keywords[] = {
-        "none", "block", "inline", "inline-block", "flex", "inline-flex" };
+        "none", "block", "inline", "inline-block", "flex", "inline-flex",
+        "grid", "inline-grid" };
     size_t index;
 
     CssFixture();
-    RoboCheckEqInt((int)RoboCssDisplayCount, 6);
-    RoboCheckEqInt((int)CssDisplayCount(), 6);
+    RoboCheckEqInt((int)RoboCssDisplayCount, 8);
+    RoboCheckEqInt((int)CssDisplayCount(), 8);
     for (index = 0u; index < sizeof(keywords) / sizeof(keywords[0]); index++) {
         CssDisplay display = (CssDisplay)index;
 
@@ -95,13 +96,17 @@ static void TestDisplayOuterInner(void)
         {RoboCssDisplayFlex, RoboCssDisplayOuterBlock,
          RoboCssDisplayInnerFlex, "block", "flex"},
         {RoboCssDisplayInlineFlex, RoboCssDisplayOuterInline,
-         RoboCssDisplayInnerFlex, "inline", "flex"}
+         RoboCssDisplayInnerFlex, "inline", "flex"},
+        {RoboCssDisplayGrid, RoboCssDisplayOuterBlock,
+         RoboCssDisplayInnerGrid, "block", "grid"},
+        {RoboCssDisplayInlineGrid, RoboCssDisplayOuterInline,
+         RoboCssDisplayInnerGrid, "inline", "grid"}
     };
     size_t index;
 
     CssFixture();
     RoboCheckEqInt((int)RoboCssDisplayOuterCount, 3);
-    RoboCheckEqInt((int)RoboCssDisplayInnerCount, 4);
+    RoboCheckEqInt((int)RoboCssDisplayInnerCount, 5);
     for (index = 0u; index < sizeof(expected) / sizeof(expected[0]); index++) {
         RoboCheckEqInt(MakeCssDisplayOuter(expected[index].display),
                           (int)expected[index].outer);
@@ -152,7 +157,9 @@ static void TestDisplayClassification(void)
         {RoboCssDisplayInline, 1, 0, 0, 1, 0},
         {RoboCssDisplayInlineBlock, 1, 0, 0, 1, 1},
         {RoboCssDisplayFlex, 1, 0, 1, 0, 0},
-        {RoboCssDisplayInlineFlex, 1, 0, 0, 1, 0}
+        {RoboCssDisplayInlineFlex, 1, 0, 0, 1, 0},
+        {RoboCssDisplayGrid, 1, 0, 1, 0, 0},
+        {RoboCssDisplayInlineGrid, 1, 0, 0, 1, 0}
     };
     size_t index;
     int boxless = 0;
@@ -228,6 +235,8 @@ static void TestDisplayParsing(void)
         {"inline-block", RoboCssDisplayInlineBlock},
         {"flex", RoboCssDisplayFlex},
         {"inline-flex", RoboCssDisplayInlineFlex},
+        {"grid", RoboCssDisplayGrid},
+        {"inline-grid", RoboCssDisplayInlineGrid},
         /* CSS spells keywords case-insensitively. */
         {"BLOCK", RoboCssDisplayBlock},
         {"Inline", RoboCssDisplayInline},
@@ -235,7 +244,7 @@ static void TestDisplayParsing(void)
         {"None", RoboCssDisplayNone}
     };
     static const char *const unknown[] = {
-        "bogus", "grid", "table", "contents", "inline_block",
+        "bogus", "table", "contents", "inline_block", "grids",
         "block;", "inlineblock", "blockflow", ""
     };
     size_t index;
@@ -363,6 +372,9 @@ static void TestDisplayComputedShape(void)
     CssComputeEquals(RoboCssPropertyComputationDisplay, "d: inline", "inline");
     CssComputeEquals(RoboCssPropertyComputationDisplay, "d: inline-block",
                        "inline-block");
+    CssComputeEquals(RoboCssPropertyComputationDisplay, "d: grid", "grid");
+    CssComputeEquals(RoboCssPropertyComputationDisplay, "d: inline-grid",
+                       "inline-grid");
     /* Whitespace around the value and around the colon is the tokenizer's, and
      * all three spellings are the same declaration. */
     CssComputeEquals(RoboCssPropertyComputationDisplay, "d:block", "block");
@@ -434,7 +446,7 @@ static void TestDisplayComputedShape(void)
  * A closed vocabulary is only worth having if a value outside it is *refused*,
  * and the refusals are worth having in four shapes because they are four
  * different things to tell an author: an identifier this build has not added
- * (`grid`), a value that is not an identifier at all (`20px`, `#fff`, `10%`), a
+ * (`table`), a value that is not an identifier at all (`20px`, `#fff`, `10%`), a
  * declaration written with two keywords (`inline block`), and a value whose
  * meaning is a reference (`rgb(0, 0, 0)` is a colour function, not a display).
  * Collapsing them into one "invalid" would still be correct and would tell a
@@ -444,10 +456,10 @@ static void TestDisplayComputedInvalid(void)
 {
     CssFixture();
 
-    /* An identifier, and not one of the four. */
+    /* An identifier, and not one of them. */
     CssComputeEquals(RoboCssPropertyComputationDisplay, "d: bogus",
                        "not a display value");
-    CssComputeEquals(RoboCssPropertyComputationDisplay, "d: grid",
+    CssComputeEquals(RoboCssPropertyComputationDisplay, "d: grids",
                        "not a display value");
     CssComputeEquals(RoboCssPropertyComputationDisplay, "d: table",
                        "not a display value");
@@ -489,6 +501,8 @@ static void TestDisplayComputedInvalid(void)
     CssComputeEquals(RoboCssPropertyComputationDisplay, "d: inline flow-root",
                        "not a single display keyword");
     CssComputeEquals(RoboCssPropertyComputationDisplay, "d: block flow",
+                       "not a single display keyword");
+    CssComputeEquals(RoboCssPropertyComputationDisplay, "d: inline grid",
                        "not a single display keyword");
     RoboCheckStrEq(CssComputeKind(RoboCssPropertyComputationDisplay,
                                        "d: inline block"),

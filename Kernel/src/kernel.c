@@ -260,7 +260,7 @@ void kmain(const RoboBootInfo *info)
                 else
                     kprintf("PROC_TEST_FAIL\n");
             }
-            BootBar(9850);
+            BootBar(7000);
             if (FsInit(info)) {
                 static RoboBlockDevice *rootDisk;
                 int imported;
@@ -329,7 +329,7 @@ void kmain(const RoboBootInfo *info)
             } else if (tests) {
                 kprintf("USER_TEST_FAIL\n");
             }
-            BootBar(9900);
+            BootBar(9100);
         }
     } else if (tests) {
         kprintf("CTX_TEST_FAIL\n");
@@ -339,10 +339,16 @@ void kmain(const RoboBootInfo *info)
     }
 
     Talk("idle\n");
-    BootBar(RoboBootProgressMax);
-    Talk("Desktop  ready\n");
+    /*
+     * Do not paint 100% here. "Desktop ready" used to mean "init about to start", which left the
+     * bar full for the entire ELF map + font + document path. Guest advances the last segment and
+     * clears the splash on first present.
+     */
+    BootBar(9200);
+    Talk("Desktop  starting\n");
     if (handoff)
         InitStart(info);
+    BootBar(9400);
     for (;;) {
         SchedReap();
         KfbPoll();

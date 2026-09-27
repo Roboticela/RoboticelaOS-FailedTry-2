@@ -127,9 +127,10 @@ static void TestLock(void)
 
 static void TestSplashMath(void)
 {
+    float mid;
     CHECK(SplashVisual(1.f, 0, 2000) == 0.f, "fast load starts empty");
-    CHECK(SplashVisual(1.f, 1000, 2000) > 0.49f && SplashVisual(1.f, 1000, 2000) < 0.51f,
-          "fast load is time-stretched");
+    mid = SplashVisual(1.f, 1000, 2000);
+    CHECK(mid > 0.70f && mid < 0.80f, "ease-out fills past linear midpoint");
     CHECK(SplashVisual(1.f, 2000, 2000) >= 0.999f, "fast load fills at min duration");
     CHECK(SplashVisual(0.25f, 2000, 2000) == 0.25f, "visual never exceeds real progress");
     CHECK(!SplashComplete(1.f, 500, 2000), "not complete before min ms");
@@ -282,11 +283,11 @@ static void TestSessionQuiet(void)
     ss.fb.px = (uint32_t *)RoboRbCalloc((size_t)ss.fb.w * ss.fb.h * 4u);
     SessionTick(&ss); /* load + first splash */
     CHECK(ss.phase == RbPhaseSplash, "enters splash");
-    gTime = 500;
+    gTime = 300;
     SessionTick(&ss);
-    CHECK(ss.phase == RbPhaseSplash, "still splash at 500ms");
-    CHECK(ss.loadVisual < 0.3f, "bar not finished early");
-    gTime = 2000;
+    CHECK(ss.phase == RbPhaseSplash, "still splash at 300ms");
+    CHECK(ss.loadVisual < 0.35f, "bar not finished early");
+    gTime = 800;
     SessionTick(&ss);
     CHECK(ss.loadVisual > 0.39f && ss.loadVisual < 0.41f, "bootloader bar stops at handoff");
     DrainBoot(&ss);
@@ -314,14 +315,14 @@ static void TestSessionAltMenu(void)
     gIn.mods = 0;
     gIn.nchars = 1;
     gIn.chars[0] = 'm';
-    gTime = 800;
+    gTime = 600;
     SessionTick(&ss);
     CHECK(ss.phase == RbPhaseSplash, "M alone stays on splash");
     CHECK(!ss.altLatched, "M alone does not latch picker");
     gIn.mods = RbModAlt;
     gIn.nchars = 1;
     gIn.chars[0] = 'm';
-    gTime = 2000;
+    gTime = 800;
     SessionTick(&ss);
     CHECK(ss.altLatched, "Alt+M latches picker");
     CHECK(ss.phase == RbPhasePicker, "Alt+M opens picker");
@@ -357,7 +358,7 @@ static void TestSessionSplashF8(void)
     SessionTick(&ss);
     CHECK(ss.altLatched, "F8 latches picker during splash");
     CHECK(ss.phase == RbPhaseSplash, "F8 waits for splash");
-    gTime = 2000;
+    gTime = 800;
     SessionTick(&ss);
     CHECK(ss.phase == RbPhasePicker, "F8 opens picker after splash");
     SessionFree(&ss);

@@ -1,7 +1,7 @@
 # RoboBoot catalog — original RoboticelaOS format
 manifest 1
 
-splash.min_ms 2000
+splash.min_ms 800
 splash.logo assets/logo.rbim
 
 picker.key alt

@@ -437,14 +437,45 @@ static void KfbSplashInit(const RoboBootInfo *info)
 
 void KfbSplashSet(unsigned progress)
 {
+    unsigned from;
+    unsigned step;
+    unsigned next;
+
     if (!gSplash)
         return;
     if (progress > RoboBootProgressMax)
         progress = RoboBootProgressMax;
     if (progress <= gProgress)
         return;
+
+    /*
+     * Ease the fill toward the target in small paints so kernel milestones and
+     * initrd import never jump the bar by tens of percent in one frame.
+     */
+    from = gProgress;
+    step = (progress - from) / 32u;
+    if (step < 12u)
+        step = 12u;
+    if (step > 80u)
+        step = 80u;
+    next = from;
+    while (next + step < progress) {
+        next += step;
+        gProgress = next;
+        KfbSplashPaint();
+    }
     gProgress = progress;
     KfbSplashPaint();
+}
+
+void KfbSplashEnd(void)
+{
+    gSplash = 0;
+}
+
+int KfbSplashActive(void)
+{
+    return gSplash;
 }
 
 static void glyph(int gx, int gy, unsigned char ch, uint32_t rgb)

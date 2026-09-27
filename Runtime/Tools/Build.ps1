@@ -440,6 +440,11 @@ $ProdSrcs = @(
     # The grid vocabulary (18.4): `grid-auto-flow` as a closed set whose values
     # are two words, read from the component value rather than one identifier.
     (Join-Path $SourceDir "RoboCSS\RoboCSSGrid.c"),
+    # The grid **track grammar** (19.4): the half of the grid family 18.4 deliberately
+    # carried -- a track list (`<track-breadth>`, `minmax()`, `repeat()`, `fr`) and
+    # the line placements -- read into bounded, pointer-free value records. It is a
+    # value reader, not a layout: nothing here measures a track or places an item.
+    (Join-Path $SourceDir "RoboCSS\RoboCSSGridTemplate.c"),
     # The table vocabulary (18.5): five closed sets -- layout, collapse, caption
     # side, empty-cells and visibility -- that describe a table box. The family is
     # the first whose properties are mostly *inherited*, which is the fact that
@@ -517,6 +522,7 @@ $ProdSrcs = @(
     (Join-Path $SourceDir "RoboLayout\RoboLayoutSizing.c"),
     (Join-Path $SourceDir "RoboLayout\RoboLayoutIntrinsic.c"),
     (Join-Path $SourceDir "RoboLayout\RoboLayoutFlex.c"),
+    (Join-Path $SourceDir "RoboLayout\RoboLayoutGrid.c"),
     (Join-Path $SourceDir "RoboLayout\RoboLayoutMargin.c"),
     (Join-Path $SourceDir "RoboLayout\RoboLayoutPadding.c"),
     (Join-Path $SourceDir "RoboLayout\RoboLayoutBorder.c"),
@@ -975,6 +981,9 @@ $SuiteSrcs = @(
     # The grid suite (18.4): the flow vocabulary and its two-word reader, plus the
     # gutter length family and the carried declarations the rest of the family is.
     (Join-Path $TestsRoot "Css\SuiteRoboCssGrid.c"),
+    # The grid track grammar (19.4): the track-list reader, the `fr` classification the
+    # unit table cannot make, the line-placement reader and both writers.
+    (Join-Path $TestsRoot "Css\SuiteRoboCssGridTemplate.c"),
     # The table suite (18.5): the five vocabularies, their classifications, the
     # inherited rows and the carried `border-spacing`.
     (Join-Path $TestsRoot "Css\SuiteRoboCssTable.c"),
@@ -1030,6 +1039,7 @@ $SuiteSrcs = @(
     (Join-Path $TestsRoot "Layout\SuiteRoboLayoutSizing.c"),
     (Join-Path $TestsRoot "Layout\SuiteRoboLayoutIntrinsic.c"),
     (Join-Path $TestsRoot "Layout\SuiteRoboLayoutFlex.c"),
+    (Join-Path $TestsRoot "Layout\SuiteRoboLayoutGrid.c"),
     (Join-Path $TestsRoot "Layout\SuiteRoboLayoutMargin.c"),
     (Join-Path $TestsRoot "Layout\SuiteRoboLayoutPadding.c"),
     (Join-Path $TestsRoot "Layout\SuiteRoboLayoutBorder.c"),
