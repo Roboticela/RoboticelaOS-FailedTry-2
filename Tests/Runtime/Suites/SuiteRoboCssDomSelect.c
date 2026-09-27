@@ -2590,7 +2590,7 @@ static void TestCssDomBackgroundPipeline(void)
         CssStylesheetId bad = CssDomCascadeSheet(
             &fixture,
             "select { background-image: banana; background-position: banana;"
-            " background-size: banana; background-repeat: space;"
+            " background-size: banana; background-repeat: banana;"
             " background-attachment: floating; background-color: banana }");
 
         CssDomCompute(&fixture, CssDomRefByTag(&fixture.dom, "select"), &odd);

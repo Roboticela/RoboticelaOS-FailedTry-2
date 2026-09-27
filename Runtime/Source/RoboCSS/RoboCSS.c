@@ -456,6 +456,11 @@ Result CssGetCapabilities(CssCapabilities *out)
      * gradient sampler or a layout pass -- no file is opened, no URL resolved, no
      * stop sampled, no pixel scaled and no box measured. */
     out->images = 1;
+    /* The background family's 18.17 additions: `space`/`round`, `local`, the box
+     * vocabulary `background-clip` and `background-origin` share, and the sixteen
+     * blend modes. What it does not claim is multiple layers, a renderer that samples
+     * a gradient or blends a pixel, or percentage resolution. */
+    out->blendModes = 1;
     out->defaultStyles = 0;
     out->stylesheetLoading = 0;
     return RoboOk;

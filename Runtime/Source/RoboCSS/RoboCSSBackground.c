@@ -43,13 +43,20 @@ typedef struct backgroundRepeatRow {
     const char *keyword;
     int horizontal;
     int vertical;
+    int space;
+    int round;
 } BackgroundRepeatRow;
 
 static const BackgroundRepeatRow backgroundRepeatVocabulary[] = {
-    { RoboCssBackgroundRepeat,     "repeat",    1, 1 },
-    { RoboCssBackgroundRepeatX,   "repeat-x",  1, 0 },
-    { RoboCssBackgroundRepeatY,   "repeat-y",  0, 1 },
-    { RoboCssBackgroundNoRepeat,  "no-repeat", 0, 0 }
+    { RoboCssBackgroundRepeat,     "repeat",    1, 1, 0, 0 },
+    { RoboCssBackgroundRepeatX,   "repeat-x",  1, 0, 0, 0 },
+    { RoboCssBackgroundRepeatY,   "repeat-y",  0, 1, 0, 0 },
+    { RoboCssBackgroundNoRepeat,  "no-repeat", 0, 0, 0, 0 },
+    /* 18.17's two rows. Both tile on both axes, and the columns that separate them
+     * from `repeat` are *how the leftover is placed*: `space` distributes it as gaps
+     * between whole tiles, `round` absorbs it by stretching them. */
+    { RoboCssBackgroundRepeatSpace, "space",    1, 1, 1, 0 },
+    { RoboCssBackgroundRepeatRound, "round",    1, 1, 0, 1 }
 };
 
 #define BACKGROUND_REPEAT_VOCABULARY_COUNT \
@@ -181,6 +188,20 @@ int CssBackgroundRepeatRepeatsOnAxis(CssBackgroundRepeat repeat,
     return 0;
 }
 
+int CssBackgroundRepeatDistributesSpace(CssBackgroundRepeat repeat)
+{
+    const BackgroundRepeatRow *row = BackgroundRepeatRowOf(repeat);
+
+    return row ? row->space : 0;
+}
+
+int CssBackgroundRepeatStretches(CssBackgroundRepeat repeat)
+{
+    const BackgroundRepeatRow *row = BackgroundRepeatRowOf(repeat);
+
+    return row ? row->round : 0;
+}
+
 /* ------------------------------------------------------------------ */
 /* The axis                                                            */
 /* ------------------------------------------------------------------ */
@@ -214,7 +235,10 @@ typedef struct backgroundAttachmentRow {
 
 static const BackgroundAttachmentRow backgroundAttachmentVocabulary[] = {
     { RoboCssBackgroundAttachmentScroll, "scroll" },
-    { RoboCssBackgroundAttachmentFixed,  "fixed" }
+    { RoboCssBackgroundAttachmentFixed,  "fixed" },
+    /* 18.17 adds CSS's third value. It scrolls with the element's own content
+     * rather than with the page, which is the frame `scroll` and `fixed` do not name. */
+    { RoboCssBackgroundAttachmentLocal,  "local" }
 };
 
 #define BACKGROUND_ATTACHMENT_VOCABULARY_COUNT \
@@ -318,6 +342,304 @@ Result CssBackgroundAttachmentWrite(CssBackgroundAttachment attachment,
         *outLength = length;
         return RoboCssDiag(diag, RoboCssDomainBackground, RoboNotSupported,
                              "the attachment keyword does not fit");
+    }
+    memcpy(buffer, row->keyword, length + 1u);
+    *outLength = length;
+    return RoboOk;
+}
+
+int CssBackgroundAttachmentScrollsWithContent(
+    CssBackgroundAttachment attachment)
+{
+    return attachment == RoboCssBackgroundAttachmentLocal;
+}
+
+/* ------------------------------------------------------------------ */
+/* The box vocabulary (18.17)                                          */
+/* ------------------------------------------------------------------ */
+
+typedef struct backgroundBoxRow {
+    CssBackgroundBox value;
+    const char *keyword;
+    int border;
+    int padding;
+} BackgroundBoxRow;
+
+static const BackgroundBoxRow backgroundBoxVocabulary[] = {
+    { RoboCssBackgroundBoxBorder,  "border-box",  1, 1 },
+    { RoboCssBackgroundBoxPadding, "padding-box", 0, 1 },
+    { RoboCssBackgroundBoxContent, "content-box", 0, 0 }
+};
+
+#define BACKGROUND_BOX_VOCABULARY_COUNT \
+    (sizeof(backgroundBoxVocabulary) / sizeof(backgroundBoxVocabulary[0]))
+
+static const BackgroundBoxRow *BackgroundBoxRowOf(CssBackgroundBox box)
+{
+    size_t index;
+
+    for (index = 0u; index < BACKGROUND_BOX_VOCABULARY_COUNT; index++) {
+        if (backgroundBoxVocabulary[index].value == box) {
+            return &backgroundBoxVocabulary[index];
+        }
+    }
+    return NULL;
+}
+
+int CssBackgroundBoxIsKnown(CssBackgroundBox box)
+{
+    return BackgroundBoxRowOf(box) != NULL;
+}
+
+const char *CssBackgroundBoxName(CssBackgroundBox box)
+{
+    const BackgroundBoxRow *row = BackgroundBoxRowOf(box);
+
+    return row ? row->keyword : "";
+}
+
+size_t CssBackgroundBoxCount(void)
+{
+    return BACKGROUND_BOX_VOCABULARY_COUNT;
+}
+
+CssBackgroundBox CssBackgroundBoxFromSlice(CssSlice keyword)
+{
+    size_t index;
+
+    if (CssSliceIsAbsent(keyword) || keyword.length == 0u) {
+        return RoboCssBackgroundBoxBorder;
+    }
+    for (index = 0u; index < BACKGROUND_BOX_VOCABULARY_COUNT; index++) {
+        if (CssBytesEqualAsciiCi(keyword.bytes, keyword.length,
+                                          backgroundBoxVocabulary[index].keyword)) {
+            return backgroundBoxVocabulary[index].value;
+        }
+    }
+    return RoboCssBackgroundBoxBorder;
+}
+
+CssBackgroundBox CssBackgroundBoxFromText(const char *keyword)
+{
+    if (!keyword) {
+        return RoboCssBackgroundBoxBorder;
+    }
+    return CssBackgroundBoxFromSlice(
+        CssSliceFromBytes((const uint8_t *)keyword, strlen(keyword)));
+}
+
+int CssBackgroundBoxSliceIsKnown(CssSlice keyword)
+{
+    size_t index;
+
+    if (CssSliceIsAbsent(keyword) || keyword.length == 0u) {
+        return 0;
+    }
+    for (index = 0u; index < BACKGROUND_BOX_VOCABULARY_COUNT; index++) {
+        if (CssBytesEqualAsciiCi(keyword.bytes, keyword.length,
+                                          backgroundBoxVocabulary[index].keyword)) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+int CssBackgroundBoxIncludesBorder(CssBackgroundBox box)
+{
+    const BackgroundBoxRow *row = BackgroundBoxRowOf(box);
+
+    return row ? row->border : 0;
+}
+
+int CssBackgroundBoxIncludesPadding(CssBackgroundBox box)
+{
+    const BackgroundBoxRow *row = BackgroundBoxRowOf(box);
+
+    return row ? row->padding : 0;
+}
+
+Result CssBackgroundBoxWrite(CssBackgroundBox box,
+                             char *buffer,
+                             size_t capacity,
+                             size_t *outLength,
+                             CssDiag *diag)
+{
+    const BackgroundBoxRow *row;
+    size_t length;
+
+    if (!buffer || !outLength || capacity == 0u) {
+        return RoboCssDiag(diag, RoboCssDomainBackground, RoboInvalidArgument,
+                             "buffer and out_length are required");
+    }
+    buffer[0] = '\0';
+    *outLength = 0u;
+    row = BackgroundBoxRowOf(box);
+    if (!row) {
+        return RoboCssDiag(diag, RoboCssDomainBackground, RoboInvalidArgument,
+                             "not a background box value");
+    }
+    length = strlen(row->keyword);
+    if (length >= capacity) {
+        *outLength = length;
+        return RoboCssDiag(diag, RoboCssDomainBackground, RoboNotSupported,
+                             "the box keyword does not fit");
+    }
+    memcpy(buffer, row->keyword, length + 1u);
+    *outLength = length;
+    return RoboOk;
+}
+
+/* ------------------------------------------------------------------ */
+/* The blend-mode vocabulary (18.17)                                   */
+/* ------------------------------------------------------------------ */
+
+typedef struct blendModeRow {
+    CssBlendMode value;
+    const char *keyword;
+    int normal;
+    int separable;
+    int nonSeparable;
+} BlendModeRow;
+
+static const BlendModeRow blendModeVocabulary[] = {
+    { RoboCssBlendModeNormal,      "normal",      1, 0, 0 },
+    { RoboCssBlendModeMultiply,    "multiply",    0, 1, 0 },
+    { RoboCssBlendModeScreen,      "screen",      0, 1, 0 },
+    { RoboCssBlendModeOverlay,     "overlay",     0, 1, 0 },
+    { RoboCssBlendModeDarken,      "darken",      0, 1, 0 },
+    { RoboCssBlendModeLighten,     "lighten",     0, 1, 0 },
+    { RoboCssBlendModeColorDodge,  "color-dodge", 0, 1, 0 },
+    { RoboCssBlendModeColorBurn,   "color-burn",  0, 1, 0 },
+    { RoboCssBlendModeHardLight,   "hard-light",  0, 1, 0 },
+    { RoboCssBlendModeSoftLight,   "soft-light",  0, 1, 0 },
+    { RoboCssBlendModeDifference,  "difference",  0, 1, 0 },
+    { RoboCssBlendModeExclusion,   "exclusion",   0, 1, 0 },
+    { RoboCssBlendModeHue,         "hue",         0, 0, 1 },
+    { RoboCssBlendModeSaturation,  "saturation",  0, 0, 1 },
+    { RoboCssBlendModeColor,       "color",       0, 0, 1 },
+    { RoboCssBlendModeLuminosity,  "luminosity",  0, 0, 1 }
+};
+
+#define BLEND_MODE_VOCABULARY_COUNT \
+    (sizeof(blendModeVocabulary) / sizeof(blendModeVocabulary[0]))
+
+static const BlendModeRow *BlendModeRowOf(CssBlendMode mode)
+{
+    size_t index;
+
+    for (index = 0u; index < BLEND_MODE_VOCABULARY_COUNT; index++) {
+        if (blendModeVocabulary[index].value == mode) {
+            return &blendModeVocabulary[index];
+        }
+    }
+    return NULL;
+}
+
+int CssBlendModeIsKnown(CssBlendMode mode)
+{
+    return BlendModeRowOf(mode) != NULL;
+}
+
+const char *CssBlendModeName(CssBlendMode mode)
+{
+    const BlendModeRow *row = BlendModeRowOf(mode);
+
+    return row ? row->keyword : "";
+}
+
+size_t CssBlendModeCount(void)
+{
+    return BLEND_MODE_VOCABULARY_COUNT;
+}
+
+CssBlendMode CssBlendModeFromSlice(CssSlice keyword)
+{
+    size_t index;
+
+    if (CssSliceIsAbsent(keyword) || keyword.length == 0u) {
+        return RoboCssBlendModeNormal;
+    }
+    for (index = 0u; index < BLEND_MODE_VOCABULARY_COUNT; index++) {
+        if (CssBytesEqualAsciiCi(keyword.bytes, keyword.length,
+                                          blendModeVocabulary[index].keyword)) {
+            return blendModeVocabulary[index].value;
+        }
+    }
+    return RoboCssBlendModeNormal;
+}
+
+CssBlendMode CssBlendModeFromText(const char *keyword)
+{
+    if (!keyword) {
+        return RoboCssBlendModeNormal;
+    }
+    return CssBlendModeFromSlice(
+        CssSliceFromBytes((const uint8_t *)keyword, strlen(keyword)));
+}
+
+int CssBlendModeSliceIsKnown(CssSlice keyword)
+{
+    size_t index;
+
+    if (CssSliceIsAbsent(keyword) || keyword.length == 0u) {
+        return 0;
+    }
+    for (index = 0u; index < BLEND_MODE_VOCABULARY_COUNT; index++) {
+        if (CssBytesEqualAsciiCi(keyword.bytes, keyword.length,
+                                          blendModeVocabulary[index].keyword)) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+int CssBlendModeIsNormal(CssBlendMode mode)
+{
+    const BlendModeRow *row = BlendModeRowOf(mode);
+
+    /* An unknown value answers the initial's behaviour: leave the backdrop alone. */
+    return row ? row->normal : 1;
+}
+
+int CssBlendModeIsSeparable(CssBlendMode mode)
+{
+    const BlendModeRow *row = BlendModeRowOf(mode);
+
+    return row ? row->separable : 0;
+}
+
+int CssBlendModeIsNonSeparable(CssBlendMode mode)
+{
+    const BlendModeRow *row = BlendModeRowOf(mode);
+
+    return row ? row->nonSeparable : 0;
+}
+
+Result CssBlendModeWrite(CssBlendMode mode,
+                         char *buffer,
+                         size_t capacity,
+                         size_t *outLength,
+                         CssDiag *diag)
+{
+    const BlendModeRow *row;
+    size_t length;
+
+    if (!buffer || !outLength || capacity == 0u) {
+        return RoboCssDiag(diag, RoboCssDomainBackground, RoboInvalidArgument,
+                             "buffer and out_length are required");
+    }
+    buffer[0] = '\0';
+    *outLength = 0u;
+    row = BlendModeRowOf(mode);
+    if (!row) {
+        return RoboCssDiag(diag, RoboCssDomainBackground, RoboInvalidArgument,
+                             "not a background blend mode value");
+    }
+    length = strlen(row->keyword);
+    if (length >= capacity) {
+        *outLength = length;
+        return RoboCssDiag(diag, RoboCssDomainBackground, RoboNotSupported,
+                             "the blend mode keyword does not fit");
     }
     memcpy(buffer, row->keyword, length + 1u);
     *outLength = length;

@@ -128,7 +128,7 @@ static void TestCssRegistryStandardSet(void)
      *
      * A count is asserted rather than a lower bound so that a row added later is a
      * deliberate act rather than an accident. */
-    RoboCheckEqInt((int)CssPropertyRegistryCount(registry), 205);
+    RoboCheckEqInt((int)CssPropertyRegistryCount(registry), 208);
     /*
      * 18.15's twenty text rows move the inherited half by fourteen and the other by
      * six, and that split is the family's central fact stated as a count: an alignment,
@@ -156,7 +156,7 @@ static void TestCssRegistryStandardSet(void)
      * and expansion — not the cascade — is what distributes it. That is why the
      * inherited half moved by eighteen and the other by exactly one.
      */
-    RoboCheckEqInt((int)nonInherited, 148);
+    RoboCheckEqInt((int)nonInherited, 151);
 
     CssPropertyRegistryDestroy(registry);
 }
@@ -238,7 +238,11 @@ static void TestCssRegistryInheritedClassification(void)
         /* 18.16's two non-inherited image rows: how a replaced element's content is
          * fitted to its box belongs to the box, not to the content, so a child that
          * displayed the same image is not itself `cover`. */
-        "object-fit", "object-position"
+        "object-fit", "object-position",
+        /* 18.17's three non-inherited background rows: a background is painted per
+         * element, and its clip box, its origin box and its blend mode are the
+         * element's own. */
+        "background-blend-mode", "background-clip", "background-origin"
     };
     CssPropertyRegistry *registry = NULL;
     size_t index;
@@ -560,7 +564,12 @@ static void TestCssRegistryInitialValues(void)
         {"text-decoration-thickness", "auto"},
         {"text-overflow", "clip"},
         {"object-fit", "fill"},
-        {"object-position", "50%,_,50%"}
+        {"object-position", "50%,_,50%"},
+        /* 18.17's three background rows. `background-clip` and `background-origin`
+         * share the box vocabulary and differ only in their initial value. */
+        {"background-blend-mode", "normal"},
+        {"background-clip", "border-box"},
+        {"background-origin", "padding-box"}
     };
     CssPropertyRegistry *registry = NULL;
     size_t index;

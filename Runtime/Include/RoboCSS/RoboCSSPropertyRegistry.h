@@ -706,11 +706,27 @@ typedef enum CssPropertyComputation {
      * fills first, and `scale-down` is the one value whose answer depends on comparing
      * the image's intrinsic size with the box — a number the value does not carry.
      */
-    RoboCssPropertyComputationObjectFit = 70
+    RoboCssPropertyComputationObjectFit = 70,
+    /**
+     * One of the closed box vocabulary (18.17) — `border-box`, `padding-box` or
+     * `content-box` — shared by `background-clip` and `background-origin`.
+     *
+     * One shape and two initial values, which is why the row carries the vocabulary
+     * rather than the property: the boxes nest, so a consumer asks which boxes are
+     * *included* rather than which one this is.
+     */
+    RoboCssPropertyComputationBackgroundBox = 71,
+    /**
+     * One of the closed `background-blend-mode` vocabulary (18.17) — sixteen modes in
+     * three groups: the identity (`normal`), the twelve **separable** formulas that
+     * compute each colour channel independently, and the four **non-separable** ones
+     * that mix the channels together.
+     */
+    RoboCssPropertyComputationBlendMode = 72
 } CssPropertyComputation;
 
 /** Number of defined computations. */
-#define RoboCssPropertyComputationCount 71u
+#define RoboCssPropertyComputationCount 73u
 
 /** Non-zero when @p computation is a defined enumerator. */
 int CssPropertyComputationIsKnown(CssPropertyComputation computation);

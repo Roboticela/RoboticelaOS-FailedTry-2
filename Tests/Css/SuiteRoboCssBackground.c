@@ -46,13 +46,17 @@
  */
 static void TestBackgroundRepeatVocabulary(void)
 {
+    /*
+     * Six, since 18.17 added CSS's other two as rows 4 and 5 — exactly as this
+     * header predicted, which is why the enumerator values are append-only.
+     */
     static const char *const keywords[] = { "repeat", "repeat-x", "repeat-y",
-                                            "no-repeat" };
+                                            "no-repeat", "space", "round" };
     size_t index;
 
     CssFixture();
-    RoboCheckEqInt((int)RoboCssBackgroundRepeatCount, 4);
-    RoboCheckEqInt((int)CssBackgroundRepeatCount(), 4);
+    RoboCheckEqInt((int)RoboCssBackgroundRepeatCount, 6);
+    RoboCheckEqInt((int)CssBackgroundRepeatCount(), 6);
     for (index = 0u; index < sizeof(keywords) / sizeof(keywords[0]); index++) {
         CssBackgroundRepeat repeat = (CssBackgroundRepeat)index;
 
@@ -81,16 +85,18 @@ static void TestBackgroundRepeatVocabulary(void)
                           CssSliceFromText("REPEAT-Y")),
                       1);
     RoboCheckEqInt(CssBackgroundRepeatSliceIsKnown(
-                          CssSliceFromText("space")),
-                      0);
+                          CssSliceFromText("SPACE")),
+                      1);
     RoboCheckEqInt(CssBackgroundRepeatSliceIsKnown(
                           CssSliceFromText("repeatx")),
                       0);
     RoboCheckEqInt(CssBackgroundRepeatSliceIsKnown(
                           CssSliceFromText("")),
                       0);
+    /* A word the vocabulary does not know still answers `repeat` — so the predicate
+     * on the *identifier* is what tells a real value from the default. */
     RoboCheckEqInt(CssBackgroundRepeatFromSlice(
-                          CssSliceFromText("space")),
+                          CssSliceFromText("banana")),
                       (int)RoboCssBackgroundRepeat);
     RoboCheckEqInt(CssBackgroundRepeatFromText(NULL),
                       (int)RoboCssBackgroundRepeat);
@@ -115,7 +121,11 @@ static void TestBackgroundRepeatAxes(void)
         { RoboCssBackgroundRepeat,    1, 1 },
         { RoboCssBackgroundRepeatX,  1, 0 },
         { RoboCssBackgroundRepeatY,  0, 1 },
-        { RoboCssBackgroundNoRepeat, 0, 0 }
+        { RoboCssBackgroundNoRepeat, 0, 0 },
+        /* 18.17's two rows tile on both axes *like* `repeat`; what makes them their
+         * own values is the column separate from the axes. */
+        { RoboCssBackgroundRepeatSpace, 1, 1 },
+        { RoboCssBackgroundRepeatRound, 1, 1 }
     };
     size_t index;
 
@@ -163,17 +173,46 @@ static void TestBackgroundRepeatAxes(void)
                           (CssBackgroundRepeat)99,
                           RoboCssBackgroundAxisVertical),
                       0);
+    /*
+     * The third and fourth columns: `space` distributes the leftover as gaps and
+     * `round` absorbs it by stretching. They are not each other's negation — a plain
+     * `repeat` has neither — and neither changes where the two axis columns point.
+     */
+    RoboCheckEqInt(CssBackgroundRepeatDistributesSpace(
+                          RoboCssBackgroundRepeatSpace),
+                      1);
+    RoboCheckEqInt(CssBackgroundRepeatStretches(
+                          RoboCssBackgroundRepeatSpace),
+                      0);
+    RoboCheckEqInt(CssBackgroundRepeatDistributesSpace(
+                          RoboCssBackgroundRepeatRound),
+                      0);
+    RoboCheckEqInt(CssBackgroundRepeatStretches(
+                          RoboCssBackgroundRepeatRound),
+                      1);
+    RoboCheckEqInt(CssBackgroundRepeatDistributesSpace(
+                          RoboCssBackgroundRepeat),
+                      0);
+    RoboCheckEqInt(CssBackgroundRepeatStretches(
+                          RoboCssBackgroundRepeat),
+                      0);
+    RoboCheckEqInt(CssBackgroundRepeatDistributesSpace(
+                          (CssBackgroundRepeat)99),
+                      0);
+    RoboCheckEqInt(CssBackgroundRepeatStretches(
+                          (CssBackgroundRepeat)99),
+                      0);
 }
 
-/** The attachment vocabulary: two values, and `local` is a row not added. */
+/** The attachment vocabulary: three values, `local` added by 18.17. */
 static void TestBackgroundAttachmentVocabulary(void)
 {
-    static const char *const keywords[] = { "scroll", "fixed" };
+    static const char *const keywords[] = { "scroll", "fixed", "local" };
     size_t index;
 
     CssFixture();
-    RoboCheckEqInt((int)RoboCssBackgroundAttachmentCount, 2);
-    RoboCheckEqInt((int)CssBackgroundAttachmentCount(), 2);
+    RoboCheckEqInt((int)RoboCssBackgroundAttachmentCount, 3);
+    RoboCheckEqInt((int)CssBackgroundAttachmentCount(), 3);
     for (index = 0u; index < sizeof(keywords) / sizeof(keywords[0]); index++) {
         CssBackgroundAttachment attachment =
             (CssBackgroundAttachment)index;
@@ -193,11 +232,23 @@ static void TestBackgroundAttachmentVocabulary(void)
     RoboCheckEqInt(CssBackgroundAttachmentSliceIsKnown(
                           CssSliceFromText("FIXED")),
                       1);
-    /* `local` scrolls with the element's own content rather than with the page,
-     * and it is a value this build has not added — which is a different answer
-     * from a word nothing knows. */
+    /* `local` scrolls with the element's own content rather than with the page: it is
+     * the one value whose *frame* is the element's overflow, which is what the
+     * classification names. */
     RoboCheckEqInt(CssBackgroundAttachmentSliceIsKnown(
-                          CssSliceFromText("local")),
+                          CssSliceFromText("LOCAL")),
+                      1);
+    RoboCheckEqInt(CssBackgroundAttachmentScrollsWithContent(
+                          RoboCssBackgroundAttachmentLocal),
+                      1);
+    RoboCheckEqInt(CssBackgroundAttachmentScrollsWithContent(
+                          RoboCssBackgroundAttachmentScroll),
+                      0);
+    RoboCheckEqInt(CssBackgroundAttachmentScrollsWithContent(
+                          RoboCssBackgroundAttachmentFixed),
+                      0);
+    RoboCheckEqInt(CssBackgroundAttachmentScrollsWithContent(
+                          (CssBackgroundAttachment)99),
                       0);
     RoboCheckEqInt(CssBackgroundAttachmentSliceIsKnown(
                           CssSliceFromText("floating")),
@@ -1281,6 +1332,11 @@ static void TestBackgroundRepeatComputed(void)
                        "repeat-y");
     CssComputeEquals(RoboCssPropertyComputationBackgroundRepeat, "p: no-repeat",
                        "no-repeat");
+    /* 18.17's two values, read by the same shape. */
+    CssComputeEquals(RoboCssPropertyComputationBackgroundRepeat, "p: space",
+                       "space");
+    CssComputeEquals(RoboCssPropertyComputationBackgroundRepeat, "p: round",
+                       "round");
     /* Case-insensitively, and the *canonical* spelling is what comes out. */
     CssComputeEquals(RoboCssPropertyComputationBackgroundRepeat,
                        "p: NO-REPEAT", "no-repeat");
@@ -1293,10 +1349,8 @@ static void TestBackgroundRepeatComputed(void)
                           RoboCssPropertyComputationBackgroundRepeat),
                       "background-repeat");
 
-    /* Three refusals, three sentences: a value this build has not added
-     * (`space`), something that is not an identifier at all, and two keywords. */
-    CssComputeEquals(RoboCssPropertyComputationBackgroundRepeat,
-                       "p: space", "not a background repeat value");
+    /* Three refusals, three sentences: an identifier the vocabulary does not know,
+     * something that is not an identifier at all, and two keywords. */
     CssComputeEquals(RoboCssPropertyComputationBackgroundRepeat,
                        "p: banana", "not a background repeat value");
     CssComputeEquals(RoboCssPropertyComputationBackgroundRepeat, "p: 20px",
@@ -1316,7 +1370,7 @@ static void TestBackgroundRepeatComputed(void)
     RoboCheckEqInt((int)unresolved, 1);
 }
 
-/** The attachment vocabulary, and `local` as a value not added. */
+/** The attachment vocabulary, and `local` read by the same shape. */
 static void TestBackgroundAttachmentComputed(void)
 {
     char text[RoboCssComputedValueTextMax];
@@ -1327,6 +1381,9 @@ static void TestBackgroundAttachmentComputed(void)
                        "p: scroll", "scroll");
     CssComputeEquals(RoboCssPropertyComputationBackgroundAttachment,
                        "p: fixed", "fixed");
+    /* 18.17's third value, read by the same shape. */
+    CssComputeEquals(RoboCssPropertyComputationBackgroundAttachment,
+                       "p: local", "local");
     CssComputeEquals(RoboCssPropertyComputationBackgroundAttachment,
                        "p: FIXED", "fixed");
     RoboCheckStrEq(CssComputeKind(
@@ -1337,8 +1394,6 @@ static void TestBackgroundAttachmentComputed(void)
                           RoboCssPropertyComputationBackgroundAttachment),
                       "background-attachment");
 
-    CssComputeEquals(RoboCssPropertyComputationBackgroundAttachment,
-                       "p: local", "not a background attachment value");
     CssComputeEquals(RoboCssPropertyComputationBackgroundAttachment,
                        "p: floating", "not a background attachment value");
     CssComputeEquals(RoboCssPropertyComputationBackgroundAttachment,
@@ -2501,6 +2556,221 @@ static void TestBackgroundDeterminism(void)
 }
 
 /* ------------------------------------------------------------------ */
+/* The 18.17 additions: the box and blend-mode vocabularies            */
+/* ------------------------------------------------------------------ */
+
+/**
+ * The box vocabulary `background-clip` and `background-origin` share.
+ *
+ * Three values that *nest*, so the classifications are inclusions rather than a
+ * partition: `border-box` includes the padding and the border, `padding-box` the
+ * padding and not the border, `content-box` neither. A consumer asks which boxes
+ * are in, which is why the two predicates are two columns rather than one rank.
+ */
+static void TestBackgroundBoxVocabulary(void)
+{
+    static const char *const keywords[] = { "border-box", "padding-box",
+                                            "content-box" };
+    static const struct {
+        int includesBorder;
+        int includesPadding;
+    } expected[] = {
+        {1, 1}, {0, 1}, {0, 0}
+    };
+    size_t index;
+
+    CssFixture();
+    RoboCheckEqInt((int)RoboCssBackgroundBoxCount, 3);
+    RoboCheckEqInt((int)CssBackgroundBoxCount(), 3);
+    for (index = 0u; index < 3u; index++) {
+        CssBackgroundBox box = (CssBackgroundBox)index;
+
+        RoboCheckEqInt(CssBackgroundBoxIsKnown(box), 1);
+        RoboCheckStrEq(CssBackgroundBoxName(box), keywords[index]);
+        RoboCheckEqInt(CssBackgroundBoxFromText(keywords[index]), (int)box);
+        RoboCheckEqInt(CssBackgroundBoxIncludesBorder(box),
+                          expected[index].includesBorder);
+        RoboCheckEqInt(CssBackgroundBoxIncludesPadding(box),
+                          expected[index].includesPadding);
+    }
+    RoboCheckEqInt(CssBackgroundBoxSliceIsKnown(CssSliceFromText("PADDING-BOX")), 1);
+    RoboCheckEqInt(CssBackgroundBoxSliceIsKnown(CssSliceFromText("banana")), 0);
+    RoboCheckEqInt(CssBackgroundBoxSliceIsKnown(CssSliceFromText("")), 0);
+    RoboCheckEqInt(CssBackgroundBoxIsKnown((CssBackgroundBox)99), 0);
+    RoboCheckStrEq(CssBackgroundBoxName((CssBackgroundBox)99), "");
+    RoboCheckEqInt(CssBackgroundBoxFromText("banana"),
+                      (int)RoboCssBackgroundBoxBorder);
+    RoboCheckEqInt(CssBackgroundBoxIncludesBorder((CssBackgroundBox)99), 0);
+    RoboCheckEqInt(CssBackgroundBoxIncludesPadding((CssBackgroundBox)99), 0);
+    /*
+     * The nesting is the fact the two columns exist for: `padding-box` includes the
+     * padding and *not* the border, so "includes the padding" is not "includes the
+     * border".
+     */
+    RoboCheckEqInt(CssBackgroundBoxIncludesPadding(RoboCssBackgroundBoxPadding), 1);
+    RoboCheckEqInt(CssBackgroundBoxIncludesBorder(RoboCssBackgroundBoxPadding), 0);
+
+    {
+        char buffer[RoboCssBackgroundBoxTextMax];
+        size_t length = 0u;
+
+        RoboCheckEqInt(CssBackgroundBoxWrite(RoboCssBackgroundBoxContent, buffer,
+                                             sizeof(buffer), &length, NULL),
+                          RoboOk);
+        RoboCheckStrEq(buffer, "content-box");
+        RoboCheckEqInt((int)length, 11);
+        RoboCheckEqInt(CssBackgroundBoxWrite((CssBackgroundBox)99, buffer,
+                                             sizeof(buffer), &length, NULL),
+                          RoboInvalidArgument);
+    }
+}
+
+/**
+ * The blend-mode vocabulary, and the three groups it splits into.
+ *
+ * Sixteen values: the identity (`normal`), twelve **separable** formulas that compute
+ * each colour channel independently, and four **non-separable** ones. `normal` is in
+ * neither formula group, so separable and non-separable are not each other's negation.
+ */
+static void TestBackgroundBlendModeVocabulary(void)
+{
+    static const char *const keywords[] = {
+        "normal", "multiply", "screen", "overlay", "darken", "lighten",
+        "color-dodge", "color-burn", "hard-light", "soft-light", "difference",
+        "exclusion", "hue", "saturation", "color", "luminosity"
+    };
+    size_t index;
+
+    CssFixture();
+    RoboCheckEqInt((int)RoboCssBlendModeCount, 16);
+    RoboCheckEqInt((int)CssBlendModeCount(), 16);
+    for (index = 0u; index < 16u; index++) {
+        CssBlendMode mode = (CssBlendMode)index;
+
+        RoboCheckEqInt(CssBlendModeIsKnown(mode), 1);
+        RoboCheckStrEq(CssBlendModeName(mode), keywords[index]);
+        RoboCheckEqInt(CssBlendModeFromText(keywords[index]), (int)mode);
+        RoboCheck(CssBlendModeSliceIsKnown(CssSliceFromText(keywords[index])) == 1);
+    }
+    RoboCheckEqInt(CssBlendModeIsKnown((CssBlendMode)99), 0);
+    RoboCheckStrEq(CssBlendModeName((CssBlendMode)99), "");
+    RoboCheckEqInt(CssBlendModeFromText("MULTIPLY"), (int)RoboCssBlendModeMultiply);
+    RoboCheckEqInt(CssBlendModeFromText(NULL), (int)RoboCssBlendModeNormal);
+    RoboCheckEqInt(CssBlendModeFromText("banana"), (int)RoboCssBlendModeNormal);
+    RoboCheckEqInt(CssBlendModeSliceIsKnown(CssSliceFromText("banana")), 0);
+    /* The three groups: `normal` is in neither of the formula ones. */
+    RoboCheckEqInt(CssBlendModeIsNormal(RoboCssBlendModeNormal), 1);
+    RoboCheckEqInt(CssBlendModeIsSeparable(RoboCssBlendModeNormal), 0);
+    RoboCheckEqInt(CssBlendModeIsNonSeparable(RoboCssBlendModeNormal), 0);
+    RoboCheckEqInt(CssBlendModeIsSeparable(RoboCssBlendModeMultiply), 1);
+    RoboCheckEqInt(CssBlendModeIsNonSeparable(RoboCssBlendModeMultiply), 0);
+    RoboCheckEqInt(CssBlendModeIsSeparable(RoboCssBlendModeSoftLight), 1);
+    RoboCheckEqInt(CssBlendModeIsNonSeparable(RoboCssBlendModeHue), 1);
+    RoboCheckEqInt(CssBlendModeIsSeparable(RoboCssBlendModeHue), 0);
+    RoboCheckEqInt(CssBlendModeIsNonSeparable(RoboCssBlendModeLuminosity), 1);
+    /* An unknown value blends nothing: the safe direction is the identity. */
+    RoboCheckEqInt(CssBlendModeIsNormal((CssBlendMode)99), 1);
+    RoboCheckEqInt(CssBlendModeIsSeparable((CssBlendMode)99), 0);
+    RoboCheckEqInt(CssBlendModeIsNonSeparable((CssBlendMode)99), 0);
+
+    {
+        char buffer[RoboCssBlendModeTextMax];
+        size_t length = 0u;
+
+        RoboCheckEqInt(CssBlendModeWrite(RoboCssBlendModeSaturation, buffer,
+                                         sizeof(buffer), &length, NULL),
+                          RoboOk);
+        RoboCheckStrEq(buffer, "saturation");
+        RoboCheckEqInt((int)length, 10);
+    }
+}
+
+/** The three 18.17 properties through the real grammar. */
+static void TestBackgroundEnhancedComputed(void)
+{
+    CssFixture();
+
+    /* The two box rows read through the shared closed-vocabulary body, so a value
+     * this build can read is a KEYWORD carrying the canonical spelling. */
+    CssComputeEquals(RoboCssPropertyComputationBackgroundBox, "o: content-box",
+                       "content-box");
+    CssComputeEquals(RoboCssPropertyComputationBackgroundBox, "o: PADDING-BOX",
+                       "padding-box");
+    RoboCheckStrEq(CssComputeKind(RoboCssPropertyComputationBackgroundBox,
+                                        "o: border-box"),
+                      "keyword");
+    CssComputeEquals(RoboCssPropertyComputationBlendMode, "o: multiply",
+                       "multiply");
+    CssComputeEquals(RoboCssPropertyComputationBlendMode, "o: LUMINOSITY",
+                       "luminosity");
+
+    /* 18.17's new repeat and attachment values are values the same shapes read. */
+    CssComputeEquals(RoboCssPropertyComputationBackgroundRepeat, "o: space",
+                       "space");
+    CssComputeEquals(RoboCssPropertyComputationBackgroundRepeat, "o: round",
+                       "round");
+    CssComputeEquals(RoboCssPropertyComputationBackgroundAttachment, "o: local",
+                       "local");
+
+    /* The refusals, which is what the closed sets buy. */
+    CssComputeEquals(RoboCssPropertyComputationBackgroundBox, "o: banana",
+                       "not a background box value");
+    CssComputeEquals(RoboCssPropertyComputationBlendMode, "o: banana",
+                       "not a background blend mode value");
+    CssComputeEquals(RoboCssPropertyComputationBlendMode, "o: 3px",
+                       "not an identifier");
+}
+
+/** The three rows, their shapes, and their initials — which are the point. */
+static void TestBackgroundEnhancedRegistry(void)
+{
+    static const struct {
+        const char *name;
+        CssPropertyComputation computation;
+        const char *initial;
+    } rows[] = {
+        { "background-blend-mode", RoboCssPropertyComputationBlendMode,
+          "normal" },
+        { "background-clip", RoboCssPropertyComputationBackgroundBox,
+          "border-box" },
+        /* The one-vocabulary-two-initials row: origin starts at the padding box. */
+        { "background-origin", RoboCssPropertyComputationBackgroundBox,
+          "padding-box" }
+    };
+    CssPropertyRegistry *registry = NULL;
+    size_t index;
+
+    CssFixture();
+    RoboCheckEqInt(CssPropertyRegistryCreateStandard(&registry, NULL), RoboOk);
+    for (index = 0u; index < sizeof(rows) / sizeof(rows[0]); index++) {
+        const CssPropertyDefinition *definition =
+            CssPropertyRegistryFind(registry, rows[index].name);
+
+        RoboCheck(definition != NULL);
+        if (!definition) {
+            continue;
+        }
+        RoboCheckEqInt(definition->computation, (int)rows[index].computation);
+        RoboCheckEqInt(CssPropertyDefinitionInherited(definition), 0);
+        RoboCheckStrEq(definition->initialText, rows[index].initial);
+    }
+    /* The three rows are named shapes, not the fallback. */
+    RoboCheckEqInt(CssPropertyComputationIsKnown(
+                          RoboCssPropertyComputationBackgroundBox),
+                      1);
+    RoboCheckEqInt(CssPropertyComputationIsKnown(
+                          RoboCssPropertyComputationBlendMode),
+                      1);
+    RoboCheckStrEq(CssPropertyComputationName(
+                          RoboCssPropertyComputationBackgroundBox),
+                      "background-box");
+    RoboCheckStrEq(CssPropertyComputationName(
+                          RoboCssPropertyComputationBlendMode),
+                      "blend-mode");
+    CssPropertyRegistryDestroy(registry);
+}
+
+/* ------------------------------------------------------------------ */
 
 void TestRegisterCssBackground(void);
 
@@ -2548,4 +2818,11 @@ void TestRegisterCssBackground(void)
                        TestBackgroundShorthandUndistributed);
     TestRegister("css.background.robust", TestBackgroundRobust);
     TestRegister("css.background.determinism", TestBackgroundDeterminism);
+    TestRegister("css.background.box.vocabulary", TestBackgroundBoxVocabulary);
+    TestRegister("css.background.blend_mode.vocabulary",
+                       TestBackgroundBlendModeVocabulary);
+    TestRegister("css.background.enhanced.computed",
+                       TestBackgroundEnhancedComputed);
+    TestRegister("css.background.enhanced.registry",
+                       TestBackgroundEnhancedRegistry);
 }

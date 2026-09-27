@@ -520,7 +520,7 @@ static void TestImageCapabilities(void)
 
     RoboCheckEqInt(CssGetCapabilities(&caps), RoboOk);
     RoboCheckEqInt(caps.images, 1);
-    RoboCheckEqInt((int)RoboCssPropertyComputationCount, 71);
+    RoboCheckEqInt((int)RoboCssPropertyComputationCount, 73);
     RoboCheckEqInt(CssPropertyComputationIsKnown(
                           RoboCssPropertyComputationImageRendering),
                       1);

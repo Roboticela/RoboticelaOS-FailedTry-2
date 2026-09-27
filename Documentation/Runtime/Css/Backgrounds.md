@@ -1,4 +1,13 @@
-# RoboCSS Backgrounds (Phase 9.14)
+# RoboCSS Backgrounds (Phase 9.14, extended by 18.17)
+
+> **18.17 completes the family this document describes.** It adds `space` and `round`
+> to the repeat vocabulary (rows 4 and 5), `local` to the attachment vocabulary
+> (row 2), and three properties — `background-clip` and `background-origin` over the
+> **box** vocabulary (`border-box`/`padding-box`/`content-box`, which nest, so the
+> classifications are inclusions rather than a partition) and `background-blend-mode`
+> over sixteen modes in three groups (the identity `normal`, twelve **separable**
+> formulas, four **non-separable** ones). §13's "not added" list below is updated to
+> match; multiple layers, painting and percentage resolution remain absent.
 
 A background is the first property *family* whose parts are not the same kind of thing:
 
@@ -81,7 +90,10 @@ int CssBackgroundRepeatRepeatsOnAxis(CssBackgroundRepeat repeat,
 This is the same shape the display vocabulary uses for its outer/inner halves and the
 positioning one for its flow/positioned columns: the question is asked of the row, so a value
 added later (`space`, `round` — CSS's other two) answers for itself and no function below
-compares a spelling to decide anything. Note also that there is no `NONE` enumerator, so
+compares a spelling to decide anything. **18.17 added them as rows 4 and 5**, exactly as this
+paragraph predicted: both tile on both axes *like* `repeat`, and they differ from it in a
+fourth and fifth column — `space` distributes the leftover as gaps, `round` absorbs it by
+stretching — so the axes stay the axes and the new question is asked of its own column. Note also that there is no `NONE` enumerator, so
 unlike the display and positioning vocabularies a zero record reads as `repeat` — the
 property's *initial* value, which is the safest thing a cleared record could hold and still
 not something to read without checking the containing record's kind.
@@ -99,9 +111,10 @@ typedef enum CssBackgroundAttachment {
 } CssBackgroundAttachment;
 ```
 
-Two values, and the set is closed. CSS's third, `local`, scrolls with the element's own
-content rather than with the page — it is a value this build has not *added*, which is a
-different answer from a word nothing knows, and the diagnostic says which.
+Two values at 9.14, and the set is closed. CSS's third, `local`, scrolls with the element's own
+content rather than with the page; **18.17 added it as row 2**, and the predicate that gives it
+meaning (`CssBackgroundAttachmentScrollsWithContent`) asks the one question that separates it —
+which *frame* it moves with — rather than comparing a spelling.
 
 Both vocabularies are rows in the shared closed-vocabulary grammar that `display` and
 `position` already use, so their refusals come in the same three sentences and none of that
@@ -340,6 +353,9 @@ that six parts are unanswerable instead of finding a declaration and nothing und
 | `background-size` | BACKGROUND_SIZE | `auto` | no |
 | `background-repeat` | BACKGROUND_REPEAT | `repeat` | no |
 | `background-attachment` | BACKGROUND_ATTACHMENT | `scroll` | no |
+| `background-clip` (18.17) | BACKGROUND_BOX | `border-box` | no |
+| `background-origin` (18.17) | BACKGROUND_BOX | `padding-box` | no |
+| `background-blend-mode` (18.17) | BLEND_MODE | `normal` | no |
 
 Two of the initial values are worth reading twice: `background-position` starts at `0% 0%` —
 the top-left as a **percentage**, so it stays relative to whatever box it lands on — and
@@ -396,11 +412,12 @@ Deliberately absent, and each is a boundary rather than an unfinished edge:
   only the phase with a box can say 25% *of what*.
 - **Multiple layers.** `url(a.png), url(b.png)` is refused with a reason rather than half-read:
   each layer is a whole set of six longhands, and this build's value model holds one.
-- **`background-clip`, `background-origin`, `background-blend-mode`, `background-position-x/y`.**
-  Properties this build has not added. `background-position-x`/`-y` are two more rows; the
-  other three need a box and a layer model.
-- **`local` attachment, `space`/`round` repeat.** Values CSS has and this build has not added —
-  each is one row in a table the refusals already read from.
+- **`background-clip`, `background-origin`, `background-blend-mode`.** *Added by 18.17*
+  (see the box and blend-mode vocabulary in the header): `border-box`/`padding-box`/
+  `content-box`, and the sixteen modes. `background-position-x`/`-y` remain unadded — they are
+  two more rows for a later phase.
+- **`local` attachment, `space`/`round` repeat.** *Added by 18.17* as rows 2, 4 and 5 — each
+  was one row in a table the refusals already read from, which is what the 9.14 text predicted.
 - **`image-set()`, `element()`, `paint()`, `color-mix()` in a layer.** Carried as references
   where they are images, refused where they are colours — the answer 9.9 already gives.
 - **Fetching.** `url(...)` is a reference this build can hold and cannot follow. No networking,

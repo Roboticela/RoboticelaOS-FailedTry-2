@@ -431,8 +431,8 @@ static void TestGridCapabilities(void)
     RoboCheckEqInt(caps.defaultStyles, 0);
     RoboCheckEqInt(caps.stylesheetLoading, 0);
 
-    RoboCheckEqInt(RoboCssVersionMinor, 34);
-    RoboCheckStrEq(CssVersionString(), "0.34.0");
+    RoboCheckEqInt(RoboCssVersionMinor, 35);
+    RoboCheckStrEq(CssVersionString(), "0.35.0");
 
     RoboCheckEqInt((int)RoboCssComputedValueKindCount, 20);
     RoboCheckStrEq(CssComputedValueKindName(RoboCssComputedValueGridAutoFlow),

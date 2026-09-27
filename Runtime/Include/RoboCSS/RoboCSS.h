@@ -516,6 +516,17 @@ typedef struct CssCapabilities {
      * that draws them.
      */
     int images;
+    /**
+     * The background family's 18.17 additions (18.17): the `space`/`round` repeat
+     * values, the `local` attachment, the box vocabulary `background-clip` and
+     * `background-origin` share, and `background-blend-mode`'s sixteen modes.
+     *
+     * What it does not claim is multiple background *layers* (one layer is still the
+     * model), a renderer that samples a gradient or blends a pixel, or percentage
+     * resolution — a value says what a paint pass follows, and the painting belongs to
+     * the phase that has a box and a surface.
+     */
+    int blendModes;
 } CssCapabilities;
 
 /** Zero every flag. Safe on NULL. */

@@ -289,6 +289,10 @@ const char *CssPropertyComputationName(
         return "image-rendering";
     case RoboCssPropertyComputationObjectFit:
         return "object-fit";
+    case RoboCssPropertyComputationBackgroundBox:
+        return "background-box";
+    case RoboCssPropertyComputationBlendMode:
+        return "blend-mode";
     default:
         return "unknown";
     }
@@ -834,6 +838,27 @@ static const RegistryStandardEntry registryStandardEntries[] = {
       RoboCssPropertyComputationBackgroundRepeat,     "repeat",  0 },
     { "background-attachment", RoboCssPropertyInheritanceNonInherited,
       RoboCssPropertyComputationBackgroundAttachment, "scroll",  0 },
+    /*
+     * --- 18.17 completes the background family ---
+     *
+     * Three rows join the six longhands 9.14 added. `background-clip` and
+     * `background-origin` are both the *box* vocabulary and differ only in their
+     * initial value — `border-box` for the clip, `padding-box` for the origin — which
+     * is the one-vocabulary-two-initials fact the display and positioning rows record;
+     * and `background-blend-mode` is a vocabulary of its own, the sixteen modes it
+     * shares with `mix-blend-mode`.
+     *
+     * All three are non-inherited for the reason the six are: a background is painted
+     * per element. And all three are per-layer in CSS while this build holds one layer,
+     * so the list form is refused rather than half-read — the same boundary 9.14 drew
+     * for the image and the position.
+     */
+    { "background-blend-mode", RoboCssPropertyInheritanceNonInherited,
+      RoboCssPropertyComputationBlendMode,  "normal",      0 },
+    { "background-clip",       RoboCssPropertyInheritanceNonInherited,
+      RoboCssPropertyComputationBackgroundBox, "border-box", 0 },
+    { "background-origin",     RoboCssPropertyInheritanceNonInherited,
+      RoboCssPropertyComputationBackgroundBox, "padding-box", 0 },
     /*
      * --- the box model (9.11) ---
      *

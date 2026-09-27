@@ -946,6 +946,35 @@ draws them. One capability joins the table (`images`), one diagnostic domain
 (`RoboCssDomainImage`), two computations join the closed-vocabulary body, and the
 module moves to `0.34.0`.
 
+### The background family completed (18.17)
+
+Phase 18.17 *completes* the family 9.14 began rather than starting a new one, so no
+diagnostic domain joins the table — it adds the values and properties `docs/Backgrounds.md`
+§13 named as not built. The values are read the way the vocabulary was built to be read:
+`background-repeat` gains `space` and `round` as rows 4 and 5, and they are rows rather
+than a branch because they tile on both axes *like* `repeat` and differ only in how the
+leftover is placed — distributed as gaps, or absorbed by stretching — so the row carries
+two more columns and every accessor already reads them. `background-attachment` gains
+`local` as its third value, and its predicate asks the one question that separates it: the
+frame it moves with is the element's own content.
+
+The properties are three, and two of them are one shape. `background-clip` and
+`background-origin` share the **box** vocabulary — `border-box`, `padding-box`,
+`content-box` — and differ only in which box is the initial, the one-vocabulary-two-
+initials fact the display and positioning vocabularies record. Because the boxes nest, the
+classifications are *inclusions* rather than a partition: `border-box` includes the border
+and the padding, `padding-box` the padding and not the border. `background-blend-mode` is a
+vocabulary of its own — sixteen modes in three groups: the identity `normal`, twelve
+**separable** formulas that compute each channel independently, and four **non-separable**
+ones (`hue`, `saturation`, `color`, `luminosity`) that mix the channels together. A
+consumer with a per-channel fast path asks which kind it has first, and `normal` is in
+neither group.
+
+The boundary is 9.14's, restated: multiple background *layers* remain refused (one layer is
+this build's value model), nothing paints a background, no percentage is resolved against a
+box, and no image is loaded. One capability joins the table (`blendModes`), two computations
+join the closed-vocabulary body, and the module moves to `0.35.0`.
+
 ### Colour
 
 A *colour* is the one shape whose meaning is arithmetic, so since 9.9 it is a type

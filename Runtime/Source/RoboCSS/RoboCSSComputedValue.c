@@ -2119,6 +2119,20 @@ static int ComputedVocabularyObjectFitKnown(CssSlice keyword)
     return CssObjectFitSliceIsKnown(keyword);
 }
 
+/*
+ * The 18.17 additions: the box vocabulary `background-clip` and `background-origin`
+ * share, and `background-blend-mode`'s sixteen modes.
+ */
+static int ComputedVocabularyBackgroundBoxKnown(CssSlice keyword)
+{
+    return CssBackgroundBoxSliceIsKnown(keyword);
+}
+
+static int ComputedVocabularyBlendModeKnown(CssSlice keyword)
+{
+    return CssBlendModeSliceIsKnown(keyword);
+}
+
 /**
  * A closed vocabulary whose value *is* its keyword, carried as one.
  *
@@ -2336,7 +2350,18 @@ static const ComputedVocabularyGrammar computedVocabularyGrammars[] = {
       "not a single image-rendering keyword", "not an image-rendering value" },
     { RoboCssPropertyComputationObjectFit,
       ComputedVocabularyObjectFitKnown, ComputedVocabularyKeywordMake,
-      "not a single object-fit keyword", "not an object-fit value" }
+      "not a single object-fit keyword", "not an object-fit value" },
+    /*
+     * 18.17's two rows. `background-clip` and `background-origin` share one shape and
+     * differ only in their initial value, and `background-blend-mode` is its own set;
+     * both carry the keyword rather than a typed enumerator for the reason above.
+     */
+    { RoboCssPropertyComputationBackgroundBox,
+      ComputedVocabularyBackgroundBoxKnown, ComputedVocabularyKeywordMake,
+      "not a single background box keyword", "not a background box value" },
+    { RoboCssPropertyComputationBlendMode,
+      ComputedVocabularyBlendModeKnown, ComputedVocabularyKeywordMake,
+      "not a single blend mode keyword", "not a background blend mode value" }
 };
 
 /** The vocabulary grammar for @p computation, or NULL when it is not one. */
@@ -3249,6 +3274,11 @@ Result CssComputedValueCompute(
      */
     case RoboCssPropertyComputationImageRendering:
     case RoboCssPropertyComputationObjectFit:
+    /*
+     * And 18.17's two rows, the background family's closed vocabularies.
+     */
+    case RoboCssPropertyComputationBackgroundBox:
+    case RoboCssPropertyComputationBlendMode:
         return ComputedComputeVocabulary(
             ComputedVocabularyGrammarFor(computation), out, specified, diag);
     case RoboCssPropertyComputationBackgroundImage:

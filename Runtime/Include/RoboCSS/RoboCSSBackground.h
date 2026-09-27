@@ -109,11 +109,28 @@ typedef enum CssBackgroundRepeat {
     /** `repeat-y`: vertically only. */
     RoboCssBackgroundRepeatY = 2,
     /** `no-repeat`: neither axis tiles. */
-    RoboCssBackgroundNoRepeat = 3
+    RoboCssBackgroundNoRepeat = 3,
+    /**
+     * `space`: both axes tile, and the tiles are separated so a whole number fits.
+     *
+     * Added by 18.17 as row 4, exactly as this header predicted, because a stored
+     * enumerator is a contract. It tiles on both axes like `repeat` and differs in
+     * *how* the tiles are placed — so it is a third column on the row rather than a
+     * fifth spelling of the same two-axis flag.
+     */
+    RoboCssBackgroundRepeatSpace = 4,
+    /**
+     * `round`: both axes tile, and the tiles are **stretched** so a whole number fits.
+     *
+     * The other half of the pair `space` begins: both tile on both axes, and they
+     * differ only in whether the leftover is distributed as *gaps* (`space`) or
+     * absorbed by *scaling* (`round`). Neither is a value `repeat` implies.
+     */
+    RoboCssBackgroundRepeatRound = 5
 } CssBackgroundRepeat;
 
 /** Number of defined repeat values. */
-#define RoboCssBackgroundRepeatCount 4u
+#define RoboCssBackgroundRepeatCount 6u
 
 /** Non-zero when @p repeat is one of the four. */
 int CssBackgroundRepeatIsKnown(CssBackgroundRepeat repeat);
@@ -196,6 +213,27 @@ const char *CssBackgroundAxisName(CssBackgroundAxis axis);
 int CssBackgroundRepeatRepeatsOnAxis(CssBackgroundRepeat repeat,
                                                CssBackgroundAxis axis);
 
+/**
+ * Whether @p repeat separates its tiles with **gaps** rather than clipping the last
+ * one (`space`).
+ *
+ * A separate question from whether it tiles: `space` tiles on both axes like
+ * `repeat`, and what makes it its own value is that the leftover space is
+ * distributed *between* the tiles instead of leaving a partial tile at the edge. An
+ * unknown value answers 0.
+ */
+int CssBackgroundRepeatDistributesSpace(CssBackgroundRepeat repeat);
+
+/**
+ * Whether @p repeat **stretches** its tiles to absorb the leftover (`round`).
+ *
+ * `round` and `space` are the two answers to one question — what happens to the
+ * space a whole number of tiles does not fill — and neither is the negation of the
+ * other: they are both "tile on both axes", so a consumer asks this before it reads
+ * `RepeatsOnAxis`. An unknown value answers 0.
+ */
+int CssBackgroundRepeatStretches(CssBackgroundRepeat repeat);
+
 /* ------------------------------------------------------------------ */
 /* The attachment vocabulary                                           */
 /* ------------------------------------------------------------------ */
@@ -211,13 +249,31 @@ typedef enum CssBackgroundAttachment {
     /** `scroll`: the background is fixed to the element's box. The initial value. */
     RoboCssBackgroundAttachmentScroll = 0,
     /** `fixed`: the background is fixed to the viewport. */
-    RoboCssBackgroundAttachmentFixed = 1
+    RoboCssBackgroundAttachmentFixed = 1,
+    /**
+     * `local`: the background scrolls with the element's own *content*.
+     *
+     * Added by 18.17 as row 2. The three values answer one question — what does the
+     * background move with? — and `local` is the third answer, which is why the row is
+     * a spelling and not a flag: `scroll` and `fixed` are not two points on a line that
+     * `local` extends.
+     */
+    RoboCssBackgroundAttachmentLocal = 2
 } CssBackgroundAttachment;
 
 /** Number of defined attachment values. */
-#define RoboCssBackgroundAttachmentCount 2u
+#define RoboCssBackgroundAttachmentCount 3u
 
-/** Non-zero when @p attachment is one of the two. */
+/**
+ * Whether @p attachment scrolls with the element's own content (`local`).
+ *
+ * The one value whose reference frame moves when the *element* scrolls its overflow,
+ * rather than the page. An unknown value answers 0. Added by 18.17.
+ */
+int CssBackgroundAttachmentScrollsWithContent(
+    CssBackgroundAttachment attachment);
+
+/** Non-zero when @p attachment is one of the three. */
 int CssBackgroundAttachmentIsKnown(CssBackgroundAttachment attachment);
 
 /** Human-readable name ("scroll"); never NULL, "" for unknown. */
@@ -246,6 +302,193 @@ Result CssBackgroundAttachmentWrite(CssBackgroundAttachment attachment,
 
 /** Capacity @ref CssBackgroundAttachmentWrite needs: `scroll` (6) + NUL. */
 #define RoboCssBackgroundAttachmentTextMax 7u
+
+/* ------------------------------------------------------------------ */
+/* The box vocabulary (background-clip / background-origin)            */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Which of an element's boxes a background is clipped or positioned against.
+ *
+ * Three values, added by 18.17, and they are one nested fact rather than three
+ * spellings: `border-box` includes the border, the padding and the content;
+ * `padding-box` includes the padding and the content; `content-box` includes the
+ * content alone. Because they nest, the classifications below are *inclusions*
+ * rather than a partition — `border-box` includes padding and `padding-box` does
+ * not include the border — so a consumer asks which boxes are in, not which one
+ * this is.
+ *
+ * BORDERBOX is 0 because `background-clip`'s initial value is `border-box`, so a
+ * cleared record holds the state an author who declared nothing finds their clip in.
+ * `background-origin`'s initial is `padding-box`, which is *not* the zero — the same
+ * one-vocabulary-two-initials fact the display and positioning vocabularies record,
+ * so an origin is read through the record that holds it rather than from a cleared
+ * one.
+ */
+typedef enum CssBackgroundBox {
+    /** `border-box`: border, padding and content. */
+    RoboCssBackgroundBoxBorder = 0,
+    /** `padding-box`: padding and content. */
+    RoboCssBackgroundBoxPadding = 1,
+    /** `content-box`: content only. */
+    RoboCssBackgroundBoxContent = 2
+} CssBackgroundBox;
+
+/** Number of defined box values. */
+#define RoboCssBackgroundBoxCount 3u
+
+/** Non-zero when @p box is one of the three. */
+int CssBackgroundBoxIsKnown(CssBackgroundBox box);
+
+/** Human-readable name ("border-box"); never NULL, "" for unknown. */
+const char *CssBackgroundBoxName(CssBackgroundBox box);
+
+/** Number of rows in the vocabulary. */
+size_t CssBackgroundBoxCount(void);
+
+/** The box an identifier spells, or `border-box` when it spells none of them. */
+CssBackgroundBox CssBackgroundBoxFromSlice(CssSlice keyword);
+
+/** NUL-terminated flavour of the above. */
+CssBackgroundBox CssBackgroundBoxFromText(const char *keyword);
+
+/** Non-zero when @p keyword spells one of the vocabulary, case-insensitively. */
+int CssBackgroundBoxSliceIsKnown(CssSlice keyword);
+
+/**
+ * Whether @p box includes the element's **border** (`border-box`).
+ *
+ * The outermost edge, and the one that makes `background-clip: border-box` paint
+ * under the border. An unknown value answers 0.
+ */
+int CssBackgroundBoxIncludesBorder(CssBackgroundBox box);
+
+/**
+ * Whether @p box includes the element's **padding** (`border-box`, `padding-box`).
+ *
+ * A separate question from the border, because the boxes nest: `padding-box` includes
+ * the padding and not the border, so the two predicates are two columns rather than one
+ * rank. An unknown value answers 0.
+ */
+int CssBackgroundBoxIncludesPadding(CssBackgroundBox box);
+
+/** Write @p box's canonical keyword; same contract as the repeat writer. */
+Result CssBackgroundBoxWrite(CssBackgroundBox box,
+                             char *buffer,
+                             size_t capacity,
+                             size_t *outLength,
+                             CssDiag *diag);
+
+/** Capacity @ref CssBackgroundBoxWrite needs: `content-box` (11) + NUL. */
+#define RoboCssBackgroundBoxTextMax 12u
+
+/* ------------------------------------------------------------------ */
+/* The blend-mode vocabulary (background-blend-mode)                   */
+/* ------------------------------------------------------------------ */
+
+/**
+ * A computed `background-blend-mode`.
+ *
+ * Sixteen values, added by 18.17, and they split into two genuinely different kinds
+ * of formula. The **separable** modes (everything but the last four) compute each
+ * colour channel independently; the **non-separable** modes (`hue`, `saturation`,
+ * `color`, `luminosity`) mix the channels together, which is why a consumer that has
+ * a per-channel fast path asks which kind it has first. `normal` is a third thing
+ * again: it is the identity — the backdrop shows through unchanged — and it is the
+ * property's initial value, so NORMAL is 0 and a cleared record blends nothing.
+ */
+typedef enum CssBlendMode {
+    /** `normal`: no blending; the backdrop is unchanged. The initial value. */
+    RoboCssBlendModeNormal = 0,
+    /** `multiply`. */
+    RoboCssBlendModeMultiply = 1,
+    /** `screen`. */
+    RoboCssBlendModeScreen = 2,
+    /** `overlay`. */
+    RoboCssBlendModeOverlay = 3,
+    /** `darken`. */
+    RoboCssBlendModeDarken = 4,
+    /** `lighten`. */
+    RoboCssBlendModeLighten = 5,
+    /** `color-dodge`. */
+    RoboCssBlendModeColorDodge = 6,
+    /** `color-burn`. */
+    RoboCssBlendModeColorBurn = 7,
+    /** `hard-light`. */
+    RoboCssBlendModeHardLight = 8,
+    /** `soft-light`. */
+    RoboCssBlendModeSoftLight = 9,
+    /** `difference`. */
+    RoboCssBlendModeDifference = 10,
+    /** `exclusion`. */
+    RoboCssBlendModeExclusion = 11,
+    /** `hue`: non-separable. */
+    RoboCssBlendModeHue = 12,
+    /** `saturation`: non-separable. */
+    RoboCssBlendModeSaturation = 13,
+    /** `color`: non-separable. */
+    RoboCssBlendModeColor = 14,
+    /** `luminosity`: non-separable. */
+    RoboCssBlendModeLuminosity = 15
+} CssBlendMode;
+
+/** Number of defined blend modes. */
+#define RoboCssBlendModeCount 16u
+
+/** Non-zero when @p mode is one of the sixteen. */
+int CssBlendModeIsKnown(CssBlendMode mode);
+
+/** Human-readable name ("color-dodge"); never NULL, "" for unknown. */
+const char *CssBlendModeName(CssBlendMode mode);
+
+/** Number of rows in the vocabulary. */
+size_t CssBlendModeCount(void);
+
+/** The mode an identifier spells, or `normal` when it spells none of them. */
+CssBlendMode CssBlendModeFromSlice(CssSlice keyword);
+
+/** NUL-terminated flavour of the above. */
+CssBlendMode CssBlendModeFromText(const char *keyword);
+
+/** Non-zero when @p keyword spells one of the vocabulary, case-insensitively. */
+int CssBlendModeSliceIsKnown(CssSlice keyword);
+
+/**
+ * Whether @p mode blends nothing (`normal`).
+ *
+ * The identity, and the initial value. An unknown value answers **1**, because a mode
+ * this build cannot read must not be read as one that changes the pixels it is
+ * given — the safe direction is to leave the backdrop alone.
+ */
+int CssBlendModeIsNormal(CssBlendMode mode);
+
+/**
+ * Whether @p mode computes each colour channel **independently**.
+ *
+ * True for every mode but the four non-separable ones and `normal`. A consumer with a
+ * per-channel fast path asks this before it takes it. An unknown value answers 0.
+ */
+int CssBlendModeIsSeparable(CssBlendMode mode);
+
+/**
+ * Whether @p mode mixes the colour channels together (`hue`, `saturation`, `color`,
+ * `luminosity`).
+ *
+ * Asked separately from @ref CssBlendModeIsSeparable rather than as its negation,
+ * because `normal` is in neither group: it is the identity rather than a formula. An
+ * unknown value answers 0.
+ */
+int CssBlendModeIsNonSeparable(CssBlendMode mode);
+
+/** Write @p mode's canonical keyword; same contract as the repeat writer. */
+Result CssBlendModeWrite(CssBlendMode mode,
+                         char *buffer,
+                         size_t capacity,
+                         size_t *outLength,
+                         CssDiag *diag);
+
+/** Capacity @ref CssBlendModeWrite needs: `saturation` (10) + NUL. */
+#define RoboCssBlendModeTextMax 11u
 
 /* ------------------------------------------------------------------ */
 /* The position pair                                                   */

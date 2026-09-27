@@ -183,6 +183,13 @@ static const CssConformanceInitial cssConformanceInitials[] = {
     {"background-size", "background-size", "auto"},
     {"background-repeat", "keyword", "repeat"},
     {"background-attachment", "keyword", "scroll"},
+    /*
+     * 18.17 completes the background family: the box vocabulary `background-clip`
+     * and `background-origin` share (and differ only in their initial value), and the
+     * sixteen blend modes. All three are non-inherited like the six above them. */
+    {"background-blend-mode", "keyword", "normal"},
+    {"background-clip", "keyword", "border-box"},
+    {"background-origin", "keyword", "padding-box"},
     /* The four border widths, and `medium` again — a keyword, not three pixels. */
     {"border-bottom-width", "keyword", "medium"},
     {"border-left-width", "keyword", "medium"},
@@ -700,6 +707,19 @@ static const CssConformanceDeclaration cssConformanceDeclarations[] = {
     {"background-size", "background-size: cover", "background-size", "cover"},
     {"background-size", "background-size: 100px 50px", "background-size", "100px 50px"},
     {"background-attachment", "background-attachment: fixed", "keyword", "fixed"},
+    /* 18.17: the two box rows, the blend mode, and the values 9.14's §13 named as not
+     * built — `space`/`round` and `local` — now read through the same table. */
+    {"background-repeat", "background-repeat: space", "keyword", "space"},
+    {"background-repeat", "background-repeat: round", "keyword", "round"},
+    {"background-attachment", "background-attachment: local", "keyword", "local"},
+    {"background-clip", "background-clip: content-box", "keyword", "content-box"},
+    {"background-clip", "background-clip: banana", "invalid",
+     "not a background box value"},
+    {"background-origin", "background-origin: border-box", "keyword", "border-box"},
+    {"background-blend-mode", "background-blend-mode: multiply", "keyword",
+     "multiply"},
+    {"background-blend-mode", "background-blend-mode: banana", "invalid",
+     "not a background blend mode value"},
     {"background-repeat", "background-repeat: banana", "invalid",
      "not a background repeat value"},
     /* Borders (9.15) — the shape 9.15 added, and the one whose `none` is a value. */
@@ -1896,7 +1916,8 @@ static void TestCssConformanceCapabilitiesEveryFlag(void)
         {"logical_properties", 1},
         {"fonts", 1},
         {"text", 1},
-        {"images", 1}
+        {"images", 1},
+        {"blendModes", 1}
     };
     CssCapabilities caps;
     int *asInts = (int *)&caps;
@@ -1931,11 +1952,13 @@ static void TestCssConformanceCapabilitiesEveryFlag(void)
     RoboCheckEqInt(caps.text, 1);
     /* And for 18.16. */
     RoboCheckEqInt(caps.images, 1);
+    /* And for 18.17, whose flag the background suite asserts too. */
+    RoboCheckEqInt(caps.blendModes, 1);
 
     /* The frozen-surface flag is a promise about the phase, not a capability. */
     RoboCheckEqInt(RoboCssApiFrozen, 0);
     RoboCheckEqInt(RoboCssVersionMajor, 0);
-    RoboCheckEqInt(RoboCssVersionMinor, 34);
+    RoboCheckEqInt(RoboCssVersionMinor, 35);
 }
 
 void TestRegisterCssConformance(void);

@@ -962,6 +962,38 @@
  * One capability joins the table (`images`) and one diagnostic domain
  * (`RoboCssDomainImage`).
  *
+ * 0.35.0 is Phase 18.17, **CSS backgrounds**, and it *completes* the family 9.14
+ * began rather than starting a new one — so no diagnostic domain joins the table. It
+ * adds the six values and three properties that 9.14's §13 named as not built.
+ *
+ * The values are read the way the vocabulary was built to be read. `background-repeat`
+ * gains `space` and `round` as rows 4 and 5 (the header wrote down that they would),
+ * and they are rows rather than a branch because they tile on both axes *like*
+ * `repeat` and differ only in how the leftover is placed — distributed as gaps, or
+ * absorbed by stretching. So the row carries two more columns and every accessor
+ * already reads them. `background-attachment` gains `local` as its third value, and
+ * its predicate asks the one question that separates it: the frame it moves with is
+ * the element's own content.
+ *
+ * The properties are three, and two of them are one shape. `background-clip` and
+ * `background-origin` share the **box** vocabulary — `border-box`, `padding-box`,
+ * `content-box` — and differ only in which box is the initial, which is the
+ * one-vocabulary-two-initials fact the display and positioning vocabularies record.
+ * Because the boxes nest, the classifications are *inclusions* rather than a
+ * partition: `border-box` includes the padding and the border, `padding-box` the
+ * padding and not the border. `background-blend-mode` is a vocabulary of its own —
+ * sixteen modes in three groups: the identity `normal`, twelve **separable** formulas
+ * that compute each channel independently, and four **non-separable** ones (`hue`,
+ * `saturation`, `color`, `luminosity`) that mix the channels together. A consumer
+ * with a per-channel fast path asks which kind it has first, and `normal` is in
+ * neither group.
+ *
+ * The boundary is 9.14's, restated: multiple background *layers* remain refused (one
+ * layer is this build's value model), nothing paints a background, no percentage is
+ * resolved against a box, and no image is loaded.
+ *
+ * One capability joins the table (`blendModes`).
+ *
  * The surface will keep growing for the whole of Phase 9, so API freeze is
  * NOT claimed here (RoboCssApiFrozen=0).
  */
@@ -970,9 +1002,9 @@
 #define ROBO_CSS_VERSION_H
 
 #define RoboCssVersionMajor 0
-#define RoboCssVersionMinor 34
+#define RoboCssVersionMinor 35
 #define RoboCssVersionPatch 0
-#define RoboCssVersionString "0.34.0"
+#define RoboCssVersionString "0.35.0"
 
 /** 1 once the Phase 9 surface is frozen (not yet — see header comment). */
 #define RoboCssApiFrozen 0
