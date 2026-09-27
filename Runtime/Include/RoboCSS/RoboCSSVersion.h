@@ -1051,6 +1051,32 @@
  * One capability joins the table (`filters`) and one diagnostic domain
  * (`RoboCssDomainFilter`).
  *
+ * 0.38.0 is Phase 18.20, **CSS conformance**, and it changes no surface at all:
+ * it is the phase that asks the whole-product questions Phase 18's eighteen
+ * families leave behind after each of them has been tested alone. Three, all in
+ * `Tests/Css/SuiteRoboCssConformance.c`: the classification's consequence asked
+ * of every registry row at once (an element that declares nothing has an entry
+ * for every inherited property and none for any non-inherited one), every
+ * registered initial value declared on a real element and carried through the
+ * whole chain to the same computed *kind* the normaliser gives, and one document
+ * with a representative of every Phase 18 family on one element. The version
+ * moves for the build's *promises*, not for its API (`RoboCssApiFrozen` stays 0),
+ * exactly as 9.16 moved it for the first conformance suite.
+ *
+ * 0.39.0 is Phase 18.21, **wire and integrate Phase 18**, and it is the phase that
+ * closes the one seam Phase 18's families left: each of them was tested against the
+ * CSS-side host double, and none had ever been declared on a *real* element of the
+ * RoboHTML document. Sixteen cases join `Tests/Runtime/Suites/SuiteRoboCssDomSelect.c`
+ * (`css.dom.*.pipeline`) — one per Phase 18 family, in the order the phase built them —
+ * so flexbox, grid, tables, multi-column, transforms, transitions, animations, container
+ * queries, logical properties, writing modes, fonts, text, images, backgrounds,
+ * borders and filters are each carried from a stylesheet selector through the real
+ * DOM host adapter, the cascade, inheritance and computation to a typed value. Like
+ * 9.17 before it, the phase adds no production code: the adapter that already turns
+ * the DOM into a host is the whole of the RoboCSS↔RoboHTML boundary, and these cases
+ * prove the Phase 18 vocabulary crosses it. The module moves to `0.39.0` for the
+ * promises.
+ *
  * The surface will keep growing for the whole of Phase 9, so API freeze is
  * NOT claimed here (RoboCssApiFrozen=0).
  */
@@ -1059,9 +1085,9 @@
 #define ROBO_CSS_VERSION_H
 
 #define RoboCssVersionMajor 0
-#define RoboCssVersionMinor 37
+#define RoboCssVersionMinor 39
 #define RoboCssVersionPatch 0
-#define RoboCssVersionString "0.37.0"
+#define RoboCssVersionString "0.39.0"
 
 /** 1 once the Phase 9 surface is frozen (not yet — see header comment). */
 #define RoboCssApiFrozen 0

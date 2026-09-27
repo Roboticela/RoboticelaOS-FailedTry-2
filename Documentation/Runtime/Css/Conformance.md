@@ -230,3 +230,32 @@ Running the *whole* suite — the sanitized binary in particular, and from a she
 - **It does not fuzz.** The 42-document corpus is written by hand and driven once each. There is no random generator, no coverage-guided search and no property-based shrinking — the runtime has no fuzzing framework, and the phase's instruction was not to introduce one for its own sake.
 - **It does not test layout, paint or the DOM.** Those layers sit above RoboCSS; the real-DOM pipelines that exist are in `Tests/Suites/SuiteRoboCssDomSelect.c`, and this phase neither duplicates nor extends them.
 - **`RoboCssApiFrozen` stays 0.** This phase adds no surface and freezes none; the version moves to 0.16.0 for the *promises*, not for the API. *(The version has moved twice since — 10.11's border family and 10.13's overflow family, which took it to 0.17.0 and grew these two tables from 49 to 63 and then to the 66 and 71 above.)*
+
+## 15. Phase 18.20, the same phase run again over Phase 18
+
+Phase 9.16 asked the questions no *family* could answer, and every 18.x phase kept its two tables current as it grew. By the end of Phase 18 the registry is **226 rows** and the capability struct is **49 flags**, and each of the eighteen families that arrived has a suite of its own that passes. So 18.20 asks the questions no *phase* can answer either, and it adds three cases to the same suite (`css.conformance.phase18.*`), still changing no production code:
+
+| Goal | What it delivers |
+|---|---|
+| 18.20.1 the classification's consequence | Every one of the 226 rows, on one element at once: inherited ⇒ an entry (defaulted), non-inherited ⇒ no entry. A property whose classification and whose row disagree shows as a count that no longer matches |
+| 18.20.2 the registry through the chain | Every registered initial value, declared on a real element as `name: initialText` and carried through tokenizer, parser, matcher, cascade, inheritance and computation, answered with the same computed **kind** the normaliser gives — all 226, where 9.16's first table reached only the normaliser |
+| 18.20.3 one document, eighteen families | A representative of every Phase 18 family — flexbox, grid, tables, multi-column, transforms, transitions, animations, container queries, logical properties, writing modes, fonts, text, images, backgrounds, borders and filters — asserted on one element, with every family's capability flag checked beside its value |
+
+### The three questions, and why each is new
+
+**The classification's consequence (18.20.1).** `css.registry.inherited_classification` asserts the *flag* per row. What a flag does not say is what the product *does* with it: that an element which declares nothing still resolves an entry for every inherited property, stamped `default`, and has no entry at all for any non-inherited one — which is the difference between "no border" and "a border of zero width". 9.16 asserted that split for a handful of properties inside one document; this asserts it for all 226 rows, so a row whose initial value went missing, or whose classification drifted, fails here as an entry that is unexpectedly absent or present rather than as a value nothing reads.
+
+**The registry through the chain (18.20.2).** §1's table runs every registered initial through `CssComputedValueCompute`. That is a statement about one function. This composes one declaration per row from the row's own name and initial text, adds it to a real sheet, and lets the whole pipeline answer — so the claim is about the *product*, and the interesting case is the one where the two answers differ by design: the four `currentColor` border colours compute textual `currentColor` in the normaliser and a resolved channel spelling through the pipeline. The assertion is therefore the **kind**, not the text: the pipeline must dispatch on the same shape the registry declared, and only the reference resolution may differ.
+
+The rows are walked in chunks of `CSS_HOST_MAX_ELEMENTS`, exactly as §4 does, and the class names are held outside the loop for the same load-bearing reason (a host element borrows the bytes).
+
+**One document, eighteen families (18.20.3).** §5's card states the *Phase 9* families together. This is the same claim for the families Phase 18 added, and it is the only place a disagreement between `filter`, `background-blend-mode`, `writing-mode`, `white-space` and `flex-direction` would show: each has its own suite, and each of those suites is green whether or not the others agree. Every capability flag the document exercises is asserted beside its values, so the flags and the assertions are provably the same set.
+
+### What 18.20 does not do
+
+It adds no production code, no vocabulary, no registry row and no capability — the module moves to `0.38.0` for the *promises*, exactly as 9.16 moved it to `0.16.0`. It does not fuzz, and it does not test layout, paint or the DOM: the real-DOM pipelines remain in `Tests/Suites/SuiteRoboCssDomSelect.c`.
+
+```bash
+./scripts/robo test-css                      # 791 tests
+./Out/RoboTest.host.exe --filter css.conformance   # 17 cases
+```

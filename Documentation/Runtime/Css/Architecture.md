@@ -1556,6 +1556,30 @@ and repeated bytes all behave. It is also the phase that found two capability fl
 the build, which is the general form of the rule this section is about: a flag is a
 promise about the build, and only a build-level question tests it.
 
+Conformance returns (18.20) once Phase 18's eighteen families are all in place, and
+it is the same phase in the same shape: no production code, three more cases in the
+same suite, and the version moved to `0.38.0` for the *promises*. What it can now ask
+is what no single 18.x phase could — that the classification's consequence holds for
+all 226 rows at once (an element that declares nothing has an entry for every
+inherited property and none for any non-inherited one), that every registered
+initial value survives the whole chain and not merely the normaliser (declared as
+`name: initialText` and answered with the same computed *kind*), and that a
+representative of every Phase 18 family can coexist on one element with each family's
+capability flag asserted beside its value. The reference initials are where the second
+question pays off: `currentColor` is textual through the normaliser and a resolved
+channel through the pipeline, so the assertion is the kind and not the text.
+
+Integration closes the last seam (18.21), and it is 9.17's phase repeated for the
+families Phase 18 added. Every one of them was tested by its own suite against the
+CSS-side host double and none had ever been declared on a real element of the
+RoboHTML document — so sixteen `css.dom.*.pipeline` cases join
+`Tests/Runtime/Suites/SuiteRoboCssDomSelect.c`, one per family, each carrying a
+stylesheet selector through the real DOM host adapter, the cascade, inheritance and
+computation to a typed value. Like 9.17 the phase adds no production code: the
+adapter that turns the DOM into a host is already the whole of the RoboCSS↔RoboHTML
+boundary, and the claim these cases make is that the Phase 18 vocabulary crosses it.
+The module moves to `0.39.0` for the promises.
+
 The box model (9.11) is *partly* behind us and the boundary is exact: the four
 edges are a typed value family and the three shorthands are distributed, while no
 edge is measured, no margin collapses, `50%` stays a percentage, `auto` stays the

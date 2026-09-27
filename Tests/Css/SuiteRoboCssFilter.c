@@ -234,8 +234,8 @@ static void TestFilterCapabilities(void)
     RoboCheckStrEq(CssDiagnosticDomainName(RoboCssDomainFilter), "filter");
     RoboCheckEqInt(CssDiagnosticDomainIsKnown(RoboCssDomainFilter), 1);
     RoboCheckEqInt(RoboCssDomainCount, 37);
-    RoboCheckEqInt(RoboCssVersionMinor, 37);
-    RoboCheckStrEq(CssVersionString(), "0.37.0");
+    RoboCheckEqInt(RoboCssVersionMinor, 39);
+    RoboCheckStrEq(CssVersionString(), "0.39.0");
 }
 
 /** The same declaration computes to the same value twice, by structural equality. */

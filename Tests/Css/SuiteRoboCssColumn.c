@@ -232,8 +232,8 @@ static void TestColumnCapabilities(void)
     RoboCheckEqInt(caps.defaultStyles, 0);
     RoboCheckEqInt(caps.stylesheetLoading, 0);
 
-    RoboCheckEqInt(RoboCssVersionMinor, 37);
-    RoboCheckStrEq(CssVersionString(), "0.37.0");
+    RoboCheckEqInt(RoboCssVersionMinor, 39);
+    RoboCheckStrEq(CssVersionString(), "0.39.0");
 
     RoboCheckStrEq(CssPropertyComputationName(
                           RoboCssPropertyComputationColumnCount),

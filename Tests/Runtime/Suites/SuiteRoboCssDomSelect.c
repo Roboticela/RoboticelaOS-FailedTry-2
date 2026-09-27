@@ -27,6 +27,15 @@
  *
  * The adapter below is the whole of the RoboCSS↔RoboHTML boundary, and it is
  * deliberately the only place in the runtime where the two subsystems meet.
+ *
+ * Phase 18.21 closes the same seam for the families Phase 18 added. Each of them
+ * (`css.flex.*`, `css.grid.*`, `css.font.*`, …) was tested against the CSS-side
+ * host double; none had been declared on a real element of this document. The
+ * sixteen `css.dom.*.pipeline` cases at the end of the file are that half — one
+ * per family, each carrying a stylesheet selector through the real DOM host
+ * adapter, the cascade, inheritance and computation to a typed value. They add no
+ * production code: the adapter is already the whole boundary, and the phase's
+ * claim is that the Phase 18 vocabulary crosses it.
  */
 
 #include "RoboCssTestSupport.h"
@@ -2784,6 +2793,543 @@ static void TestCssDomBorderPipeline(void)
     CssDomCascadeEnd(&fixture);
 }
 
+/* ------------------------------------------------------------------ */
+/* Phase 18 families over the real DOM (18.21)                         */
+/* ------------------------------------------------------------------ */
+
+/*
+ * Phase 18's families were tested by their own suites, which match through the
+ * test double. These cases are the other half: each family's vocabulary declared
+ * on a real element of `DomCheckpointHtml()` and computed through the whole
+ * document chain — tokenizer, parser, the selector grammar, the DOM host
+ * adapter, the cascade, inheritance and computation. A value that only worked
+ * against a hand-shaped fixture would pass the family suite and fail here, and
+ * the difference is exactly what the integration phase exists to close.
+ *
+ * One case per family, in the order Phase 18 built them. Each asserts the
+ * family's *typed* rows and a couple of its carried ones, because the typed rows
+ * are what a consumer dispatches on and the carried ones are what must survive a
+ * round trip unchanged.
+ */
+
+/* 18.3 flexbox — three vocabularies and a factor. */
+static void TestCssDomFlexPipeline(void)
+{
+    CssDomCascade fixture;
+    CssComputedStyle *style = NULL;
+    CssStylesheetId sheet;
+
+    CssDomCascadeBegin(&fixture, DomCheckpointHtml());
+    sheet = CssDomCascadeSheet(&fixture,
+                                  "body { flex-direction: column;"
+                                  " flex-wrap: wrap; justify-content: space-between;"
+                                  " align-items: center; align-self: flex-end;"
+                                  " align-content: stretch; flex-grow: 2;"
+                                  " flex-shrink: 0; flex-basis: 50%; order: -1 }\n");
+
+    CssDomCompute(&fixture, CssDomRefByTag(&fixture.dom, "body"), &style);
+    CssComputedIs(style, "flex-direction", "column");
+    CssComputedIs(style, "flex-wrap", "wrap");
+    CssComputedIs(style, "justify-content", "space-between");
+    CssComputedIs(style, "align-items", "center");
+    CssComputedIs(style, "align-self", "flex-end");
+    CssComputedIs(style, "align-content", "stretch");
+    CssComputedIs(style, "flex-grow", "2");
+    CssComputedIs(style, "flex-shrink", "0");
+    CssComputedIs(style, "flex-basis", "50%");
+    CssComputedIs(style, "order", "-1");
+    RoboCheckEqInt(CssComputedStyleHasInvalid(style), 0);
+
+    CssComputedStyleDestroy(style);
+    RoboCheckEqInt(CssStylesheetDestroy(sheet, NULL), RoboOk);
+    CssDomCascadeEnd(&fixture);
+}
+
+/* 18.4 grid — one typed flow vocabulary and the gutters. */
+static void TestCssDomGridPipeline(void)
+{
+    CssDomCascade fixture;
+    CssComputedStyle *style = NULL;
+    CssStylesheetId sheet;
+
+    CssDomCascadeBegin(&fixture, DomCheckpointHtml());
+    sheet = CssDomCascadeSheet(&fixture,
+                                  "body { grid-auto-flow: column dense;"
+                                  " row-gap: 4px; column-gap: 2px;"
+                                  " grid-template-columns: 1fr 1fr;"
+                                  " grid-template-areas: \"a b\";"
+                                  " grid-column-start: 2; grid-row: 1 / 3 }\n");
+
+    CssDomCompute(&fixture, CssDomRefByTag(&fixture.dom, "body"), &style);
+    CssComputedIs(style, "grid-auto-flow", "column dense");
+    CssComputedIs(style, "row-gap", "4px");
+    CssComputedIs(style, "column-gap", "2px");
+    CssComputedIs(style, "grid-template-columns", "1fr 1fr");
+    CssComputedIs(style, "grid-template-areas", "\"a b\"");
+    CssComputedIs(style, "grid-column-start", "2");
+    CssComputedIs(style, "grid-row", "1 / 3");
+    /* Each carried declaration is `declared`, never invalid: the grid grammar is
+     * wider than any closed set and this build holds it rather than reading it. */
+    CssComputedFlagsAre(style, "grid-template-columns", "declared");
+    RoboCheckEqInt(CssComputedStyleHasInvalid(style), 0);
+
+    CssComputedStyleDestroy(style);
+    RoboCheckEqInt(CssStylesheetDestroy(sheet, NULL), RoboOk);
+    CssDomCascadeEnd(&fixture);
+}
+
+/* 18.5 tables — five closed sets and one carried pair. */
+static void TestCssDomTablePipeline(void)
+{
+    CssDomCascade fixture;
+    CssComputedStyle *style = NULL;
+    CssStylesheetId sheet;
+
+    CssDomCascadeBegin(&fixture, DomCheckpointHtml());
+    sheet = CssDomCascadeSheet(&fixture,
+                                  "body { table-layout: fixed;"
+                                  " border-collapse: collapse;"
+                                  " border-spacing: 2px 4px;"
+                                  " caption-side: bottom; empty-cells: hide;"
+                                  " visibility: collapse }\n");
+
+    CssDomCompute(&fixture, CssDomRefByTag(&fixture.dom, "body"), &style);
+    CssComputedIs(style, "table-layout", "fixed");
+    CssComputedIs(style, "border-collapse", "collapse");
+    CssComputedIs(style, "border-spacing", "2px 4px");
+    CssComputedIs(style, "caption-side", "bottom");
+    CssComputedIs(style, "empty-cells", "hide");
+    CssComputedIs(style, "visibility", "collapse");
+    RoboCheckEqInt(CssComputedStyleHasInvalid(style), 0);
+
+    CssComputedStyleDestroy(style);
+    RoboCheckEqInt(CssStylesheetDestroy(sheet, NULL), RoboOk);
+    CssDomCascadeEnd(&fixture);
+}
+
+/* 18.6 multi-column — a bounded count, a width and the rule decoration. */
+static void TestCssDomColumnPipeline(void)
+{
+    CssDomCascade fixture;
+    CssComputedStyle *style = NULL;
+    CssStylesheetId sheet;
+
+    CssDomCascadeBegin(&fixture, DomCheckpointHtml());
+    sheet = CssDomCascadeSheet(&fixture,
+                                  "body { column-count: 3; column-width: 20px;"
+                                  " column-fill: balance; column-span: all;"
+                                  " column-rule: 1px solid red; columns: 3 20px }\n");
+
+    CssDomCompute(&fixture, CssDomRefByTag(&fixture.dom, "body"), &style);
+    CssComputedIs(style, "column-count", "3");
+    CssComputedIs(style, "column-width", "20px");
+    CssComputedIs(style, "column-fill", "balance");
+    CssComputedIs(style, "column-span", "all");
+    CssComputedIs(style, "column-rule", "1px solid red");
+    CssComputedIs(style, "columns", "3 20px");
+    RoboCheckEqInt(CssComputedStyleHasInvalid(style), 0);
+
+    CssComputedStyleDestroy(style);
+    RoboCheckEqInt(CssStylesheetDestroy(sheet, NULL), RoboOk);
+    CssDomCascadeEnd(&fixture);
+}
+
+/* 18.7 transforms — two typed vocabularies and eight carried grammars. */
+static void TestCssDomTransformPipeline(void)
+{
+    CssDomCascade fixture;
+    CssComputedStyle *style = NULL;
+    CssStylesheetId sheet;
+
+    CssDomCascadeBegin(&fixture, DomCheckpointHtml());
+    sheet = CssDomCascadeSheet(&fixture,
+                                  "body { transform: rotate(45deg);"
+                                  " transform-origin: 0 0; transform-style: preserve-3d;"
+                                  " backface-visibility: hidden; perspective: 100px;"
+                                  " translate: 10px; rotate: 45deg; scale: 2 }\n");
+
+    CssDomCompute(&fixture, CssDomRefByTag(&fixture.dom, "body"), &style);
+    CssComputedIs(style, "transform", "rotate(45deg)");
+    CssComputedIs(style, "transform-origin", "0 0");
+    CssComputedIs(style, "transform-style", "preserve-3d");
+    CssComputedIs(style, "backface-visibility", "hidden");
+    CssComputedIs(style, "perspective", "100px");
+    CssComputedIs(style, "translate", "10px");
+    CssComputedIs(style, "rotate", "45deg");
+    CssComputedIs(style, "scale", "2");
+    RoboCheckEqInt(CssComputedStyleHasInvalid(style), 0);
+
+    CssComputedStyleDestroy(style);
+    RoboCheckEqInt(CssStylesheetDestroy(sheet, NULL), RoboOk);
+    CssDomCascadeEnd(&fixture);
+}
+
+/* 18.8 transitions — one typed keyword and five carried grammars. */
+static void TestCssDomTransitionPipeline(void)
+{
+    CssDomCascade fixture;
+    CssComputedStyle *style = NULL;
+    CssStylesheetId sheet;
+
+    CssDomCascadeBegin(&fixture, DomCheckpointHtml());
+    sheet = CssDomCascadeSheet(&fixture,
+                                  "body { transition-behavior: allow-discrete;"
+                                  " transition-property: opacity; transition-duration: 1s;"
+                                  " transition-delay: 0.5s;"
+                                  " transition-timing-function: ease-in;"
+                                  " transition: opacity 1s ease-in 0.5s }\n");
+
+    CssDomCompute(&fixture, CssDomRefByTag(&fixture.dom, "body"), &style);
+    CssComputedIs(style, "transition-behavior", "allow-discrete");
+    CssComputedIs(style, "transition-property", "opacity");
+    CssComputedIs(style, "transition-duration", "1s");
+    CssComputedIs(style, "transition-delay", "0.5s");
+    CssComputedIs(style, "transition-timing-function", "ease-in");
+    CssComputedIs(style, "transition", "opacity 1s ease-in 0.5s");
+    RoboCheckEqInt(CssComputedStyleHasInvalid(style), 0);
+
+    CssComputedStyleDestroy(style);
+    RoboCheckEqInt(CssStylesheetDestroy(sheet, NULL), RoboOk);
+    CssDomCascadeEnd(&fixture);
+}
+
+/* 18.9 animations — four typed vocabularies, the iteration count and five carried. */
+static void TestCssDomAnimationPipeline(void)
+{
+    CssDomCascade fixture;
+    CssComputedStyle *style = NULL;
+    CssStylesheetId sheet;
+
+    CssDomCascadeBegin(&fixture, DomCheckpointHtml());
+    sheet = CssDomCascadeSheet(&fixture,
+                                  "body { animation-name: pulse;"
+                                  " animation-duration: 2s; animation-delay: 1s;"
+                                  " animation-iteration-count: infinite;"
+                                  " animation-direction: alternate;"
+                                  " animation-fill-mode: forwards;"
+                                  " animation-play-state: paused;"
+                                  " animation-timing-function: linear;"
+                                  " animation-composition: add }\n");
+
+    CssDomCompute(&fixture, CssDomRefByTag(&fixture.dom, "body"), &style);
+    CssComputedIs(style, "animation-name", "pulse");
+    CssComputedIs(style, "animation-duration", "2s");
+    CssComputedIs(style, "animation-delay", "1s");
+    CssComputedIs(style, "animation-iteration-count", "infinite");
+    CssComputedIs(style, "animation-direction", "alternate");
+    CssComputedIs(style, "animation-fill-mode", "forwards");
+    CssComputedIs(style, "animation-play-state", "paused");
+    CssComputedIs(style, "animation-timing-function", "linear");
+    CssComputedIs(style, "animation-composition", "add");
+    RoboCheckEqInt(CssComputedStyleHasInvalid(style), 0);
+
+    CssComputedStyleDestroy(style);
+    RoboCheckEqInt(CssStylesheetDestroy(sheet, NULL), RoboOk);
+    CssDomCascadeEnd(&fixture);
+}
+
+/* 18.11 container queries — the one typed row and the carried shorthand. */
+static void TestCssDomContainerPipeline(void)
+{
+    CssDomCascade fixture;
+    CssComputedStyle *style = NULL;
+    CssStylesheetId sheet;
+
+    CssDomCascadeBegin(&fixture, DomCheckpointHtml());
+    sheet = CssDomCascadeSheet(&fixture,
+                                  "body { container-type: inline-size;"
+                                  " container-name: card; container: card / size }\n");
+
+    CssDomCompute(&fixture, CssDomRefByTag(&fixture.dom, "body"), &style);
+    CssComputedIs(style, "container-type", "inline-size");
+    CssComputedIs(style, "container-name", "card");
+    CssComputedIs(style, "container", "card / size");
+    RoboCheckEqInt(CssComputedStyleHasInvalid(style), 0);
+
+    CssComputedStyleDestroy(style);
+    RoboCheckEqInt(CssStylesheetDestroy(sheet, NULL), RoboOk);
+    CssDomCascadeEnd(&fixture);
+}
+
+/* 18.12 logical properties — four edges of one axis, and two carried pairs. */
+static void TestCssDomLogicalPipeline(void)
+{
+    CssDomCascade fixture;
+    CssComputedStyle *style = NULL;
+    CssStylesheetId sheet;
+
+    CssDomCascadeBegin(&fixture, DomCheckpointHtml());
+    sheet = CssDomCascadeSheet(&fixture,
+                                  "body { margin-block-start: 10px;"
+                                  " margin-inline-end: 20px; padding-block-start: 5px;"
+                                  " padding-inline-end: 6px; inset-block-start: auto;"
+                                  " margin-block: 8px; padding-inline: 4px }\n");
+
+    CssDomCompute(&fixture, CssDomRefByTag(&fixture.dom, "body"), &style);
+    CssComputedIs(style, "margin-block-start", "10px");
+    CssComputedIs(style, "margin-inline-end", "20px");
+    CssComputedIs(style, "padding-block-start", "5px");
+    CssComputedIs(style, "padding-inline-end", "6px");
+    CssComputedIs(style, "inset-block-start", "auto");
+    CssComputedIs(style, "margin-block", "8px");
+    CssComputedIs(style, "padding-inline", "4px");
+    /* The logical longhands are the same *shapes* as their physical counterparts, so
+     * a percentage stays a percentage here exactly as it does for `margin-top`. */
+    {
+        CssStylesheetId percent = CssDomCascadeSheet(
+            &fixture, "h1 { margin-block-start: 25% }");
+        CssComputedStyle *heading = NULL;
+
+        CssDomCompute(&fixture, CssDomRefByTag(&fixture.dom, "h1"), &heading);
+        CssComputedIs(heading, "margin-block-start", "25%");
+        CssComputedStyleDestroy(heading);
+        RoboCheckEqInt(CssStylesheetDestroy(percent, NULL), RoboOk);
+    }
+    RoboCheckEqInt(CssComputedStyleHasInvalid(style), 0);
+
+    CssComputedStyleDestroy(style);
+    RoboCheckEqInt(CssStylesheetDestroy(sheet, NULL), RoboOk);
+    CssDomCascadeEnd(&fixture);
+}
+
+/* 18.13 writing modes — the direction, the mode and the orientation. */
+static void TestCssDomWritingPipeline(void)
+{
+    CssDomCascade fixture;
+    CssComputedStyle *style = NULL;
+    CssStylesheetId sheet;
+
+    CssDomCascadeBegin(&fixture, DomCheckpointHtml());
+    sheet = CssDomCascadeSheet(&fixture,
+                                  "body { direction: rtl; writing-mode: vertical-rl;"
+                                  " text-orientation: upright }\n");
+
+    CssDomCompute(&fixture, CssDomRefByTag(&fixture.dom, "body"), &style);
+    CssComputedIs(style, "direction", "rtl");
+    CssComputedIs(style, "writing-mode", "vertical-rl");
+    CssComputedIs(style, "text-orientation", "upright");
+    /* `direction` is inherited, so the mode reaches the child by inheritance -- on a
+     * real element of the document rather than in a fixture. */
+    {
+        CssComputedStyle *paragraph = NULL;
+
+        CssDomCompute(&fixture, CssDomRefByTag(&fixture.dom, "p"), &paragraph);
+        CssComputedIs(paragraph, "direction", "rtl");
+        CssComputedFlagsAre(paragraph, "direction", "inherited");
+        CssComputedIs(paragraph, "writing-mode", "vertical-rl");
+        CssComputedStyleDestroy(paragraph);
+    }
+    RoboCheckEqInt(CssComputedStyleHasInvalid(style), 0);
+
+    CssComputedStyleDestroy(style);
+    RoboCheckEqInt(CssStylesheetDestroy(sheet, NULL), RoboOk);
+    CssDomCascadeEnd(&fixture);
+}
+
+/* 18.14 fonts — the closed vocabularies and the carried grammars. */
+static void TestCssDomFontPipeline(void)
+{
+    CssDomCascade fixture;
+    CssComputedStyle *style = NULL;
+    CssStylesheetId sheet;
+
+    CssDomCascadeBegin(&fixture, DomCheckpointHtml());
+    sheet = CssDomCascadeSheet(&fixture,
+                                  "body { font-family: Georgia, serif; font-size: 20px;"
+                                  " font-style: italic; font-weight: 700;"
+                                  " font-kerning: none; font-optical-sizing: none;"
+                                  " font-stretch: condensed; font-variant-caps: small-caps;"
+                                  " font-variant-position: sub;"
+                                  " font-variant-ligatures: none; font-synthesis: none;"
+                                  " font-feature-settings: \"liga\" 1 }\n");
+
+    CssDomCompute(&fixture, CssDomRefByTag(&fixture.dom, "body"), &style);
+    CssComputedIs(style, "font-family", "Georgia, serif");
+    CssComputedIs(style, "font-size", "20px");
+    CssComputedIs(style, "font-style", "italic");
+    CssComputedIs(style, "font-weight", "700");
+    CssComputedIs(style, "font-kerning", "none");
+    CssComputedIs(style, "font-optical-sizing", "none");
+    CssComputedIs(style, "font-stretch", "condensed");
+    CssComputedIs(style, "font-variant-caps", "small-caps");
+    CssComputedIs(style, "font-variant-position", "sub");
+    CssComputedIs(style, "font-variant-ligatures", "none");
+    CssComputedIs(style, "font-synthesis", "none");
+    CssComputedIs(style, "font-feature-settings", "\"liga\" 1");
+    RoboCheckEqInt(CssComputedStyleHasInvalid(style), 0);
+
+    CssComputedStyleDestroy(style);
+    RoboCheckEqInt(CssStylesheetDestroy(sheet, NULL), RoboOk);
+    CssDomCascadeEnd(&fixture);
+}
+
+/* 18.15 text — ten closed sets and the carried decoration half. */
+static void TestCssDomTextPipeline(void)
+{
+    CssDomCascade fixture;
+    CssComputedStyle *style = NULL;
+    CssStylesheetId sheet;
+
+    CssDomCascadeBegin(&fixture, DomCheckpointHtml());
+    sheet = CssDomCascadeSheet(&fixture,
+                                  "body { text-align: center; text-align-last: justify;"
+                                  " text-justify: inter-word; text-transform: uppercase;"
+                                  " white-space: pre-wrap; word-break: keep-all;"
+                                  " overflow-wrap: anywhere; line-break: strict;"
+                                  " hyphens: auto; letter-spacing: 1px;"
+                                  " text-decoration-line: underline;"
+                                  " text-decoration-style: wavy;"
+                                  " text-decoration-color: red;"
+                                  " text-decoration-thickness: 2px;"
+                                  " text-overflow: ellipsis }\n");
+
+    CssDomCompute(&fixture, CssDomRefByTag(&fixture.dom, "body"), &style);
+    CssComputedIs(style, "text-align", "center");
+    CssComputedIs(style, "text-align-last", "justify");
+    CssComputedIs(style, "text-justify", "inter-word");
+    CssComputedIs(style, "text-transform", "uppercase");
+    CssComputedIs(style, "white-space", "pre-wrap");
+    CssComputedIs(style, "word-break", "keep-all");
+    CssComputedIs(style, "overflow-wrap", "anywhere");
+    CssComputedIs(style, "line-break", "strict");
+    CssComputedIs(style, "hyphens", "auto");
+    CssComputedIs(style, "letter-spacing", "1px");
+    CssComputedIs(style, "text-decoration-line", "underline");
+    CssComputedIs(style, "text-decoration-style", "wavy");
+    CssComputedIs(style, "text-decoration-color", "#ff0000");
+    CssComputedIs(style, "text-decoration-thickness", "2px");
+    CssComputedIs(style, "text-overflow", "ellipsis");
+    /* A decoration is painted per element, so the child does not inherit it -- the
+     * family's central split, asserted on a real element. */
+    {
+        CssComputedStyle *paragraph = NULL;
+
+        CssDomCompute(&fixture, CssDomRefByTag(&fixture.dom, "p"), &paragraph);
+        CssComputedIs(paragraph, "text-decoration-line", "<absent>");
+        CssComputedIs(paragraph, "text-align", "center");
+        CssComputedStyleDestroy(paragraph);
+    }
+    RoboCheckEqInt(CssComputedStyleHasInvalid(style), 0);
+
+    CssComputedStyleDestroy(style);
+    RoboCheckEqInt(CssStylesheetDestroy(sheet, NULL), RoboOk);
+    CssDomCascadeEnd(&fixture);
+}
+
+/* 18.16 images — two typed vocabularies and three carried declarations. */
+static void TestCssDomImagePipeline(void)
+{
+    CssDomCascade fixture;
+    CssComputedStyle *style = NULL;
+    CssStylesheetId sheet;
+
+    CssDomCascadeBegin(&fixture, DomCheckpointHtml());
+    sheet = CssDomCascadeSheet(&fixture,
+                                  "body { image-rendering: pixelated;"
+                                  " image-orientation: from-image;"
+                                  " image-resolution: 2dppx; object-fit: cover;"
+                                  " object-position: 10% 20% }\n");
+
+    CssDomCompute(&fixture, CssDomRefByTag(&fixture.dom, "body"), &style);
+    CssComputedIs(style, "image-rendering", "pixelated");
+    CssComputedIs(style, "image-orientation", "from-image");
+    CssComputedIs(style, "image-resolution", "2dppx");
+    CssComputedIs(style, "object-fit", "cover");
+    CssComputedIs(style, "object-position", "10% 20%");
+    RoboCheckEqInt(CssComputedStyleHasInvalid(style), 0);
+
+    CssComputedStyleDestroy(style);
+    RoboCheckEqInt(CssStylesheetDestroy(sheet, NULL), RoboOk);
+    CssDomCascadeEnd(&fixture);
+}
+
+/* 18.17 backgrounds completed — the box pair, the blend mode and the two new repeats. */
+static void TestCssDomBlendPipeline(void)
+{
+    CssDomCascade fixture;
+    CssComputedStyle *style = NULL;
+    CssStylesheetId sheet;
+
+    CssDomCascadeBegin(&fixture, DomCheckpointHtml());
+    sheet = CssDomCascadeSheet(&fixture,
+                                  "body { background-clip: content-box;"
+                                  " background-origin: border-box;"
+                                  " background-blend-mode: multiply;"
+                                  " background-repeat: round;"
+                                  " background-attachment: local }\n");
+
+    CssDomCompute(&fixture, CssDomRefByTag(&fixture.dom, "body"), &style);
+    CssComputedIs(style, "background-clip", "content-box");
+    CssComputedIs(style, "background-origin", "border-box");
+    CssComputedIs(style, "background-blend-mode", "multiply");
+    CssComputedIs(style, "background-repeat", "round");
+    CssComputedIs(style, "background-attachment", "local");
+    RoboCheckEqInt(CssComputedStyleHasInvalid(style), 0);
+
+    CssComputedStyleDestroy(style);
+    RoboCheckEqInt(CssStylesheetDestroy(sheet, NULL), RoboOk);
+    CssDomCascadeEnd(&fixture);
+}
+
+/* 18.18 borders completed — the border-image set, the radius and the outline. */
+static void TestCssDomBorderDecorationPipeline(void)
+{
+    CssDomCascade fixture;
+    CssComputedStyle *style = NULL;
+    CssStylesheetId sheet;
+
+    CssDomCascadeBegin(&fixture, DomCheckpointHtml());
+    sheet = CssDomCascadeSheet(&fixture,
+                                  "body { border-image-repeat: round;"
+                                  " border-image-source: url(\"a.png\");"
+                                  " border-image-slice: 30% fill;"
+                                  " border-image-width: 2; border-image-outset: 1px;"
+                                  " border-radius: 4px; border-top-left-radius: 2px;"
+                                  " outline-style: dashed; outline-width: thick;"
+                                  " outline-color: red; outline-offset: 2px }\n");
+
+    CssDomCompute(&fixture, CssDomRefByTag(&fixture.dom, "body"), &style);
+    CssComputedIs(style, "border-image-repeat", "round");
+    CssComputedIs(style, "border-image-source", "url(\"a.png\")");
+    CssComputedIs(style, "border-image-slice", "30% fill");
+    CssComputedIs(style, "border-image-width", "2");
+    CssComputedIs(style, "border-image-outset", "1px");
+    CssComputedIs(style, "border-radius", "4px");
+    CssComputedIs(style, "border-top-left-radius", "2px");
+    CssComputedIs(style, "outline-style", "dashed");
+    CssComputedIs(style, "outline-width", "thick");
+    CssComputedIs(style, "outline-color", "#ff0000");
+    CssComputedIs(style, "outline-offset", "2px");
+    RoboCheckEqInt(CssComputedStyleHasInvalid(style), 0);
+
+    CssComputedStyleDestroy(style);
+    RoboCheckEqInt(CssStylesheetDestroy(sheet, NULL), RoboOk);
+    CssDomCascadeEnd(&fixture);
+}
+
+/* 18.19 filters — the two carried lists, order included. */
+static void TestCssDomFilterPipeline(void)
+{
+    CssDomCascade fixture;
+    CssComputedStyle *style = NULL;
+    CssStylesheetId sheet;
+
+    CssDomCascadeBegin(&fixture, DomCheckpointHtml());
+    sheet = CssDomCascadeSheet(&fixture,
+                                  "body { filter: blur(2px) grayscale(100%);"
+                                  " backdrop-filter: brightness(0.5) }\n");
+
+    CssDomCompute(&fixture, CssDomRefByTag(&fixture.dom, "body"), &style);
+    CssComputedIs(style, "filter", "blur(2px) grayscale(100%)");
+    CssComputedIs(style, "backdrop-filter", "brightness(0.5)");
+    CssComputedFlagsAre(style, "filter", "declared");
+    RoboCheckEqInt(CssComputedStyleHasInvalid(style), 0);
+
+    CssComputedStyleDestroy(style);
+    RoboCheckEqInt(CssStylesheetDestroy(sheet, NULL), RoboOk);
+    CssDomCascadeEnd(&fixture);
+}
+
 void TestRegisterCssDomSelect(void);
 
 void TestRegisterCssDomSelect(void)
@@ -2830,4 +3376,22 @@ void TestRegisterCssDomSelect(void)
     TestRegister("css.dom.background.pipeline",
                        TestCssDomBackgroundPipeline);
     TestRegister("css.dom.border.pipeline", TestCssDomBorderPipeline);
+    /* Phase 18 families over the real DOM (18.21). */
+    TestRegister("css.dom.flex.pipeline", TestCssDomFlexPipeline);
+    TestRegister("css.dom.grid.pipeline", TestCssDomGridPipeline);
+    TestRegister("css.dom.table.pipeline", TestCssDomTablePipeline);
+    TestRegister("css.dom.column.pipeline", TestCssDomColumnPipeline);
+    TestRegister("css.dom.transform.pipeline", TestCssDomTransformPipeline);
+    TestRegister("css.dom.transition.pipeline", TestCssDomTransitionPipeline);
+    TestRegister("css.dom.animation.pipeline", TestCssDomAnimationPipeline);
+    TestRegister("css.dom.container.pipeline", TestCssDomContainerPipeline);
+    TestRegister("css.dom.logical.pipeline", TestCssDomLogicalPipeline);
+    TestRegister("css.dom.writing.pipeline", TestCssDomWritingPipeline);
+    TestRegister("css.dom.font.pipeline", TestCssDomFontPipeline);
+    TestRegister("css.dom.text.pipeline", TestCssDomTextPipeline);
+    TestRegister("css.dom.image.pipeline", TestCssDomImagePipeline);
+    TestRegister("css.dom.blend.pipeline", TestCssDomBlendPipeline);
+    TestRegister("css.dom.border.decoration.pipeline",
+                       TestCssDomBorderDecorationPipeline);
+    TestRegister("css.dom.filter.pipeline", TestCssDomFilterPipeline);
 }

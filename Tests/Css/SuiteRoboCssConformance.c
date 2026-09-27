@@ -1143,8 +1143,10 @@ static void TestCssConformanceDocumentEveryFamily(void)
      *   the parent's, or the registry's initial value with the `default` flag.
      *
      * `letter-spacing` therefore has an entry on an element that never mentions
-     * it, and `border-top-left-radius` — a property this build does not have at
-     * all — has none either way.
+     * it, and `border-top-left-radius` — a property the card never declares — has
+     * none either way. (The row itself now exists: 18.18 registered it, and the
+     * assertion still holds because an undeclared non-inherited property has no
+     * entry whether or not the registry classifies it.)
      */
     CssComputedIs(cardStyle, "border-top-left-radius", "<absent>");
     CssComputedIs(cardStyle, "letter-spacing", "normal");
@@ -1913,6 +1915,374 @@ static void TestCssConformancePipelineLifetime(void)
 }
 
 /* ------------------------------------------------------------------ */
+/* Phase 18: the whole surface at once (18.20)                         */
+/* ------------------------------------------------------------------ */
+
+/*
+ * Phase 9.16 asked the questions no *family* could answer. Phase 18's families
+ * added a hundred and sixty rows and eighteen capabilities, and each of them was
+ * tested by its own suite — so the questions left are the ones no *phase* can
+ * answer either:
+ *
+ *   the classification's consequence, registry-wide   not "is `color` inherited"
+ *                           but "does every one of the 226 rows behave the way its
+ *                           classification says it will", on one element, at once.
+ *                           A flag is a promise about the product, and only a
+ *                           registry walk checks all of them together.
+ *   every registered initial through the whole chain   not through the
+ *                           normaliser alone (which is 9.16's table) but through
+ *                           tokenizer, parser, matcher, cascade, inheritance and
+ *                           computation: all 226, each declared as itself, each
+ *                           answered with the same *kind* the normaliser gives.
+ *   one document, eighteen families                  the families of Phase 18
+ *                           together on one element, which is the only place a
+ *                           disagreement *between* two of them would show.
+ */
+
+/**
+ * The classification's consequence, asked of every row at once.
+ *
+ * The registry says, per property, whether it inherits. The product says what
+ * that *means*: an element that declares nothing still has an entry for every
+ * inherited property -- defaulted to the registry's initial value -- and has no
+ * entry at all for any non-inherited one. The two halves are one rule, and the
+ * rule is only checkable across the whole table: a property whose initial value
+ * went missing, or whose classification drifted from its row, shows up here as a
+ * count that no longer matches rather than as a value nobody read.
+ */
+static void TestCssConformancePhase18InheritanceRegistryWide(void)
+{
+    CssInheritFixture fixture;
+    CssElementRef div;
+    CssComputedStyle *style = NULL;
+    size_t index;
+    size_t inherited = 0u;
+    size_t nonInherited = 0u;
+    size_t present = 0u;
+
+    CssFixture();
+    CssInheritBegin(&fixture);
+    div = CssHostAdd(CssInheritHost(&fixture), "div", NULL, NULL);
+    CssHostSeal(CssInheritHost(&fixture));
+    RoboCheckEqInt(CssComputedStyleCreate(&style, NULL), RoboOk);
+    RoboCheckEqInt(CssStyleContextComputeStyle(
+                          CssInheritContext(&fixture), div, style, NULL, NULL),
+                      RoboOk);
+
+    for (index = 0u; index < CssPropertyRegistryCount(fixture.registry); index++) {
+        const CssPropertyDefinition *definition =
+            CssPropertyRegistryAt(fixture.registry, index);
+        CssSlice name;
+        int hasEntry;
+
+        RoboCheck(definition != NULL);
+        if (!definition) {
+            continue;
+        }
+        name = CssSliceFromText(definition->name);
+        hasEntry = CssComputedStyleFind(style, name) != (size_t)-1;
+
+        if (CssPropertyDefinitionInherited(definition)) {
+            inherited++;
+            /* An inherited property always *has* an answer: the parent's, or
+             * the registry's own initial value, stamped `default`. */
+            RoboCheck(hasEntry);
+            if (hasEntry) {
+                present++;
+                RoboCheckEqInt(
+                    CssComputedStyleHasFlag(style, name,
+                                                RoboCssComputedFlagDefault),
+                    1);
+            }
+        } else {
+            nonInherited++;
+            /* A non-inherited property nothing declared has no entry at all,
+             * which is what makes "no border" different from "a border of zero
+             * width". */
+            RoboCheck(!hasEntry);
+        }
+    }
+
+    /* Every inherited row materialised, and *only* those: the element declared
+     * nothing, so the computed style's inherited entries are exactly the
+     * inherited registry rows. */
+    RoboCheckEqInt((int)present, (int)inherited);
+    RoboCheckEqInt((int)(inherited + nonInherited),
+                      (int)CssPropertyRegistryCount(fixture.registry));
+
+    CssComputedStyleDestroy(style);
+    CssInheritEnd(&fixture);
+}
+
+/**
+ * Every registered initial value, declared on a real element, through the chain.
+ *
+ * 9.16's first table runs the whole registry's initials through the *normaliser*.
+ * This runs them through the *product*: one declaration per property, composed
+ * from the row's own name and initial text, added to a sheet, matched, cascaded,
+ * inherited and computed. The pipeline must answer with a value of the same
+ * *kind* the normaliser gives -- the text may differ, because an element resolves
+ * `currentColor` and the normaliser does not, and that difference is the point.
+ *
+ * Rows are walked in chunks because the host holds at most
+ * `CSS_HOST_MAX_ELEMENTS` elements, exactly as the matrix pipeline does.
+ */
+static void TestCssConformancePhase18RegistryThroughThePipeline(void)
+{
+    CssPropertyRegistry *registry = NULL;
+    size_t total;
+    size_t base;
+
+    CssFixture();
+    RoboCheckEqInt(CssPropertyRegistryCreateStandard(&registry, NULL), RoboOk);
+    RoboCheck(registry != NULL);
+    total = CssPropertyRegistryCount(registry);
+    RoboCheck(total > 0u);
+
+    for (base = 0u; base < total; base += CSS_HOST_MAX_ELEMENTS) {
+        CssInheritFixture fixture;
+        char sheetText[8192];
+        size_t offset = 0u;
+        size_t count = total - base < CSS_HOST_MAX_ELEMENTS ? total - base
+                                                            : CSS_HOST_MAX_ELEMENTS;
+        size_t rowIndex;
+        CssElementRef refs[CSS_HOST_MAX_ELEMENTS];
+        /* Held outside the loop for the reason the matrix pipeline records: a host
+         * element borrows its class bytes, so a per-iteration local dangles. */
+        char classNames[CSS_HOST_MAX_ELEMENTS][16];
+
+        CssInheritBegin(&fixture);
+        for (rowIndex = 0u; rowIndex < count; rowIndex++) {
+            const CssPropertyDefinition *definition =
+                CssPropertyRegistryAt(registry, base + rowIndex);
+            char selector[32];
+
+            RoboCheck(definition != NULL);
+            if (!definition) {
+                continue;
+            }
+            (void)snprintf(classNames[rowIndex], sizeof(classNames[rowIndex]),
+                           "p%u", (unsigned)rowIndex);
+            (void)snprintf(selector, sizeof(selector), ".%s", classNames[rowIndex]);
+            refs[rowIndex] = CssHostAdd(CssInheritHost(&fixture), "div", NULL,
+                                           classNames[rowIndex]);
+            CssShapeText(sheetText, sizeof(sheetText), &offset, selector);
+            CssShapeText(sheetText, sizeof(sheetText), &offset, " { ");
+            CssShapeText(sheetText, sizeof(sheetText), &offset, definition->name);
+            CssShapeText(sheetText, sizeof(sheetText), &offset, ": ");
+            CssShapeText(sheetText, sizeof(sheetText), &offset,
+                           definition->initialText ? definition->initialText : "");
+            CssShapeText(sheetText, sizeof(sheetText), &offset, " }\n");
+        }
+        RoboCheckEqInt(offset < sizeof(sheetText), 1);
+        CssHostSeal(CssInheritHost(&fixture));
+        CssInheritSheet(&fixture, RoboCssOriginAuthor, sheetText);
+
+        for (rowIndex = 0u; rowIndex < count; rowIndex++) {
+            const CssPropertyDefinition *definition =
+                CssPropertyRegistryAt(registry, base + rowIndex);
+            CssComputedStyle *style = NULL;
+            const CssComputedValue *through;
+            CssComputedValue direct = RoboCssCleared;
+
+            if (!definition) {
+                continue;
+            }
+            RoboCheckEqInt(CssComputedStyleCreate(&style, NULL), RoboOk);
+            RoboCheckEqInt(CssStyleContextComputeStyle(
+                                  CssInheritContext(&fixture), refs[rowIndex], style,
+                                  NULL, NULL),
+                              RoboOk);
+            through = CssComputedStyleComputedByName(
+                style, CssSliceFromText(definition->name));
+            /* A declared property is always present, whatever the row's shape --
+             * including the shorthands, whose own entry survives their
+             * distribution. */
+            RoboCheck(through != NULL);
+            if (through) {
+                RoboCheck(through->kind != RoboCssComputedValueInvalid);
+                RoboCheck(through->kind != RoboCssComputedValueNone);
+                RoboCheckEqInt(CssComputedValueCompute(
+                                      definition->computation,
+                                      CssPropertyDefinitionInitialValue(definition),
+                                      &direct, NULL),
+                              RoboOk);
+                /* The same *kind* both ways: the pipeline hands the normaliser the
+                 * value the author wrote and nothing else. */
+                RoboCheckEqInt(through->kind, direct.kind);
+                CssComputedValueDispose(&direct);
+            }
+            CssComputedStyleDestroy(style);
+        }
+
+        CssInheritEnd(&fixture);
+    }
+
+    CssPropertyRegistryDestroy(registry);
+}
+
+/*
+ * One element, every Phase 18 family.
+ *
+ * The card in `document.every_family` states the Phase 9 families together. This
+ * is the same claim for the families Phase 18 added, and it is the only place a
+ * disagreement *between* `filter`, `background-blend-mode`, `writing-mode`,
+ * `white-space` and `flex-direction` would show: each has its own suite, and each
+ * of those suites is green whether or not the others agree.
+ */
+#define CSS_CONFORMANCE_PHASE18_SHEET \
+    "div.every {\n" \
+    "    flex-direction: column;\n" \
+    "    flex-wrap: wrap;\n" \
+    "    flex-grow: 2;\n" \
+    "    justify-content: center;\n" \
+    "    align-items: flex-start;\n" \
+    "    order: 3;\n" \
+    "    grid-auto-flow: column;\n" \
+    "    row-gap: 4px;\n" \
+    "    table-layout: fixed;\n" \
+    "    border-collapse: collapse;\n" \
+    "    caption-side: bottom;\n" \
+    "    column-count: 3;\n" \
+    "    column-fill: balance;\n" \
+    "    column-span: all;\n" \
+    "    transform-style: preserve-3d;\n" \
+    "    backface-visibility: hidden;\n" \
+    "    transition-behavior: allow-discrete;\n" \
+    "    animation-direction: alternate;\n" \
+    "    animation-fill-mode: forwards;\n" \
+    "    animation-play-state: paused;\n" \
+    "    animation-composition: add;\n" \
+    "    animation-iteration-count: 2.5;\n" \
+    "    container-type: inline-size;\n" \
+    "    margin-block-start: 12px;\n" \
+    "    writing-mode: vertical-rl;\n" \
+    "    text-orientation: upright;\n" \
+    "    direction: rtl;\n" \
+    "    font-style: italic;\n" \
+    "    font-kerning: none;\n" \
+    "    font-variant-caps: small-caps;\n" \
+    "    text-align: center;\n" \
+    "    white-space: pre-wrap;\n" \
+    "    text-transform: uppercase;\n" \
+    "    hyphens: auto;\n" \
+    "    text-decoration-style: wavy;\n" \
+    "    image-rendering: pixelated;\n" \
+    "    object-fit: cover;\n" \
+    "    background-clip: content-box;\n" \
+    "    background-repeat: round;\n" \
+    "    background-blend-mode: multiply;\n" \
+    "    border-image-repeat: round;\n" \
+    "    border-top-left-radius: 5px;\n" \
+    "    outline-style: solid;\n" \
+    "    filter: blur(2px);\n" \
+    "    backdrop-filter: brightness(0.5);\n" \
+    "}\n"
+
+static void TestCssConformancePhase18DocumentEveryFamily(void)
+{
+    CssInheritFixture fixture;
+    CssElementRef every;
+    CssComputedStyle *style = NULL;
+    CssCapabilities caps;
+
+    CssFixture();
+    CssInheritBegin(&fixture);
+    every = CssHostAdd(CssInheritHost(&fixture), "div", NULL, "every");
+    CssHostSeal(CssInheritHost(&fixture));
+    CssInheritSheet(&fixture, RoboCssOriginAuthor, CSS_CONFORMANCE_PHASE18_SHEET);
+    RoboCheckEqInt(CssComputedStyleCreate(&style, NULL), RoboOk);
+    RoboCheckEqInt(CssStyleContextComputeStyle(
+                          CssInheritContext(&fixture), every, style, NULL, NULL),
+                      RoboOk);
+
+    /* Flexbox (18.3). */
+    CssComputedIs(style, "flex-direction", "column");
+    CssComputedIs(style, "flex-wrap", "wrap");
+    CssComputedIs(style, "flex-grow", "2");
+    CssComputedIs(style, "justify-content", "center");
+    CssComputedIs(style, "align-items", "flex-start");
+    CssComputedIs(style, "order", "3");
+    /* Grid (18.4). */
+    CssComputedIs(style, "grid-auto-flow", "column");
+    CssComputedIs(style, "row-gap", "4px");
+    /* Tables (18.5). */
+    CssComputedIs(style, "table-layout", "fixed");
+    CssComputedIs(style, "border-collapse", "collapse");
+    CssComputedIs(style, "caption-side", "bottom");
+    /* Multi-column (18.6). */
+    CssComputedIs(style, "column-count", "3");
+    CssComputedIs(style, "column-fill", "balance");
+    CssComputedIs(style, "column-span", "all");
+    /* Transforms (18.7). */
+    CssComputedIs(style, "transform-style", "preserve-3d");
+    CssComputedIs(style, "backface-visibility", "hidden");
+    /* Transitions (18.8). */
+    CssComputedIs(style, "transition-behavior", "allow-discrete");
+    /* Animations (18.9). */
+    CssComputedIs(style, "animation-direction", "alternate");
+    CssComputedIs(style, "animation-fill-mode", "forwards");
+    CssComputedIs(style, "animation-play-state", "paused");
+    CssComputedIs(style, "animation-composition", "add");
+    CssComputedIs(style, "animation-iteration-count", "2.5");
+    /* Container queries (18.11). */
+    CssComputedIs(style, "container-type", "inline-size");
+    /* Logical properties (18.12). */
+    CssComputedIs(style, "margin-block-start", "12px");
+    /* Writing modes (18.13). */
+    CssComputedIs(style, "writing-mode", "vertical-rl");
+    CssComputedIs(style, "text-orientation", "upright");
+    CssComputedIs(style, "direction", "rtl");
+    /* Fonts (18.14). */
+    CssComputedIs(style, "font-style", "italic");
+    CssComputedIs(style, "font-kerning", "none");
+    CssComputedIs(style, "font-variant-caps", "small-caps");
+    /* Text (18.15). */
+    CssComputedIs(style, "text-align", "center");
+    CssComputedIs(style, "white-space", "pre-wrap");
+    CssComputedIs(style, "text-transform", "uppercase");
+    CssComputedIs(style, "hyphens", "auto");
+    CssComputedIs(style, "text-decoration-style", "wavy");
+    /* Images (18.16). */
+    CssComputedIs(style, "image-rendering", "pixelated");
+    CssComputedIs(style, "object-fit", "cover");
+    /* Backgrounds (18.17). */
+    CssComputedIs(style, "background-clip", "content-box");
+    CssComputedIs(style, "background-repeat", "round");
+    CssComputedIs(style, "background-blend-mode", "multiply");
+    /* Borders (18.18). */
+    CssComputedIs(style, "border-image-repeat", "round");
+    CssComputedIs(style, "border-top-left-radius", "5px");
+    CssComputedIs(style, "outline-style", "solid");
+    /* Filters (18.19). */
+    CssComputedIs(style, "filter", "blur(2px)");
+    CssComputedIs(style, "backdrop-filter", "brightness(0.5)");
+
+    /* Every family this document reads is one the build claims: the flags and the
+     * assertions above are the same set. */
+    RoboCheckEqInt(CssGetCapabilities(&caps), RoboOk);
+    RoboCheckEqInt(caps.flexbox, 1);
+    RoboCheckEqInt(caps.grid, 1);
+    RoboCheckEqInt(caps.tables, 1);
+    RoboCheckEqInt(caps.multiColumn, 1);
+    RoboCheckEqInt(caps.transforms, 1);
+    RoboCheckEqInt(caps.transitions, 1);
+    RoboCheckEqInt(caps.animations, 1);
+    RoboCheckEqInt(caps.containerQueries, 1);
+    RoboCheckEqInt(caps.logicalProperties, 1);
+    RoboCheckEqInt(caps.writingModes, 1);
+    RoboCheckEqInt(caps.fonts, 1);
+    RoboCheckEqInt(caps.text, 1);
+    RoboCheckEqInt(caps.images, 1);
+    RoboCheckEqInt(caps.blendModes, 1);
+    RoboCheckEqInt(caps.borderDecorations, 1);
+    RoboCheckEqInt(caps.filters, 1);
+
+    CssComputedStyleDestroy(style);
+    CssInheritEnd(&fixture);
+}
+
+/* ------------------------------------------------------------------ */
 /* The build's promises                                                */
 /* ------------------------------------------------------------------ */
 
@@ -2012,7 +2382,7 @@ static void TestCssConformanceCapabilitiesEveryFlag(void)
     /* The frozen-surface flag is a promise about the phase, not a capability. */
     RoboCheckEqInt(RoboCssApiFrozen, 0);
     RoboCheckEqInt(RoboCssVersionMajor, 0);
-    RoboCheckEqInt(RoboCssVersionMinor, 37);
+    RoboCheckEqInt(RoboCssVersionMinor, 39);
 }
 
 void TestRegisterCssConformance(void);
@@ -2045,6 +2415,12 @@ void TestRegisterCssConformance(void)
                        TestCssConformancePipelineDeterminism);
     TestRegister("css.conformance.pipeline.lifetime",
                        TestCssConformancePipelineLifetime);
+    TestRegister("css.conformance.phase18.inheritance_registry_wide",
+                       TestCssConformancePhase18InheritanceRegistryWide);
+    TestRegister("css.conformance.phase18.registry_through_the_pipeline",
+                       TestCssConformancePhase18RegistryThroughThePipeline);
+    TestRegister("css.conformance.phase18.document",
+                       TestCssConformancePhase18DocumentEveryFamily);
     TestRegister("css.conformance.capabilities.every_flag",
                        TestCssConformanceCapabilitiesEveryFlag);
 }
