@@ -318,7 +318,9 @@ Each a named later goal:
   margin's overhang~~ **done in 10.13** — an over-constrained box's overflow and a
   negative margin's overhang are now *recorded* rather than merely noted, though
   neither is *acted on* until something scrolls.
-- `box-sizing`, flex/grid/table margin distribution, and `margin: inherit` arriving
+- `box-sizing`, grid/table margin distribution, and `margin: inherit` arriving
   as a *keyword* rather than as four computed longhands (the classification reads a
   keyword other than `auto` as unusable, which is the honest answer until the
-  computed layer resolves it).
+  computed layer resolves it). **Flex** margin distribution was 19.3's: the flex pass
+  resolves each item's four margins with the container's content width as the
+  percentage base and uses an `auto` as zero (`FlexLayout.md`).

@@ -385,8 +385,8 @@ boundary item in `Margins.md` §6.
 - **No CSS parsing.** Display is read through 9.12's own accessors —
   `CssDisplayIsBlockLevel` and its siblings — and there is deliberately no
   second block-level predicate in this module: a copy would be the *worse* copy,
-  because the day `flex` adds a row with an outer of `block`, 9.12's table is where
-  that fact lands.
+  because the day a display value adds a row with an outer of `block`, 9.12's table
+  is where that fact lands — and 19.3's `flex` is that day (`RoboCSSDisplay.c`).
 - **No Chromium.** Blink's `LayoutBlockFlow` and its margin-collapsing and
   intrinsic-size machinery are temporary technical reference only; the rules here
   are Roboticela's, and `Tools/Build.ps1 -Verify` scans this directory for a

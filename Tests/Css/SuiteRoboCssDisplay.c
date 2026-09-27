@@ -43,12 +43,13 @@
  */
 static void TestDisplayVocabulary(void)
 {
-    static const char *const keywords[] = { "none", "block", "inline", "inline-block" };
+    static const char *const keywords[] = {
+        "none", "block", "inline", "inline-block", "flex", "inline-flex" };
     size_t index;
 
     CssFixture();
-    RoboCheckEqInt((int)RoboCssDisplayCount, 4);
-    RoboCheckEqInt((int)CssDisplayCount(), 4);
+    RoboCheckEqInt((int)RoboCssDisplayCount, 6);
+    RoboCheckEqInt((int)CssDisplayCount(), 6);
     for (index = 0u; index < sizeof(keywords) / sizeof(keywords[0]); index++) {
         CssDisplay display = (CssDisplay)index;
 
@@ -90,13 +91,17 @@ static void TestDisplayOuterInner(void)
         {RoboCssDisplayInline, RoboCssDisplayOuterInline,
          RoboCssDisplayInnerFlow, "inline", "flow"},
         {RoboCssDisplayInlineBlock, RoboCssDisplayOuterInline,
-         RoboCssDisplayInnerFlowRoot, "inline", "flow-root"}
+         RoboCssDisplayInnerFlowRoot, "inline", "flow-root"},
+        {RoboCssDisplayFlex, RoboCssDisplayOuterBlock,
+         RoboCssDisplayInnerFlex, "block", "flex"},
+        {RoboCssDisplayInlineFlex, RoboCssDisplayOuterInline,
+         RoboCssDisplayInnerFlex, "inline", "flex"}
     };
     size_t index;
 
     CssFixture();
     RoboCheckEqInt((int)RoboCssDisplayOuterCount, 3);
-    RoboCheckEqInt((int)RoboCssDisplayInnerCount, 3);
+    RoboCheckEqInt((int)RoboCssDisplayInnerCount, 4);
     for (index = 0u; index < sizeof(expected) / sizeof(expected[0]); index++) {
         RoboCheckEqInt(MakeCssDisplayOuter(expected[index].display),
                           (int)expected[index].outer);
@@ -145,7 +150,9 @@ static void TestDisplayClassification(void)
         {RoboCssDisplayNone, 0, 1, 0, 0, 0},
         {RoboCssDisplayBlock, 1, 0, 1, 0, 0},
         {RoboCssDisplayInline, 1, 0, 0, 1, 0},
-        {RoboCssDisplayInlineBlock, 1, 0, 0, 1, 1}
+        {RoboCssDisplayInlineBlock, 1, 0, 0, 1, 1},
+        {RoboCssDisplayFlex, 1, 0, 1, 0, 0},
+        {RoboCssDisplayInlineFlex, 1, 0, 0, 1, 0}
     };
     size_t index;
     int boxless = 0;
@@ -219,6 +226,8 @@ static void TestDisplayParsing(void)
         {"block", RoboCssDisplayBlock},
         {"inline", RoboCssDisplayInline},
         {"inline-block", RoboCssDisplayInlineBlock},
+        {"flex", RoboCssDisplayFlex},
+        {"inline-flex", RoboCssDisplayInlineFlex},
         /* CSS spells keywords case-insensitively. */
         {"BLOCK", RoboCssDisplayBlock},
         {"Inline", RoboCssDisplayInline},
@@ -226,7 +235,7 @@ static void TestDisplayParsing(void)
         {"None", RoboCssDisplayNone}
     };
     static const char *const unknown[] = {
-        "bogus", "flex", "grid", "table", "contents", "inline-flex", "inline_block",
+        "bogus", "grid", "table", "contents", "inline_block",
         "block;", "inlineblock", "blockflow", ""
     };
     size_t index;
@@ -425,7 +434,7 @@ static void TestDisplayComputedShape(void)
  * A closed vocabulary is only worth having if a value outside it is *refused*,
  * and the refusals are worth having in four shapes because they are four
  * different things to tell an author: an identifier this build has not added
- * (`flex`), a value that is not an identifier at all (`20px`, `#fff`, `10%`), a
+ * (`grid`), a value that is not an identifier at all (`20px`, `#fff`, `10%`), a
  * declaration written with two keywords (`inline block`), and a value whose
  * meaning is a reference (`rgb(0, 0, 0)` is a colour function, not a display).
  * Collapsing them into one "invalid" would still be correct and would tell a
@@ -438,15 +447,11 @@ static void TestDisplayComputedInvalid(void)
     /* An identifier, and not one of the four. */
     CssComputeEquals(RoboCssPropertyComputationDisplay, "d: bogus",
                        "not a display value");
-    CssComputeEquals(RoboCssPropertyComputationDisplay, "d: flex",
-                       "not a display value");
     CssComputeEquals(RoboCssPropertyComputationDisplay, "d: grid",
                        "not a display value");
     CssComputeEquals(RoboCssPropertyComputationDisplay, "d: table",
                        "not a display value");
     CssComputeEquals(RoboCssPropertyComputationDisplay, "d: contents",
-                       "not a display value");
-    CssComputeEquals(RoboCssPropertyComputationDisplay, "d: inline-flex",
                        "not a display value");
     /* The spelling with an underscore, which is how a keyword reads in code and
      * not how CSS spells it. */

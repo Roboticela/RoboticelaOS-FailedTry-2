@@ -5,10 +5,12 @@
  *
  *   row        one value, its keyword, its outer display and its inner display
  *
- * Four rows today. Adding `flex` is adding a row with an outer of BLOCK and an
- * inner this build would then have to define; adding `contents` is adding a row
- * with an outer of NONE that is *not* the value `none`. Neither requires
- * touching a function below, which is the entire justification for the table:
+ * Six rows today: the four 9.12 shipped plus `flex` and `inline-flex` (19.3). The
+ * flex pair is exactly the extension the table was shaped for -- `flex` is an outer
+ * of BLOCK with an inner of FLEX, `inline-flex` an outer of INLINE with the same
+ * inner -- and no function below changed to add them. A later `contents` is a row
+ * with an outer of NONE that is *not* the value `none`. Adding a row requires
+ * touching no function below, which is the entire justification for the table:
  * every question in this module used to be a place a spelling could be compared
  * wrongly, and there is now exactly one place a spelling appears.
  *
@@ -48,7 +50,11 @@ static const DisplayRow displayVocabulary[] = {
     { RoboCssDisplayInline,       "inline",       RoboCssDisplayOuterInline,
       RoboCssDisplayInnerFlow },
     { RoboCssDisplayInlineBlock, "inline-block", RoboCssDisplayOuterInline,
-      RoboCssDisplayInnerFlowRoot }
+      RoboCssDisplayInnerFlowRoot },
+    { RoboCssDisplayFlex,        "flex",         RoboCssDisplayOuterBlock,
+      RoboCssDisplayInnerFlex },
+    { RoboCssDisplayInlineFlex,  "inline-flex",  RoboCssDisplayOuterInline,
+      RoboCssDisplayInnerFlex }
 };
 
 #define DISPLAY_VOCABULARY_COUNT \
@@ -238,6 +244,8 @@ const char *CssDisplayInnerName(CssDisplayInner inner)
         return "flow";
     case RoboCssDisplayInnerFlowRoot:
         return "flow-root";
+    case RoboCssDisplayInnerFlex:
+        return "flex";
     default:
         return "unknown";
     }

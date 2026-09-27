@@ -24,33 +24,36 @@ CSS text
    ↓  grammar (9.3)                  declaration → component-value tree
    ↓  cascade (9.5) + specificity (9.6)
    ↓  inheritance (9.7)              `display` is non-inherited; `inherit`/`initial`/`unset` resolve here
-   ↓  RoboCSSDisplay                 the four values, their outer/inner halves, the classifications
+   ↓  RoboCSSDisplay                 the values, their outer/inner halves, the classifications
    ↓  computed values (9.8)          one ident → a typed DISPLAY value, or INVALID with a reason
    ↓  layout (a later phase)         the box, its formatting context, its geometry
 ```
 
 | Goal | What it delivers |
 |---|---|
-| 9.12.1 the vocabulary | The four values as a closed set, each spelled by exactly one keyword |
+| 9.12.1 the vocabulary | The values as a closed set, each spelled by exactly one keyword (six since 19.3) |
 | 9.12.2 outer and inner | The two halves of a display value, as CSS Display 3 names them, in the same rows |
 | 9.12.3 the shape | `DISPLAY` — a value shape that accepts one identifier and refuses the rest |
 | 9.12.4 classification | `generates_box`, `is_none`, `is_block_level`, `is_inline_level`, `is_inline_block` |
 | 9.12.5 the registry row | `display`: non-inherited, the `DISPLAY` shape, initial `inline` |
 | 9.12.6 the query door | How a consumer asks an element for its display when it declared nothing |
 
-## 1. The four values
+## 1. The values
 
 ```c
 typedef enum CssDisplay {
     RoboCssDisplayNone = 0,
     RoboCssDisplayBlock = 1,
     RoboCssDisplayInline = 2,
-    RoboCssDisplayInlineBlock = 3
+    RoboCssDisplayInlineBlock = 3,
+    RoboCssDisplayFlex = 4,
+    RoboCssDisplayInlineFlex = 5
 } CssDisplay;
 ```
 
 A closed set, and the enumerator values are **append-only**: a stored enumerator is a
-contract, so `flex` joins as 4 rather than reshuffling what a previous phase wrote down.
+contract, so `flex` and `inline-flex` joined as 4 and 5 (Phase 19.3) rather than
+reshuffling what a previous phase wrote down. `RoboCssDisplayCount` is **6** since 19.3.
 
 The vocabulary is *closed* — and that is the phase's decision, not an unfinished list.
 An unknown identifier is a mistake with a diagnostic:
@@ -78,6 +81,8 @@ A display value is three facts, and they are the three CSS Display 3 names for t
 | `block` | `BLOCK` | `FLOW` | block-level, contents share their parent's context |
 | `inline` | `INLINE` | `FLOW` | inline-level, contents share their parent's context |
 | `inline-block` | `INLINE` | `FLOW_ROOT` | inline-level, contents in a formatting context of its own |
+| `flex` | `BLOCK` | `FLEX` | block-level, contents are flex items (19.3) |
+| `inline-flex` | `INLINE` | `FLEX` | inline-level atomic, contents are flex items (19.3) |
 
 The inner column is not decoration, and `inline-block` is the row that earns it. CSS
 defines `inline-block` as `inline flow-root`, and this table says the same thing: an
@@ -93,13 +98,13 @@ int CssDisplayIsInlineBlock(CssDisplay display)
 }
 ```
 
-The two columns in one row are where the *next* values arrive, and none of them is
-claimed here:
+The two columns in one row are where the *next* values arrive. `flex` and
+`inline-flex` were 19.3's (`FlexLayout.md`); the rest are still unclaimed:
 
 | Future value | outer | inner |
 |---|---|---|
-| `flex`, `grid`, `table` | `BLOCK` | a new inner this build would define |
-| `inline-flex`, `inline-grid`, `inline-table` | `INLINE` | likewise |
+| `grid`, `table` | `BLOCK` | a new inner this build would define |
+| `inline-grid`, `inline-table` | `INLINE` | likewise |
 | `flow-root` | `BLOCK` | `FLOW_ROOT` |
 | `contents` | `NONE` — and **not** the value `none` | `NONE` |
 
@@ -113,7 +118,7 @@ int CssDisplayGeneratesBox(CssDisplay display);   /* asked of the outer column *
 int CssDisplayIsNone(CssDisplay display);         /* asked of the value */
 ```
 
-They agree for all four values today. The suite asserts that they agree *and* that
+They agree for all six values today. The suite asserts that they agree *and* that
 exactly one value generates no box, so the day they diverge is the day a row was added
 and the counts move.
 
@@ -155,14 +160,15 @@ damaging confusion this property has.
 | `block` | DISPLAY › `block` | one of the vocabulary |
 | `inline` | DISPLAY › `inline` | one of the vocabulary |
 | `INLINE-BLOCK` | DISPLAY › `inline-block` | CSS folds keyword case |
-| `flex`, `grid`, `table`, `contents`, `inline-flex` | INVALID › *not a display value* | legal CSS this build has not added — a row, not a word it does not know |
+| `flex`, `INLINE-FLEX` | DISPLAY › `flex` / `inline-flex` | a value and its inner joined in 19.3; case folded as for every keyword |
+| `grid`, `table`, `contents` | INVALID › *not a display value* | legal CSS this build has not added — a row, not a word it does not know |
 | `bogus`, `red` | INVALID › *not a display value* | an identifier outside the vocabulary |
 | `20px`, `10`, `10%`, `#fff`, `"block"`, `url(block)` | INVALID › *not an identifier* | a token that is not an identifier at all |
 | `inline block`, `block flow`, `rgb(0, 0, 0)` | INVALID › *not a single display keyword* | more than one component, or one that is not one |
 | `var(--d)` | PRESERVED, flagged unresolved | a reference, carried rather than refused |
 
 The refusals stay four sentences because they are four different things to tell an
-author, and because `flex` deserves a better answer than `bogus` — the first is a value
+author, and because `grid` deserves a better answer than `bogus` — the first is a value
 this build has not added, the second is a word nothing knows. `rgb(0, 0, 0)` lands in the
 third bucket rather than the second: it is one component and it is not an identifier, and
 "not a single display keyword" names that without claiming anything about the colour.
@@ -212,8 +218,8 @@ RoboCheckEqInt(CssDisplayFromText(definition->initial_text),
 
 The initial value is checked *as text the vocabulary knows* rather than as a string,
 because the two are written in different files and the failure would be quiet: a row
-whose initial text were not one of the four would make `display: initial` resolve through
-a shape that refuses it.
+whose initial text were not one of the values would make `display: initial` resolve
+through a shape that refuses it.
 
 ## 7. Non-inheritance, and the hole it leaves
 
@@ -315,9 +321,9 @@ Deliberately absent, and each is a boundary rather than an unfinished edge:
   leaves a tree. `display: none` is the *absence of a box*, recorded, not an action.
 - **The multi-keyword syntax.** Refused, with the outer/inner columns as the extension
   point.
-- **`flex`, `grid`, `table`, `list-item`, `contents`, `flow-root`.** Rows this build has
-  not added. `contents` will also be the first value where "generates a box" and "is
-  `none`" differ.
+- **`grid`, `table`, `list-item`, `contents`, `flow-root`.** Rows this build has not
+  added — `flex` and `inline-flex` were 19.3's and are now values. `contents` will also
+  be the first value where "generates a box" and "is `none`" differ.
 - **User-agent styles.** A `div` is not block, because that is a stylesheet and this is a
   vocabulary.
 - **`display` on pseudo-elements, in `@media`, or as an animation target.** None of those

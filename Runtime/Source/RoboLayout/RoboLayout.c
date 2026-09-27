@@ -190,6 +190,14 @@ Result LayoutGetCapabilities(LayoutCapabilities *out)
      * percentage, no `calc()` and no viewport unit.
      */
     out->percentageResolution = RoboLayoutPercentageResolutionImplemented;
+    /*
+     * And `flexLayout`, the field 19.3 added. **Not** "flexbox is finished": a flex
+     * container lays its items out along a main axis with grow/shrink, wrapping and
+     * the three alignment properties -- but no flex root, no baseline alignment, no
+     * automatic minimum size, no `gap`, no shorthand expansion and no vertical
+     * writing mode.
+     */
+    out->flexLayout = RoboLayoutFlexLayoutImplemented;
     out->painting = 0;
     return RoboOk;
 }

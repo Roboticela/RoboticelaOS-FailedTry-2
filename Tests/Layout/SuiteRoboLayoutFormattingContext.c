@@ -126,17 +126,19 @@ static void TestFcKinds(void)
 
     LayoutFixture();
 
-    RoboCheckEqInt((int)RoboLayoutFcKindCount, 4);
+    RoboCheckEqInt((int)RoboLayoutFcKindCount, 5);
     RoboCheckEqInt((int)RoboLayoutFcNone, 0);
     RoboCheckEqInt((int)RoboLayoutFcRoot, 1);
     RoboCheckEqInt((int)RoboLayoutFcBlock, 2);
     RoboCheckEqInt((int)RoboLayoutFcInline, 3);
+    RoboCheckEqInt((int)RoboLayoutFcFlex, 4);
 
     RoboCheckEqInt(LayoutFcKindIsKnown(RoboLayoutFcNone), 1);
     RoboCheckEqInt(LayoutFcKindIsKnown(RoboLayoutFcRoot), 1);
     RoboCheckEqInt(LayoutFcKindIsKnown(RoboLayoutFcBlock), 1);
     RoboCheckEqInt(LayoutFcKindIsKnown(RoboLayoutFcInline), 1);
-    RoboCheckEqInt(LayoutFcKindIsKnown((LayoutFcKind)4), 0);
+    RoboCheckEqInt(LayoutFcKindIsKnown(RoboLayoutFcFlex), 1);
+    RoboCheckEqInt(LayoutFcKindIsKnown((LayoutFcKind)5), 0);
     RoboCheckEqInt(LayoutFcKindIsKnown((LayoutFcKind)99), 0);
 
     /* Walked in enumerator order: a row whose table entry had drifted would still
@@ -163,6 +165,7 @@ static void TestFcKinds(void)
     RoboCheckStrEq(LayoutFcKindName(RoboLayoutFcRoot), "root");
     RoboCheckStrEq(LayoutFcKindName(RoboLayoutFcBlock), "block");
     RoboCheckStrEq(LayoutFcKindName(RoboLayoutFcInline), "inline");
+    RoboCheckStrEq(LayoutFcKindName(RoboLayoutFcFlex), "flex");
     RoboCheckStrEq(LayoutFcKindName((LayoutFcKind)40), "unknown");
     RoboCheck(LayoutFcKindName((LayoutFcKind)40) != NULL);
 
@@ -173,6 +176,9 @@ static void TestFcKinds(void)
     RoboCheckEqInt(LayoutFcKindIsBlockContainer(RoboLayoutFcRoot), 1);
     RoboCheckEqInt(LayoutFcKindIsBlockContainer(RoboLayoutFcBlock), 1);
     RoboCheckEqInt(LayoutFcKindIsBlockContainer(RoboLayoutFcInline), 0);
+    /* A flex context is not a block container: its participants are flex items, and a
+     * block pass that treated it as one would stack them (19.3). */
+    RoboCheckEqInt(LayoutFcKindIsBlockContainer(RoboLayoutFcFlex), 0);
     RoboCheckEqInt(LayoutFcKindIsBlockContainer(RoboLayoutFcNone), 0);
     RoboCheckEqInt(LayoutFcKindIsBlockContainer((LayoutFcKind)70), 0);
 }
@@ -253,7 +259,7 @@ static void TestFcClassifyEstablishes(void)
     for (index = 0u; index < sizeof(table) / sizeof(table[0]); index++) {
         LayoutFcKind actual = LayoutFcEstablishes(
             table[index].display, table[index].hasBlockLevelChild, table[index].isRoot,
-            table[index].isOutOfFlow);
+            table[index].isOutOfFlow, /* isFlexItem */ 0);
 
         RoboCheckMsg(actual == table[index].expected, table[index].why);
     }
@@ -278,7 +284,11 @@ static void TestFcClassifyDisplay(void)
         { RoboCssDisplayNone, 0, 0 },
         { RoboCssDisplayBlock, 1, 1 },
         { RoboCssDisplayInline, 0, 0 },
-        { RoboCssDisplayInlineBlock, 1, 1 }
+        { RoboCssDisplayInlineBlock, 1, 1 },
+        /* A flex container can establish (a flex context) and is not a block
+         * container; `inline-flex` likewise (19.3). */
+        { RoboCssDisplayFlex, 1, 0 },
+        { RoboCssDisplayInlineFlex, 1, 0 }
     };
     size_t index;
 
@@ -301,14 +311,14 @@ static void TestFcClassifyDisplay(void)
         CssDisplay display = (CssDisplay)index;
 
         if (LayoutFcDisplayCanEstablish(display)) {
-            RoboCheckEqInt(LayoutFcEstablishes(display, 0, 0, 0) !=
+            RoboCheckEqInt(LayoutFcEstablishes(display, 0, 0, 0, 0) !=
                                   RoboLayoutFcNone,
                               1);
         }
         if (!CssDisplayGeneratesBox(display)) {
             RoboCheckEqInt(LayoutFcDisplayCanEstablish(display), 0);
-            RoboCheckEqInt(LayoutFcEstablishes(display, 0, 0, 0), RoboLayoutFcNone);
-            RoboCheckEqInt(LayoutFcEstablishes(display, 0, 1, 0), RoboLayoutFcNone);
+            RoboCheckEqInt(LayoutFcEstablishes(display, 0, 0, 0, 0), RoboLayoutFcNone);
+            RoboCheckEqInt(LayoutFcEstablishes(display, 0, 1, 0, 0), RoboLayoutFcNone);
         }
     }
 }

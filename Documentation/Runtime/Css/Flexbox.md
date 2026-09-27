@@ -115,16 +115,18 @@ boundary is stated rather than crossed:
 
 Everything past that is deliberate non-goals rather than unfinished work:
 
-- **No flex layout.** No line is measured, no free space is distributed, no
-  main-axis or cross-axis position is computed, and no item is sized. A value here
-  says *what rule* a layout pass follows; where the items land belongs to the phase
-  that has a box — exactly as `position: sticky` is a value and not a scrolling
-  behaviour.
+- **Flex layout is not *this* module's.** A value here says *what rule* a layout pass
+  follows, and the pass that follows them is RoboLayout's — **19.3** (`FlexLayout.md`)
+  lays a flex container's in-flow children out along a main axis. What this module
+  still does not do is measure a line, distribute free space, compute a main- or
+  cross-axis position or size an item.
 - **No CSS Grid/Box-Alignment properties beyond the four.** `align-content`'s
   distribution has no `place-items`/`justify-items` sibling here.
-- **No `wrap-reverse` behaviour and no baseline computation.** Both are values with
-  classifications; what a reversed line order does and where a baseline is are layout
-  questions.
+- **`wrap-reverse` is a value, and its behaviour is 19.3's** (the line order is
+  mirrored across the cross axis). **No baseline computation:** a baseline is a value
+  with a classification, and where a baseline lands is a layout question 19.3's
+  cross-axis alignment deliberately does not answer (a baseline value is treated as
+  `flex-start`).
 
 ## 5. Capabilities and version
 
@@ -132,7 +134,8 @@ Phase 18.3 adds one flag to `CssCapabilities` — `flexbox` — and one diagnost
 domain (`RoboCssDomainFlex`), and takes the module to **0.21.0**. The flag is
 asserted field by field in `SuiteRoboCssConformance.c` and read again in
 `SuiteRoboCssFlex.c`. The flag claims the *values* and their classifications; it
-does not claim flex layout, which is not built.
+does not claim flex layout, which is RoboLayout's and is built as of **19.3**
+(`LayoutCapabilities.flexLayout`).
 
 The eleven registry rows are all non-inherited — a container's direction, a wrap
 rule, an alignment, a factor, a basis and an order are the box's own, and a child

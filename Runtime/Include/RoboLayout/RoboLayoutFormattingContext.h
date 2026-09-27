@@ -37,7 +37,7 @@
  * because every box would then be a barrier and Phase 10.9 could not implement
  * margin collapsing at all.
  *
- * The four kinds, and why there is no fifth
+ * The kinds, and why there is no seventh
  *
  *   NONE    no context. Not a value a live box has; it is the absence, and it is
  *           what a cleared record and an unclassified tree read as.
@@ -46,26 +46,40 @@
  *           initial containing block's.
  *   BLOCK   participants are laid out in the block direction, one after another.
  *   INLINE  participants are laid out in the inline direction, along a line.
+ *   FLEX    participants are flex items, laid out along a main axis (Phase 19.3).
  *
- * FLEX, GRID, TABLE, RUBY and MULTICOLUMN are deliberately **not** enumerators
- * yet, for the reason Phase 9.12 refused to ship `display: flex`: an enumerator
- * with no row behind it is a name the module can spell and cannot honour, and a
- * caller that asked for it would get a kind no algorithm produces. They join as
- * rows when their contexts exist, exactly as `display` values do.
+ * GRID, TABLE, RUBY and MULTICOLUMN are deliberately **not** enumerators yet, for
+ * the reason Phase 9.12 refused to ship `display: flex`: an enumerator with no row
+ * behind it is a name the module can spell and cannot honour, and a caller that
+ * asked for it would get a kind no algorithm produces. 19.3 is the demonstration
+ * that the rule is followed rather than just stated: `FLEX` arrived as a row *and*
+ * the algorithm that honours it (`RoboLayoutFlex.c`) in the same change. The rest
+ * join as rows when their contexts exist, exactly as `display` values do.
  *
  * What establishes what
  *
  * `LayoutFcEstablishes` is the whole classification, and it is a pure
- * function of three facts: the box's computed `display`, whether the box has a
- * block-level child, and whether it is the root. The rules are CSS's:
+ * function of five facts: the box's computed `display`, whether the box has a
+ * block-level child, whether it is the root, whether it is **out of flow** (14.0)
+ * and whether it is a **flex item** (19.3). The rules are CSS's:
  *
  *   the root box establishes ROOT, whatever it computes to;
  *
- *   a box whose inner display is `flow-root` establishes BLOCK — because that is
- *   what `flow-root` *is*. In this build that is `inline-block`, whose inner
- *   display 9.12 records as `flow-root` precisely so that this phase would not
- *   have to special-case it. Future `flow-root`, `flex` and `grid` rows arrive
- *   here for free;
+ *   a box whose inner display is `flow-root` establishes BLOCK, and one whose
+ *   inner display is `flex` establishes FLEX — because that is what those inner
+ *   values *are*. In this build the first is `inline-block`, whose inner display
+ *   9.12 records as `flow-root` precisely so that this phase would not have to
+ *   special-case it; the second is the pair 19.3 added (`display: flex` and
+ *   `display: inline-flex` share an inner, so one branch answers for both). Future
+ *   `flow-root` and `grid` rows arrive here for free;
+ *
+ *   a box that is **out of flow** establishes a block context of its own (14.0,
+ *   where the containing-block rules live), asked before the transparency rule;
+ *
+ *   a **flex item** with a block-level child establishes BLOCK rather than being
+ *   transparent (19.3): its block-level child must not reach the flex context it
+ *   itself participates in, because a block-level box participating in a flex
+ *   context is exactly the contradiction the block pass reports;
  *
  *   a block container with no block-level child establishes INLINE — CSS 2.1
  *   §9.4.2, and the reason a `<p>` with text in it has somewhere for a line box
@@ -155,11 +169,15 @@ typedef enum LayoutFcKind {
     /** Participants are laid out in the block direction, one after another. */
     RoboLayoutFcBlock = 2,
     /** Participants are laid out in the inline direction, along a line. */
-    RoboLayoutFcInline = 3
+    RoboLayoutFcInline = 3,
+    /** Participants are **flex items**, laid out by Phase 19.3's flex algorithm
+     *  along a main axis and aligned across it. Established by a box whose inner
+     *  display is `flex` (`display: flex` or `display: inline-flex`). */
+    RoboLayoutFcFlex = 4
 } LayoutFcKind;
 
 /** Number of defined context kinds. NONE is one of them. */
-#define RoboLayoutFcKindCount 4u
+#define RoboLayoutFcKindCount 5u
 
 /** Non-zero when @p kind is a defined kind. NONE is defined. */
 int LayoutFcKindIsKnown(LayoutFcKind kind);
@@ -256,6 +274,13 @@ int LayoutFormattingContextEqual(const LayoutFormattingContext *a,
  *                              establishes ROOT whatever it computes to.
  *   @p isOutOfFlow            whether the box is `absolute`, `fixed` or `sticky` — see
  *                              below, and note that `sticky` is in flow.
+ *   @p isFlexItem             whether the box is a **flex item** (its participating context is a
+ *                              flex formatting context, 19.3). CSS says every flex item establishes
+ *                              an independent formatting context, and the rule lands where the
+ *                              transparency rule would otherwise: a flex item with a block-level
+ *                              child establishes BLOCK rather than being transparent — otherwise
+ *                              that child would be left participating in the flex context, which is
+ *                              not a block-direction one.
  *
  * **An out-of-flow block container establishes a block context of its own** (Phase 14.0), and this
  * is CSS 2.1 §9.4.1's own list rather than this build's invention: a positioned box's contents are
@@ -277,7 +302,8 @@ int LayoutFormattingContextEqual(const LayoutFormattingContext *a,
 LayoutFcKind LayoutFcEstablishes(CssDisplay display,
                                                 int hasBlockLevelChild,
                                                 int isRoot,
-                                                int isOutOfFlow);
+                                                int isOutOfFlow,
+                                                int isFlexItem);
 
 /**
  * Whether a box with @p display could *ever* establish a context in this build.

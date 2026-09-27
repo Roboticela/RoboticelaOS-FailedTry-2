@@ -35,6 +35,7 @@
 #include "RoboLayout/RoboLayoutAbsolute.h"
 #include "RoboLayout/RoboLayoutBlock.h"
 #include "RoboLayout/RoboLayoutBorder.h"
+#include "RoboLayout/RoboLayoutFlex.h"
 #include "RoboLayout/RoboLayoutInline.h"
 #include "RoboLayout/RoboLayoutLineBox.h"
 #include "RoboLayout/RoboLayoutMargin.h"
@@ -150,6 +151,29 @@ Result LayoutInlineWalkContents(LayoutWalk *walk,
                                                LayoutNodeId owner,
                                                int32_t contentWidth,
                                                GfxPixelY *outExtent);
+
+/**
+ * Lay out @p owner's contents as a **flex** formatting context and report the
+ * extent they reached (Phase 19.3). Defined by RoboLayoutFlex.c; called by the
+ * block pass for every box whose owned context is `RoboLayoutFcFlex`.
+ *
+ * @p hasDefiniteHeight / @p definiteHeight are the container's **content-box**
+ * height when its declarations determined one; they are the cross-axis size a
+ * `row` container stretches its items to, and the main-axis size a `column`
+ * container distributes along. A caller with no definite height (an `auto` height,
+ * or an atomic inline's contents) passes 0 and the container sizes itself from its
+ * content.
+ *
+ * The items are placed by this walk (each writing its own result and object
+ * records), so the caller does not place them again: it counts the container and
+ * takes @p outExtent as the container's content extent.
+ */
+Result LayoutFlexWalkContents(LayoutWalk *walk,
+                                          LayoutNodeId owner,
+                                          int32_t contentWidth,
+                                          int hasDefiniteHeight,
+                                          GfxPixelY definiteHeight,
+                                          GfxPixelY *outExtent);
 
 /*
  * The one style read every direction makes.

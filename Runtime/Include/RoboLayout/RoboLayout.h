@@ -394,6 +394,22 @@ typedef struct LayoutCapabilities {
      * `RoboLayoutPercentageResolutionImplemented`.
      */
     int percentageResolution;
+    /**
+     * Laying a **flex** formatting context out (19.3).
+     *
+     * **1** since 19.3. A box whose inner display is `flex` (`display: flex` or
+     * `display: inline-flex`) lays its in-flow children out as flex items: the main
+     * axis from `flex-direction`, the base size from `flex-basis`/the main-size
+     * property/the content, `flex-grow`/`flex-shrink` distributing free space,
+     * `flex-wrap` breaking lines, and `justify-content`/`align-items`/`align-self`/
+     * `align-content` positioning them.
+     *
+     * **Not** "flexbox is finished": no flex **root** box, no baseline alignment (a
+     * baseline value is treated as `flex-start`), no automatic minimum size, no
+     * `gap` and no shorthand expansion, no auto-margin absorption, and no vertical
+     * writing mode. See `RoboLayoutFlexLayoutImplemented`.
+     */
+    int flexLayout;
     /** Painting a box. **0**: Phase 11. */
     int painting;
 } LayoutCapabilities;

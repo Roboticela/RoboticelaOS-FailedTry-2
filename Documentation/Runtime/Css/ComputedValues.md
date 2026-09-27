@@ -50,7 +50,7 @@ PERCENTAGE   a percentage, which stays one because only layout can resolve it
 LENGTH       a number and a unit: `10px`, `2em`, `1rem`
 COLOR        four 8-bit channels, alpha included
 FAMILY_LIST  an ordered font family list
-DISPLAY      one of four display values (9.12)
+DISPLAY      one of six display values (9.12; the pair 19.3 added)
 POSITION     one of five position values (9.13)
 BACKGROUND_POSITION  a pair: two edges, or length-percentages (9.14)
 BACKGROUND_SIZE      two length-percentages, `auto`, `cover` or `contain` (9.14)
@@ -310,9 +310,10 @@ whatever phase first dispatches on the value.
 
 The row therefore kept its classification and its initial value and gained a shape.
 That is what the shape is *for*: the registry did not have to re-decide anything, the
-column did. `display: flex` is now `INVALID` with a reason rather than a keyword
-named `flex`, which is the same trade `padding: auto` makes — refusing is the honest
-answer until the phase that implements it exists.
+column did. `display: grid` is now `INVALID` with a reason rather than a keyword
+named `grid`, which is the same trade `padding: auto` makes — refusing is the honest
+answer until the phase that implements it exists. (`display: flex` was this example
+until 19.3 added the value and its inner — `Display.md`.)
 
 ### Why 9.13 added two, and one of them is the first numeric shape
 

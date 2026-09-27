@@ -165,8 +165,10 @@ where they would assume the feature:
   its own later change rather than a silent widening of a completed phase; the kind
   this phase added is one 14.0's reader already classifies as unusable, so nothing
   there moved.
-- **Flex basis and grid tracks.** Percentages in a flex/grid track are 19.3's and
-  19.4's arithmetic, not this layer's.
+- **Grid tracks.** Percentages in a grid track are 19.4's arithmetic, not this
+  layer's. A percentage `flex-basis` was 19.3's and is now resolved by the flex pass
+  against the container's main size when that is definite (`FlexLayout.md`); a
+  percentage basis against an indefinite main size degrades to the content size.
 - **Percentage `min-width`/`max-width` bounds.** The bounds layer records a min/max
   as a length or an intrinsic; a percentage bound is the constraints goal's.
 - **`calc()` and viewport units.** A declared `calc(50% + 10px)` and a `vh`/`vw`

@@ -130,6 +130,7 @@
 #include "RoboLayout/RoboLayoutAbsolute.h"
 
 #include "RoboLayout/RoboLayoutDiagnostics.h"
+#include "RoboLayout/RoboLayoutFlex.h"
 #include "RoboLayout/RoboLayoutGeometry.h"
 #include "RoboLayout/RoboLayoutInline.h"
 #include "RoboLayout/RoboLayoutTree.h"
@@ -328,6 +329,15 @@ typedef struct LayoutBlockStats {
      *  rules make it have no block-level child by construction. The single most
      *  surprising fact about 10.3, and therefore one worth counting. */
     size_t emptyContainers;
+    /**
+     * The **flex** work this pass did (Phase 19.3), as one nested record rather than
+     * a dozen more flat fields, for the reason `absolute` is a nested record: the
+     * counters belong to the phase that produced them and are read together, so they
+     * live in `RoboLayoutFlex.h` beside the doors that define them. A `nowrap`
+     * container with one item and a wrapped container of a hundred items are one
+     * record of different numbers here.
+     */
+    LayoutFlexCounters flex;
     /** Deepest box placed. */
     uint32_t depthMax;
 } LayoutBlockStats;

@@ -290,10 +290,11 @@ Each a named later goal, and each stated where a reader will look for it:
   caller derives from its answer. That is why the padding layer computes
   `content + padding` (`Padding.md` §4) and the border layer computes that plus the
   border (`Borders.md` §4), rather than either being resolved here.
-- flex, grid and table sizing, positioning (10.12), which is where `auto` insets and
-  a contained box's offset belong, and overflow (10.13), which decides where a box's
-  contents reached — all three of them *outside* this layer, which is the phase's own
-  outcome row below.
+- ~~flex sizing~~ **done in 19.3** — a flex item's flex base size and its resolved main
+  size are the flex pass's arithmetic (`FlexLayout.md`); grid and table sizing,
+  positioning (10.12), which is where `auto` insets and a contained box's offset
+  belong, and overflow (10.13), which decides where a box's contents reached — all of
+  them *outside* this layer, which is the phase's own outcome row below.
 
 The one thing this phase does **not** change: `RoboLayoutResult.h`'s statement that
 `size` is the border-box size. Sizing decides what that number is; it does not

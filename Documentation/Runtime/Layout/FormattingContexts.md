@@ -100,7 +100,7 @@ module's notion of transparency.
 
 ---
 
-## 3. The four kinds, and why there is no fifth
+## 3. The kinds, and why there is no seventh
 
 ```text
 NONE     no context. Not a value a live box has: it is the absence, and what a
@@ -110,23 +110,29 @@ ROOT     the initial formatting context, established by the root box and by
          containing block's.
 BLOCK    participants are laid out in the block direction, one after another.
 INLINE   participants are laid out in the inline direction, along a line.
+FLEX     participants are flex items, laid out along a main axis (19.3).
 ```
 
-`flex`, `grid`, `table`, `ruby` and `multicol` are deliberately **not** enumerators,
-for exactly the reason Phase 9.12 refused to ship `display: flex`: an enumerator
-with no row behind it is a name the module can spell and cannot honour. A caller
-that asked for `ROBO_LAYOUT_FC_GRID` would get a kind no algorithm in the build
-produces. They join as rows when their contexts exist, exactly as `display` values
-did.
+The phase shipped four kinds and named the reason there was no fifth. **19.3 is the
+fifth**, and it arrives exactly the way this section said a kind would: `FLEX` was
+added as a row (`display: flex`/`inline-flex`) *and* the algorithm that honours it
+(`RoboLayoutFlex.c`, the third formatting context the build lays out). `grid`,
+`table`, `ruby` and `multicol` are still deliberately **not** enumerators, for the
+original reason: an enumerator with no row behind it is a name the module can spell
+and cannot honour. A caller that asked for `ROBO_LAYOUT_FC_GRID` would get a kind no
+algorithm in the build produces. They join as rows when their contexts exist,
+exactly as `flex` did.
 
-`RoboLayoutFcKindCount` is therefore `4`, and it counts `NONE`. A later phase
+`RoboLayoutFcKindCount` is `5` since 19.3, and it counts `NONE`. A later phase
 that adds a kind widens an array and adds a row; nothing else in the module needs
 to move.
 
 ### 3.1 `ROOT` is a block container, in the module's own opinion
 
 `LayoutFcKindIsBlockContainer(kind)` answers `1` for `ROOT` and `BLOCK`,
-`0` for `INLINE` and for an undefined enumerator. It exists as a predicate rather
+`0` for `INLINE` and `FLEX` (a flex container is not a block container — that is
+exactly the distinction the display's inner column carries, §4) and for an
+undefined enumerator. It exists as a predicate rather
 than as a comparison a caller writes, because the two later passes ask it *first*:
 
 ```text
@@ -149,22 +155,29 @@ allocation:
 ```c
 LayoutFcKind LayoutFcEstablishes(CssDisplay display,
                                                 int has_block_level_child,
-                                                int is_root);
+                                                int is_root,
+                                                int is_out_of_flow,
+                                                int is_flex_item);
 ```
 
-Three inputs, because the rules are stated in terms of three facts: what the box's
-**computed** display is, whether it has a block-level child, and whether it is the
-root. The complete table:
+Five inputs as of 19.3, because the rules are stated in terms of five facts: what the
+box's **computed** display is, whether it has a block-level child, whether it is the
+root, whether it is **out of flow** (14.0: an `absolute`/`fixed`/`sticky` box, or
+`sticky`, which is still in flow), and whether it is a **flex item** (19.3: it
+participates in a flex context). The complete table:
 
-| display | outer / inner | root? | block-level child? | establishes |
-|---|---|---|---|---|
-| `none` | — (generates no box) | — | — | `NONE` |
-| `inline` | inline / flow | no | — | `NONE` |
-| `block` | block / flow | **yes** | — | `ROOT` |
-| `inline` | inline / flow | **yes** | — | `ROOT` |
-| `block` | block / flow | no | yes | `NONE` — transparent |
-| `block` | block / flow | no | no | `INLINE` |
-| `inline-block` | inline / flow-root | no | — | `BLOCK` |
+| display | outer / inner | root? | block-level child? | out of flow? | flex item? | establishes |
+|---|---|---|---|---|---|---|
+| `none` | — (generates no box) | — | — | — | — | `NONE` |
+| `inline` | inline / flow | no | — | — | — | `NONE` |
+| `block` | block / flow | **yes** | — | — | — | `ROOT` |
+| `inline` | inline / flow | **yes** | — | — | — | `ROOT` |
+| `flex` / `inline-flex` | — / flex | no | — | — | — | `FLEX` |
+| `block` | block / flow | no | no | **yes** | — | `BLOCK` — 14.0 |
+| `block` | block / flow | no | yes | no | **yes** | `BLOCK` — 19.3 |
+| `block` | block / flow | no | yes | no | no | `NONE` — transparent |
+| `block` | block / flow | no | no | no | no | `INLINE` |
+| `inline-block` | inline / flow-root | no | — | — | — | `BLOCK` |
 
 Two rows carry more than they look like they do.
 
@@ -187,6 +200,16 @@ each shape. A build that asked about children first would classify a root with a
 block-level child as transparent; a build that asked about `flow-root` after the
 child question would replace a CSS fact with a structural one. Both produce a
 plausible-looking context tree.
+
+**A flex container establishes `FLEX` before either later question is asked**, and
+this phase never names the two spellings: both `flex` and `inline-flex` carry an
+inner of `FLEX`, so reading the inner column answers for the vertical (and every
+future) spelling. A **flex item**, by contrast, is the one place the transparency
+rule has to be *suppressed*: CSS says every flex item establishes an independent
+formatting context, and the reason is structural — a transparent item's block-level
+child would reach the *flex* context through the parent chain, and a block-level box
+participating in a flex context is the contradiction the block pass reports. So an
+item with a block-level child establishes `BLOCK` rather than `NONE`.
 
 ### 4.1 Two predicates that are not the classifier
 

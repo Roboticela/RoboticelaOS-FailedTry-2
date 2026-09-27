@@ -43,6 +43,8 @@ const char *LayoutFcKindName(LayoutFcKind kind)
         return "block";
     case RoboLayoutFcInline:
         return "inline";
+    case RoboLayoutFcFlex:
+        return "flex";
     default:
         return "unknown";
     }
@@ -94,8 +96,11 @@ int LayoutFcDisplayIsBlockContainer(CssDisplay display)
     if (!CssDisplayGeneratesBox(display)) {
         return 0;
     }
-    /* A block-level box with a flow or flow-root inner *is* a block container. */
-    if (outer == RoboCssDisplayOuterBlock) {
+    /* A block-level box with a **flow or flow-root** inner is a block container;
+     * a flex container is not -- its children are flex items, and that is exactly
+     * the distinction the inner column exists to carry. */
+    if (outer == RoboCssDisplayOuterBlock &&
+        MakeCssDisplayInner(display) != RoboCssDisplayInnerFlex) {
         return 1;
     }
     /* An atomic inline's *inner* box is one. It is a real box in CSS and not one
@@ -117,8 +122,10 @@ int LayoutFcDisplayCanEstablish(CssDisplay display)
     }
     /* An inner display of flow-root is a new block formatting context by
      * definition -- which is what makes `inline-block` establish one without this
-     * function naming it. */
-    if (MakeCssDisplayInner(display) == RoboCssDisplayInnerFlowRoot) {
+     * function naming it. An inner display of flex is a new **flex** context (19.3)
+     * by the same definition. */
+    if (MakeCssDisplayInner(display) == RoboCssDisplayInnerFlowRoot ||
+        MakeCssDisplayInner(display) == RoboCssDisplayInnerFlex) {
         return 1;
     }
     return LayoutFcDisplayIsBlockContainer(display);
@@ -127,7 +134,8 @@ int LayoutFcDisplayCanEstablish(CssDisplay display)
 LayoutFcKind LayoutFcEstablishes(CssDisplay display,
                                                  int hasBlockLevelChild,
                                                  int isRoot,
-                                                 int isOutOfFlow)
+                                                 int isOutOfFlow,
+                                                 int isFlexItem)
 {
     if (!CssDisplayGeneratesBox(display)) {
         /* A display that generates no box has no contents, so there is nothing
@@ -145,6 +153,15 @@ LayoutFcKind LayoutFcEstablishes(CssDisplay display,
     }
     if (MakeCssDisplayInner(display) == RoboCssDisplayInnerFlowRoot) {
         return RoboLayoutFcBlock;
+    }
+    /*
+     * Phase 19.3: an inner display of `flex` establishes a flex formatting context,
+     * whatever the box's children are and whether or not it is positioned. The flex
+     * algorithm itself is the pass's (RoboLayoutFlex.h), and this is only the fact
+     * that the box owns a context the block and inline passes must not stack.
+     */
+    if (MakeCssDisplayInner(display) == RoboCssDisplayInnerFlex) {
+        return RoboLayoutFcFlex;
     }
     /*
      * Phase 14.0: an out-of-flow block container establishes a block context of its own, before the
@@ -165,6 +182,17 @@ LayoutFcKind LayoutFcEstablishes(CssDisplay display,
         return RoboLayoutFcNone;
     }
     if (hasBlockLevelChild) {
+        /*
+         * Phase 19.3: a **flex item** establishes a block formatting context rather than
+         * being transparent. CSS says every flex item establishes an independent formatting
+         * context, and the reason it has to be stated here is specific: a transparent item's
+         * block-level children would reach the *flex* context through the parent chain, and a
+         * block-level box participating in a flex context is exactly the contradiction the
+         * block pass reports.
+         */
+        if (isFlexItem) {
+            return RoboLayoutFcBlock;
+        }
         /* Transparent: its block-level children participate in whatever it
          * participates in. This is CSS 2.1's rule and it is load-bearing twice
          * over -- it is why a margin escapes a plain `<div>`, and it is why a

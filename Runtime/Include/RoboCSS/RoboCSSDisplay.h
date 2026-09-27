@@ -20,12 +20,13 @@
  * They live in a table with one row per value, and every question below is asked
  * of the table rather than answered by a comparison against a spelling. That is
  * the same decision the unit vocabulary made in 9.10 and the box vocabulary made
- * in 9.11, and it is what makes the *next* display value an added row: `flex` is
- * an outer `block` with an inner `flex`, `grid` likewise, `inline-flex` an outer
- * `inline` with an inner `flex`, `contents` a value that generates no box and is
- * therefore not `none`. None of those is claimed here — this build supports the
- * four values it implements and rejects every other identifier, including the
- * ones this table is deliberately shaped to accept later.
+ * in 9.11, and it is what makes the *next* display value an added row: 19.3 added
+ * `flex` (an outer `block` with an inner `flex`) and `inline-flex` (an outer
+ * `inline` with the same inner) as two rows and no function changed, and a future
+ * `grid` is the same row again, `contents` a value that generates no box and is
+ * therefore not `none`. This build supports the six values it implements and
+ * rejects every other identifier, including the ones this table is deliberately
+ * shaped to accept later.
  *
  * The inner column is not decoration, and it is why `inline-block` is not a
  * synonym for `inline` with a flag: an atomic inline-level box *is* an inline
@@ -51,7 +52,7 @@
  *
  * The multi-keyword display syntax (`display: inline flow-root`, `display: block
  * flex`) is legal CSS 3 and is **not** parsed here: it needs the two-keyword
- * grammar, and the four rows above are single-keyword values. A declaration
+ * grammar, and the rows above are single-keyword values. A declaration
  * written that way is refused with a diagnostic naming that reason rather than
  * being guessed at or carried as an unreadable token tree — `display` is what
  * layout consumes, and a value nothing can read is worse than one that was
@@ -94,11 +95,15 @@ typedef enum CssDisplay {
     /** `inline`: inline-level, contents in normal flow. */
     RoboCssDisplayInline = 2,
     /** `inline-block`: inline-level, contents in a new formatting context. */
-    RoboCssDisplayInlineBlock = 3
+    RoboCssDisplayInlineBlock = 3,
+    /** `flex`: block-level, contents laid out as flex items (Phase 19.3). */
+    RoboCssDisplayFlex = 4,
+    /** `inline-flex`: inline-level atomic, contents laid out as flex items (19.3). */
+    RoboCssDisplayInlineFlex = 5
 } CssDisplay;
 
 /** Number of defined display values. */
-#define RoboCssDisplayCount 4u
+#define RoboCssDisplayCount 6u
 
 /**
  * What kind of box a display value generates, or that it generates none.
@@ -133,13 +138,16 @@ typedef enum CssDisplayInner {
     /** Normal flow, sharing its formatting context with its siblings. */
     RoboCssDisplayInnerFlow = 1,
     /** A new block formatting context of its own — CSS's `flow-root`. */
-    RoboCssDisplayInnerFlowRoot = 2
+    RoboCssDisplayInnerFlowRoot = 2,
+    /** A new **flex** formatting context of its own (Phase 19.3): the box is a flex
+     *  container and its in-flow children are flex items. */
+    RoboCssDisplayInnerFlex = 3
 } CssDisplayInner;
 
 /** Number of defined inner displays. */
-#define RoboCssDisplayInnerCount 3u
+#define RoboCssDisplayInnerCount 4u
 
-/** Non-zero when @p display is one of the four. NONE is defined. */
+/** Non-zero when @p display is one of the six. NONE is defined. */
 int CssDisplayIsKnown(CssDisplay display);
 
 /** Human-readable name ("none", "inline-block"); never NULL, "" for unknown. */

@@ -168,13 +168,20 @@ static Result LayoutClassifyObject(LayoutTree *tree,
 
         {
             /* Phase 14.0: whether this box is out of flow is a fact about its *position*, read here
-             * once rather than inside the classifier, which is a pure function of the four facts it
-             * is handed (`RoboLayoutFormattingContext.h`). */
+             * once rather than inside the classifier, which is a pure function of the facts it
+             * is handed (`RoboLayoutFormattingContext.h`). Phase 19.3: whether it is a flex item
+             * is a fact about the context it just joined, which is why it is read here too. */
             LayoutPosition declaredPosition = LayoutPositionOf(object->style);
+            LayoutFormattingContext participating;
+            int isFlexItem = 0;
 
+            if (LayoutTreeContext(tree, object->context, &participating, NULL) ==
+                    RoboOk) {
+                isFlexItem = participating.kind == RoboLayoutFcFlex;
+            }
             kind = LayoutFcEstablishes(
                 object->display, LayoutObjectHasBlockLevelChild(tree, object), 0,
-                LayoutAbsoluteIsOutOfFlow(&declaredPosition));
+                LayoutAbsoluteIsOutOfFlow(&declaredPosition), isFlexItem);
         }
         if (kind != RoboLayoutFcNone) {
             /* The new context's parent is the one the *owner* participates in, so

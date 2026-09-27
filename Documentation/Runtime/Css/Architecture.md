@@ -1149,8 +1149,10 @@ is the degenerate pair with neither half present, which is why it is a decided v
 and not the absence of one: an element with `display: none` has an answer, and the
 answer is that it generates no box.
 
-Keeping the halves separate is the whole reason the row exists. A future `flex` is a
-row, not a branch: `outer: BLOCK, inner: FLEX, legacy: false`. The *legacy* single-keyword
+Keeping the halves separate is the whole reason the row exists. `flex` *(19.3)* was
+that row and not a branch: `outer: BLOCK, inner: FLEX, legacy: false` — and its
+algorithm hangs off the inner column, so `inline-flex` shares it. A future `grid` is
+the same row again. The *legacy* single-keyword
 spellings (`inline-block`, `inline-table`, …) are stored whole rather than decomposed
 into their halves, because they are what the author wrote and what serialization has to
 reproduce; the halves are how the *classification* is answered. `level` is the
@@ -1589,9 +1591,10 @@ kinds and this table describes one kind over four sides — see the border
 paragraph below.
 
 Display (9.12) is behind us in the same limited sense, and the boundary is just as
-exact: `none`, `block`, `inline` and `inline-block` are typed values that travel the
-whole pipeline, `display: none` is a decided answer rather than a geometry, and the
-row's outer/inner pair is what a later phase extends. What does not exist is any
+exact: `none`, `block`, `inline`, `inline-block`, and *(19.3)* `flex` and
+`inline-flex` are typed values that travel the whole pipeline, `display: none` is a
+decided answer rather than a geometry, and the row's outer/inner pair is what a later
+phase extends. What does not exist is any
 *consequence* of the value — nothing builds a box tree, nothing removes a box tree,
 nothing lays a box out, and no element is given a display by its tag. `display: inline
 flex` and the other multi-keyword spellings are rejected rather than half-read, since

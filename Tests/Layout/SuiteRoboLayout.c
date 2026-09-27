@@ -43,10 +43,10 @@ static void TestModuleVersion(void)
     I32 patch = -1;
 
     RoboCheckEqInt(RoboLayoutVersionMajor, 0);
-    RoboCheckEqInt(RoboLayoutVersionMinor, 19);
+    RoboCheckEqInt(RoboLayoutVersionMinor, 20);
     RoboCheckEqInt(RoboLayoutVersionPatch, 0);
-    RoboCheckStrEq(RoboLayoutVersionString, "0.19.0");
-    RoboCheckStrEq(LayoutVersionString(), "0.19.0");
+    RoboCheckStrEq(RoboLayoutVersionString, "0.20.0");
+    RoboCheckStrEq(LayoutVersionString(), "0.20.0");
 
     RoboCheckEqInt(LayoutGetVersion(&major, &minor, &patch), RoboOk);
     RoboCheckEqInt(major, RoboLayoutVersionMajor);
@@ -126,6 +126,7 @@ static const struct {
     { "font_request", 1 },
     { "intrinsic_sizing", 1 },
     { "percentage_resolution", 1 },
+    { "flex_layout", 1 },
     { "painting", 0 }
 };
 
@@ -245,6 +246,12 @@ static void TestModuleCapabilities(void)
      */
     RoboCheckEqInt(caps.percentageResolution,
                    RoboLayoutPercentageResolutionImplemented);
+    /*
+     * And `flexLayout`, the field 19.3 added: a box whose inner display is `flex`
+     * lays its in-flow children out as flex items along a main axis, which is a third
+     * formatting context no field above it names.
+     */
+    RoboCheckEqInt(caps.flexLayout, RoboLayoutFlexLayoutImplemented);
     RoboCheckEqInt(caps.painting, 0);
     /* Both halves of the third row, so a build that set one of the pair without the
      * other is caught here rather than by a caller that trusted the constant. */
@@ -332,7 +339,7 @@ static void TestModuleDiagnosticDomains(void)
     size_t index;
     size_t seen[RoboLayoutDomainCount];
 
-    RoboCheckEqInt((int)RoboLayoutDomainCount, 24);
+    RoboCheckEqInt((int)RoboLayoutDomainCount, 25);
     RoboCheckEqInt((int)RoboLayoutDomainNone, 0);
     RoboCheckEqInt(LayoutDiagnosticDomainIsKnown(RoboLayoutDomainTextLayout), 1);
     RoboCheckEqInt(LayoutDiagnosticDomainIsKnown(RoboLayoutDomainSizing), 1);
@@ -343,7 +350,8 @@ static void TestModuleDiagnosticDomains(void)
     RoboCheckEqInt(LayoutDiagnosticDomainIsKnown(RoboLayoutDomainOverflow), 1);
     RoboCheckEqInt(LayoutDiagnosticDomainIsKnown(RoboLayoutDomainInvalidation), 1);
     RoboCheckEqInt(LayoutDiagnosticDomainIsKnown(RoboLayoutDomainIntrinsic), 1);
-    RoboCheckEqInt(LayoutDiagnosticDomainIsKnown((LayoutDiagnosticDomain)24), 0);
+    RoboCheckEqInt(LayoutDiagnosticDomainIsKnown(RoboLayoutDomainFlex), 1);
+    RoboCheckEqInt(LayoutDiagnosticDomainIsKnown((LayoutDiagnosticDomain)25), 0);
     RoboCheckEqInt(LayoutDiagnosticDomainIsKnown((LayoutDiagnosticDomain)200), 0);
 
     /* Every enumerator answers, every name is non-NULL, and no two names are the
@@ -417,8 +425,13 @@ static void TestModuleDiagnosticDomains(void)
      * own geometry (where 14.0's conclusion lives) nor a truth expired by a change (10.14's),
      * so it ends the list rather than slotting beside the resolvers that read the answer. */
     RoboCheckStrEq(LayoutDiagnosticDomainName(RoboLayoutDomainIntrinsic), "intrinsic");
-    RoboCheckEqInt((int)RoboLayoutDomainIntrinsic,
+    /* 19.3's, and it *is* the newest: a flex context is a third way to lay contents
+     * out, so its failures land in their own domain rather than in the block one. */
+    RoboCheckStrEq(LayoutDiagnosticDomainName(RoboLayoutDomainFlex), "flex");
+    RoboCheckEqInt((int)RoboLayoutDomainFlex,
                       (int)RoboLayoutDomainCount - 1);
+    RoboCheckEqInt((int)RoboLayoutDomainIntrinsic,
+                      (int)RoboLayoutDomainFlex - 1);
     RoboCheckEqInt((int)RoboLayoutDomainAbsolute,
                       (int)RoboLayoutDomainIntrinsic - 1);
     RoboCheckEqInt((int)RoboLayoutDomainOverflow,
@@ -618,7 +631,7 @@ static void TestModuleAllocatorBalance(void)
         RoboCheckEqInt(LayoutGetVersion(&caps.objectModel, &caps.constraints,
                                                   &caps.resultModel),
                           RoboOk);
-        RoboCheckStrEq(LayoutVersionString(), "0.19.0");
+        RoboCheckStrEq(LayoutVersionString(), "0.20.0");
         RoboCheckEqInt(LayoutGeometryIsImplemented(), 1);
         memset(buffer, 0, sizeof(buffer));
         strncpy(buffer, LayoutObjectKindName(RoboLayoutObjectBox),

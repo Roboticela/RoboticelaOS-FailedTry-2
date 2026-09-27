@@ -340,9 +340,9 @@
 #define ROBO_LAYOUT_VERSION_H
 
 #define RoboLayoutVersionMajor 0
-#define RoboLayoutVersionMinor 19
+#define RoboLayoutVersionMinor 20
 #define RoboLayoutVersionPatch 0
-#define RoboLayoutVersionString "0.19.0"
+#define RoboLayoutVersionString "0.20.0"
 
 /** 1 once the Phase 10 surface is frozen (not yet — see header comment). */
 #define RoboLayoutApiFrozen 0
@@ -822,5 +822,29 @@
  * those if it were named for "percentages are finished".
  */
 #define RoboLayoutPercentageResolutionImplemented 1
+
+/**
+ * 1 once this build lays a **flex** formatting context out (19.3).
+ *
+ * A compiler constant rather than a runtime decision, read by the two doors that must not disagree --
+ * `LayoutGetCapabilities().flexLayout` and the suite that asserts both -- exactly as the other
+ * `RoboLayout*Implemented` macros are.
+ *
+ * What it claims, exactly: `display: flex` and `display: inline-flex` are real display values each
+ * establishing a flex formatting context; the in-flow children are flex **items** ordered by `order`;
+ * each item's flex base size comes from `flex-basis`, the main-size property or the measured content
+ * size; `flex-grow`/`flex-shrink` distribute free space with min/max clamping; `flex-wrap` breaks the
+ * items into lines; `justify-content` positions them along the main axis, `align-items`/`align-self`
+ * align them across it (stretching an `auto` cross size), and `align-content` distributes the lines.
+ *
+ * What it does **not** claim, each a feature a later goal owns: no flex **root** box (the tree root
+ * establishes the initial block context whatever it computes to), no **baseline alignment** (treated as
+ * `flex-start`), no **automatic minimum size** (`min-width: auto` is a declared bound or zero), no
+ * `gap`/`row-gap`/`column-gap` and no `flex`/`flex-flow` shorthand expansion, no `auto` margins that
+ * absorb free space (an `auto` margin is zero), no percentage `flex-basis` against an indefinite main
+ * size, no replaced elements or `aspect-ratio`, and no vertical writing mode. `flex-layout` would be
+ * claiming those if it were named for "flexbox is finished".
+ */
+#define RoboLayoutFlexLayoutImplemented 1
 
 #endif /* ROBO_LAYOUT_VERSION_H */

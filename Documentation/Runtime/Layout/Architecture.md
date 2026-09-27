@@ -866,6 +866,7 @@ of them is deliberately 0:
 | `font_request` | 1 | 12.17 |
 | `intrinsic_sizing` | 1 | 19.1 |
 | `percentage_resolution` | 1 | 19.2 |
+| `flex_layout` | 1 | 19.3 |
 | `painting` | **0** | Phase 11 |
 
 The table is in declaration order rather than in the order fields landed, so the
@@ -878,8 +879,10 @@ through the metrics seam rather than a character count — and that an `INTRINSI
 dimension resolves from that measurement with `RoboLayoutDimensionSourceIntrinsic`.
 It does **not** say intrinsic height as a function of width (that is line breaking),
 replaced-element intrinsic dimensions (an image-loading seam that is 17.5's),
-or flex/grid/table intrinsic sizing (19.3, 19.4, 19.6, each of which consumes these
-two numbers). A build with the sizing record and no measurement of what is inside it
+or grid/table intrinsic sizing (19.4, 19.6, each of which consumes these two
+numbers). 19.3's flex pass *is* a consumer and is built: an item with no
+`flex-basis` and no definite main size takes its measured content size as its flex
+base (`FlexLayout.md`). A build with the sizing record and no measurement of what is inside it
 would have satisfied every field above it, which is why the field exists
 (`IntrinsicSizing.md`).
 
@@ -891,9 +894,24 @@ percentage takes the containing block's **width** (CSS's rule, though a vertical
 margin would look right against the height in a square box), `width`/`height` take
 the matching extent, and `left`/`right` take the width while `top`/`bottom` take the
 height. A percentage with no base degrades to `UNRESOLVED` and is used as zero. It
-does **not** say grid-track or flex-basis percentages (19.3, 19.4), percentage
-`min-width`/`max-width` bounds, a percentage inset on an **out-of-flow** box (14.0's
-contract, left untouched), `calc()` or a viewport unit (`PercentageResolution.md`).
+does **not** say grid-track percentages (19.4), percentage `min-width`/`max-width`
+bounds, a percentage inset on an **out-of-flow** box (14.0's contract, left untouched),
+`calc()` or a viewport unit (`PercentageResolution.md`). A percentage `flex-basis` is
+19.3's and is resolved by the flex pass against the container's main size when that is
+definite (`FlexLayout.md`).
+
+`flex_layout` is 19.3's field, and its wording is as narrow as the two above: it says a
+box whose **inner** display is `flex` (`display: flex` or `display: inline-flex`) lays
+its in-flow children out as **flex items** along a main axis — the direction from
+`flex-direction`, the base size from `flex-basis`/the main-size property/the measured
+content, `flex-grow`/`flex-shrink` distributing free space with the min/max clamp,
+`flex-wrap` breaking lines, and `justify-content`/`align-items`/`align-self`/
+`align-content` positioning them — and establishes a `RoboLayoutFcFlex` context of its
+own. It does **not** say "flexbox is finished": there is no flex **root** box (the tree
+root establishes the initial block context whatever it computes to), no baseline
+alignment (a baseline value is treated as `flex-start`), no automatic minimum size, no
+`gap`, no shorthand expansion, no auto-margin absorption, no replaced elements and no
+vertical writing mode (`FlexLayout.md`).
 
 A caller that checked only the version string would conclude that 0.1.0 lays boxes
 out. The three doors §1 lists answer that together: `geometry` says **the build**
@@ -954,7 +972,7 @@ rather than unfinished:
 | anonymous boxes | a later goal | every box knows which context it participates in and which it establishes (10.2); the pass counts the boxes it declined (`block.inline_level_skipped`, `inline.block_level_declined`) and the boxes nothing containing was placed for (`block.unreached`) |
 | ~~baselines~~ **done in 10.7**; still absent: `line-height` as a resolved used value, alignment, `text-align`, `vertical-align` | 10.7, and a later goal for the rest | every line carries an ascent, a descent and the kind they came from, its height **is** their sum, and every member is placed from them (`Baselines.md`); what is not claimed is a `line-height` computation, a resolved used value, or any of the alignment properties |
 | text **shaping** — glyph substitution, positioning, ligature, kerning, bidi reordering, Unicode line breaking, whitespace collapsing, fragmentation | Phase 14, and 10.6's successor for the last two | a run's width is the **sum of its glyphs' advances**, which is what an unshaped run is; a participant too wide for its line **overflows** rather than breaking, guarded by `cursor > 0`; `LayoutTextIsCollapsibleWhitespace` is the predicate the builder applies and the one a collapsing rule will have to agree with |
-| `min-width`, `max-width`, `min-height`, `max-height` as **properties** (neither 9.11 nor a later CSS goal has registered them yet); `box-sizing`; ~~percentages~~ **done in 19.2** (a percentage `width`/`height`, `margin`, `padding` and inset keep their magnitude and resolve against the containing block's own dimension, degrading to `UNRESOLVED` when there is no base — `PercentageResolution.md`); relative units; **percentage min/max bounds**; applied shrink-to-fit | 10.11+, and a RoboCSS goal for the properties | the sizing layer *has* a minimum and a maximum and clamps through them (`Sizing.md` §6), so the arrival of the properties is a read rather than a redesign; `box-sizing: border-box` is one branch at the place 10.10 hands the layer a number; ~~intrinsic sizing~~ **done in 19.1** — min-content/max-content/fit-content are measured through the metrics seam and resolve as a fourth dimension kind, so what is still absent is intrinsic *height* as a function of width (line breaking), replaced-element dimensions, and flex/grid/table intrinsic sizing (`IntrinsicSizing.md`) |
+| `min-width`, `max-width`, `min-height`, `max-height` as **properties** (neither 9.11 nor a later CSS goal has registered them yet); `box-sizing`; ~~percentages~~ **done in 19.2** (a percentage `width`/`height`, `margin`, `padding` and inset keep their magnitude and resolve against the containing block's own dimension, degrading to `UNRESOLVED` when there is no base — `PercentageResolution.md`); relative units; **percentage min/max bounds**; applied shrink-to-fit | 10.11+, and a RoboCSS goal for the properties | the sizing layer *has* a minimum and a maximum and clamps through them (`Sizing.md` §6), so the arrival of the properties is a read rather than a redesign; `box-sizing: border-box` is one branch at the place 10.10 hands the layer a number; ~~intrinsic sizing~~ **done in 19.1** — min-content/max-content/fit-content are measured through the metrics seam and resolve as a fourth dimension kind, so what is still absent is intrinsic *height* as a function of width (line breaking), replaced-element dimensions, and grid/table intrinsic sizing (`IntrinsicSizing.md`; 19.3 consumes the two numbers for a flex item's base size — `FlexLayout.md`) |
 | ~~declared **width** and **height**~~ **done in 10.8**; still absent: a declared size on a **block** box beyond a `px` length and a percentage, and `width` on a text object | 10.11+ | a block box lays its children out **into** its resolved width and is measured against its declared height (10.8); an atomic inline resolves width, contents and height in that order; since 19.2 a `%` keeps its magnitude as its own dimension kind and resolves against the containing block (or degrades to `UNRESOLVED` when there is no base) rather than being filled from it (`PercentageResolution.md`) |
 | margin **collapsing** | a later goal | margins are *summed* and placed (10.9): a box sits at its margin origin, a horizontal `auto` distributes the leftover beside a declared width, and a parent stacks its children by their margin boxes — with the transparency rule collapsing needs already in *both* directions (10.3's transparent block container and 10.4's transparent inline box) and the four used values in one record, so collapsing becomes a rule **over those numbers** rather than over declarations (`Margins.md` §6) |
 | ~~padding~~ **done in 10.10**; still absent: `box-sizing: border-box` and padding on a **transparent inline box** (a percentage padding **done in 19.2**: it resolves against the containing block's width) | a later goal each | a box's `size` is its **padding** box built on the sizing layer's answer, its contents begin inside it, an `auto` width fills what the margins and the padding left, and the used padding is readable from the object (`Padding.md`) |
@@ -964,7 +982,8 @@ rather than unfinished:
 | ~~overflow~~ **done in 10.13**; still absent: everything that *acts* on it — scrolling, scrollbars, a scroll offset, `overflow: auto`/`scroll`, CSS's axis promotion, `text-overflow`, and any pixel clipping | the scrolling goals, and Phase 11 for clipping | the two flags are set from a **measured** extent beside a record of four extents measured from the padding box, and both the region a parent folds in and the clip rectangle a paint pass will draw against are readable through `LayoutObjectOverflow` and the overflow doors (`Overflow.md`) |
 | damage, invalidation | a later goal | an invalidation that withdraws geometry rather than keeping a stale conclusion |
 | painting anything | Phase 11 | `painting` capability = 0 |
-| reading a property other than `display`, a declared `width`/`height`, the four margins, the four paddings, the twelve border longhands, `position` with its four insets, and `overflow-x`/`overflow-y` with the `overflow` shorthand | a later goal | the borrowed style is there; the read is the later goal's, and since 10.8 through 10.13 a read goes through the sizing, margin, padding, border, position or overflow layer rather than into a result record |
+| reading a property other than `display`, a declared `width`/`height`, the four margins, the four paddings, the twelve border longhands, `position` with its four insets, `overflow-x`/`overflow-y` with the `overflow` shorthand, and 18.3's flex longhands (`flex-direction`, `flex-wrap`, `flex-grow`, `flex-shrink`, `flex-basis`, `order`, `justify-content`, `align-items`, `align-self`, `align-content`) | a later goal | the borrowed style is there; the read is the later goal's, and since 10.8 through 10.13 (and 19.3 for the flex family) a read goes through the sizing, margin, padding, border, position, overflow or flex layer rather than into a result record |
+| **flex** and **grid** and **table** layout beyond 19.3 | 19.4, 19.6 | a box whose inner display is `flex` establishes a `RoboLayoutFcFlex` context and has its in-flow children placed by the flex pass (`FlexLayout.md`); `grid` and the table display types are still refused by 9.12's vocabulary, and only flex is on this list's own account |
 
 Three of these are worth a sentence more.
 

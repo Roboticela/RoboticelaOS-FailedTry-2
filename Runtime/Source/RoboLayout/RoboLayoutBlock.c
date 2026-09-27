@@ -303,11 +303,25 @@ static Result LayoutBlockChildren(LayoutWalk *walk,
         LayoutFormattingContext owned;
 
         if (LayoutTreeContext(walk->tree, object->contextOwned, &owned, NULL) ==
-                RoboOk &&
-            owned.kind == RoboLayoutFcInline) {
-            walk->block->emptyContainers++;
-            return LayoutInlineWalkContents(walk, object->id, contentWidth,
-                                                    outExtent);
+                RoboOk) {
+            if (owned.kind == RoboLayoutFcInline) {
+                walk->block->emptyContainers++;
+                return LayoutInlineWalkContents(walk, object->id, contentWidth,
+                                                        outExtent);
+            }
+            /*
+             * Phase 19.3: a flex container's contents are flex items, and the flex
+             * pass places every one of them itself. The container's own declared
+             * height is handed over because it is the cross-axis size a `row`
+             * container stretches to and the main-axis size a `column` distributes
+             * along, and it is known here -- before the container's own height is
+             * resolved -- for the same reason the percentage-height base is.
+             */
+            if (owned.kind == RoboLayoutFcFlex) {
+                return LayoutFlexWalkContents(walk, object->id, contentWidth,
+                                              hasPercentHeightBase,
+                                              percentHeightBase, outExtent);
+            }
         }
     }
 
@@ -1212,6 +1226,7 @@ int LayoutBlockStatsEqual(const LayoutBlockStats *a,
            a->overflowing == b->overflowing &&
            a->overflowUnresolved == b->overflowUnresolved &&
            a->emptyContainers == b->emptyContainers &&
+           LayoutFlexCountersEqual(&a->flex, &b->flex) &&
            a->depthMax == b->depthMax;
 }
 

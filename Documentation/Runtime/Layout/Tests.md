@@ -1,6 +1,6 @@
 # RoboLayout Test Organisation (through Phase 10.15)
 
-Twenty-three suites, 359 tests, one framework. Each phase adds no test runner, no reporter
+Twenty-four suites, 419 tests, one framework. Each phase adds no test runner, no reporter
 and no assertion vocabulary: everything here goes through
 `runtime/Tests/Framework` (`RoboCheck*` and `TestRegister`), the same as
 every other subsystem.
@@ -53,6 +53,7 @@ phase that made it.
 | `SuiteRoboLayoutConformance.c` | `layout.conformance.*` | 7 | the whole-product questions no single suite can ask |
 | `SuiteRoboLayoutIntegration.c` | `layout.integration.*` | 12 | do the fourteen layers agree with *each other* on one document, and is a whole tree's geometry the geometry the layers promise? |
 | `SuiteRoboLayoutIntrinsic.c` | `layout.intrinsic.*` | 16 | are min-content and max-content measured through the metrics seam rather than a byte count, do a box's children combine the way CSS says, and does an intrinsic dimension resolve from the answer? |
+| `SuiteRoboLayoutFlex.c` | `layout.flex.*` | 14 | does `display: flex` establish a flex context, and does the pass lay its in-flow children out along a main axis with `flex-basis`/grow/shrink, wrapping, alignment and `order`? |
 
 ### 10.1 — the module surface (`layout.module.*`)
 

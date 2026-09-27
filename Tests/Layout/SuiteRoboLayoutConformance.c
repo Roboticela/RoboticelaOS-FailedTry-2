@@ -78,6 +78,7 @@ static const struct {
     { "font_request", 1 },
     { "intrinsic_sizing", 1 },
     { "percentage_resolution", 1 },
+    { "flex_layout", 1 },
     { "painting", 0 }
 };
 
@@ -105,11 +106,11 @@ static void TestConformanceCapabilities(void)
             implemented++;
         }
     }
-    /* Twenty-five of twenty-six. Asserted as a count as well as field by field, so a build
+    /* Twenty-six of twenty-seven. Asserted as a count as well as field by field, so a build
      * that turned one on and one off at the same time -- which field-by-field would
      * still catch, but a reader would have to diff to see -- is visible at a
-     * glance. The twenty-sixth is `painting`, and it is the only one that is 0. */
-    RoboCheckEqInt(implemented, 25u);
+     * glance. The twenty-seventh is `painting`, and it is the only one that is 0. */
+    RoboCheckEqInt(implemented, 26u);
 
     /*
      * The four that matter are the direction pair, the field that names both, and
@@ -1112,7 +1113,7 @@ static void TestConformanceStatement(void)
      * the build claiming it does not.
      */
     RoboCheckEqInt(LayoutGeometryIsImplemented(), 1);
-    RoboCheckStrEq(LayoutVersionString(), "0.19.0");
+    RoboCheckStrEq(LayoutVersionString(), "0.20.0");
     RoboCheckEqInt(RoboLayoutApiFrozen, 0);
 
     /*
@@ -1142,12 +1143,15 @@ static void TestConformanceStatement(void)
      * three and not merely observed to have three members. */
     RoboCheckEqInt(LayoutObjectKindIsKnown((LayoutObjectKind)3), 0);
 
-    /* And the vocabulary 10.2 added instead: three kinds of context plus the
-     * absence, of which ROOT is one and only one per tree. */
-    RoboCheckEqInt((int)RoboLayoutFcKindCount, 4);
+    /* And the vocabulary 10.2 added instead: four kinds of context plus the
+     * absence, of which ROOT is one and only one per tree, and 19.3's FLEX is the
+     * third laying-out kind. */
+    RoboCheckEqInt((int)RoboLayoutFcKindCount, 5);
     RoboCheckEqInt(LayoutFcKindIsBlockContainer(RoboLayoutFcRoot), 1);
     RoboCheckEqInt(LayoutFcKindIsBlockContainer(RoboLayoutFcInline), 0);
+    RoboCheckEqInt(LayoutFcKindIsBlockContainer(RoboLayoutFcFlex), 0);
     RoboCheckStrEq(LayoutFcKindName(RoboLayoutFcBlock), "block");
+    RoboCheckStrEq(LayoutFcKindName(RoboLayoutFcFlex), "flex");
 }
 
 /* ------------------------------------------------------------------ */

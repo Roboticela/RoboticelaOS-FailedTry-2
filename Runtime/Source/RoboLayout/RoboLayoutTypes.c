@@ -99,6 +99,8 @@ const char *LayoutDiagnosticDomainName(LayoutDiagnosticDomain domain)
         return "absolute";
     case RoboLayoutDomainIntrinsic:
         return "intrinsic";
+    case RoboLayoutDomainFlex:
+        return "flex";
     default:
         return "unknown";
     }
