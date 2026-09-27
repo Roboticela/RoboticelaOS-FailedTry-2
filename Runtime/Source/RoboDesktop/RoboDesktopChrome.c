@@ -722,16 +722,20 @@ void DesktopChromePaintCursor(Desktop *desktop,
         (void)record;
         return;
     }
-    DesktopChromeDrawCursorAt(GfxRasterTarget(raster), desktop->pointer.point);
+    DesktopChromeDrawCursorFor(desktop, GfxRasterTarget(raster), desktop->pointer.point);
     (void)record;
 }
 
 GfxRect DesktopChromeCursorBounds(GfxPoint origin, GfxRect screen)
 {
+    DesktopCursorFrame frame;
     GfxRect raw;
     GfxRect clipped;
 
-    raw = MakeGfxRect(origin.x, origin.y, RoboDesktopCursorWidth, RoboDesktopCursorHeight);
+    /* Prefer pack bounds when a live desktop is painting; callers without a pack
+     * still get a conservative 64×64 underlay so capture never clips a HiDPI frame. */
+    (void)frame;
+    raw = MakeGfxRect(origin.x - 16, origin.y - 16, RoboDesktopCursorWidth, RoboDesktopCursorHeight);
     clipped = GfxRectEmpty();
     if (GfxRectClip(raw, screen, &clipped) != RoboOk) {
         return GfxRectEmpty();
@@ -739,7 +743,39 @@ GfxRect DesktopChromeCursorBounds(GfxPoint origin, GfxRect screen)
     return clipped;
 }
 
+GfxRect DesktopChromeCursorBoundsFor(Desktop *desktop, GfxPoint origin)
+{
+    DesktopCursorFrame frame;
+    uint32_t want;
+    Result status;
+
+    if (!desktop) {
+        return DesktopChromeCursorBounds(origin, MakeGfxRect(0, 0, 1, 1));
+    }
+    if (desktop->cursorPack && DesktopCursorPackIsLive(desktop->cursorPack) &&
+        !InputCursorTypeIsHidden(desktop->cursorShape)) {
+        want = (uint32_t)(DesktopCursorPackLogicalPt(desktop->cursorPack) *
+                          (desktop->cursorScale > 0.0f ? desktop->cursorScale : 1.0f) +
+                          0.5f);
+        if (want < 16u) {
+            want = 32u;
+        }
+        status = DesktopCursorPackResolve(desktop->cursorPack, desktop->cursorShape,
+                                          desktop->cursorTheme, want, desktop->cursorAnimMs,
+                                          &frame);
+        if (status == RoboOk && frame.surface) {
+            return DesktopCursorPackBounds(origin, &frame, desktop->geometry.screen);
+        }
+    }
+    return DesktopChromeCursorBounds(origin, desktop->geometry.screen);
+}
+
 void DesktopChromeDrawCursorAt(GfxSurface *surface, GfxPoint origin)
+{
+    DesktopChromeDrawCursorFor(NULL, surface, origin);
+}
+
+void DesktopChromeDrawCursorFor(Desktop *desktop, GfxSurface *surface, GfxPoint origin)
 {
     static const uint8_t bits[16][11] = {
         {1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
@@ -769,13 +805,34 @@ void DesktopChromeDrawCursorAt(GfxSurface *surface, GfxPoint origin)
     if (!surface) {
         return;
     }
+
+    if (desktop && desktop->cursorPack && DesktopCursorPackIsLive(desktop->cursorPack) &&
+        !InputCursorTypeIsHidden(desktop->cursorShape)) {
+        DesktopCursorFrame frame;
+        uint32_t want = (uint32_t)(DesktopCursorPackLogicalPt(desktop->cursorPack) *
+                                   (desktop->cursorScale > 0.0f ? desktop->cursorScale : 1.0f) +
+                                   0.5f);
+        Result status;
+
+        if (want < 16u) {
+            want = 32u;
+        }
+        status = DesktopCursorPackResolve(desktop->cursorPack, desktop->cursorShape,
+                                          desktop->cursorTheme, want, desktop->cursorAnimMs,
+                                          &frame);
+        if (status == RoboOk && frame.surface) {
+            (void)DesktopCursorPackBlit(surface, origin, &frame);
+            return;
+        }
+    }
+
     sw = GfxSurfaceWidth(surface);
     sh = GfxSurfaceHeight(surface);
     outline = GfxRgb8(29u, 29u, 31u);
     fill = GfxRgb8(255u, 255u, 255u);
 
-    for (row = 0; row < RoboDesktopCursorHeight; row++) {
-        for (col = 0; col < RoboDesktopCursorWidth; col++) {
+    for (row = 0; row < 16; row++) {
+        for (col = 0; col < 11; col++) {
             uint8_t cell = bits[row][col];
             int32_t x;
             int32_t y;

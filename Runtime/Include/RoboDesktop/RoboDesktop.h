@@ -50,6 +50,7 @@
 #define ROBO_DESKTOP_H
 
 #include "RoboBase/RoboError.h"
+#include "RoboDesktop/RoboDesktopCursorPack.h"
 #include "RoboDesktop/RoboDesktopDiagnostics.h"
 #include "RoboDesktop/RoboDesktopGeometry.h"
 #include "RoboDesktop/RoboDesktopTheme.h"
@@ -732,6 +733,28 @@ Result DesktopWrite(const Desktop *desktop,
                                 size_t capacity,
                                 size_t *outLength,
                                 DesktopDiag *diag);
+
+/**
+ * Attach an owned cursor pack (Phase 44.7). @p pack may be NULL to clear.
+ * Previous pack is destroyed. The shell paints pack frames when present;
+ * otherwise the legacy 11×16 arrow is used.
+ */
+Result DesktopAttachCursorPack(Desktop *desktop, DesktopCursorPack *pack);
+
+/** Borrowed view of the attached pack, or NULL. */
+DesktopCursorPack *DesktopGetCursorPack(Desktop *desktop);
+
+/** Force the software cursor shape (tests / Cursor Lab). Input integration also writes this. */
+void DesktopSetCursorShape(Desktop *desktop, InputCursorType shape);
+
+InputCursorType DesktopGetCursorShape(const Desktop *desktop);
+
+void DesktopSetCursorTheme(Desktop *desktop, DesktopCursorTheme theme);
+
+void DesktopSetCursorScale(Desktop *desktop, float scale);
+
+/** Advance animated wait/progress frames by @p deltaMs. */
+void DesktopAdvanceCursorAnim(Desktop *desktop, uint32_t deltaMs);
 
 #ifdef __cplusplus
 }

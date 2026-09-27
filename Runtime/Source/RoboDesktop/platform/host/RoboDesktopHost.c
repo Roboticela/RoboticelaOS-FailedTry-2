@@ -75,6 +75,10 @@
 #define RoboSystemFontRoot "System/Fonts"
 #endif
 
+#ifndef RoboSystemCursorRcur
+#define RoboSystemCursorRcur "System/Cursors/roboticela.rcur"
+#endif
+
 #define HOST_KEY "RoboDesktop"
 
 #define HOST_FRAME_WAIT_MS 16u
@@ -276,6 +280,61 @@ static void HostFaceRelease(HostFace *face)
         FontSourceRelease(face->source);
         face->source = NULL;
     }
+}
+
+/** Load `roboticela.rcur` and attach it to the scene's desktop (best-effort). */
+static void HostAttachCursorPack(DesktopScene *scene)
+{
+    FILE *file;
+    long size;
+    unsigned char *bytes;
+    DesktopCursorPack *pack = NULL;
+    Desktop *desktop;
+
+    if (!scene) {
+        return;
+    }
+    desktop = DesktopSceneDesktop(scene);
+    if (!desktop) {
+        return;
+    }
+    file = fopen(RoboSystemCursorRcur, "rb");
+    if (!file) {
+        printf("cursor: pack absent (%s) — legacy arrow\n", RoboSystemCursorRcur);
+        return;
+    }
+    if (fseek(file, 0, SEEK_END) != 0) {
+        fclose(file);
+        return;
+    }
+    size = ftell(file);
+    if (size <= 0l || fseek(file, 0, SEEK_SET) != 0) {
+        fclose(file);
+        return;
+    }
+    bytes = (unsigned char *)malloc((size_t)size);
+    if (!bytes) {
+        fclose(file);
+        return;
+    }
+    if (fread(bytes, 1u, (size_t)size, file) != (size_t)size) {
+        free(bytes);
+        fclose(file);
+        return;
+    }
+    fclose(file);
+    if (DesktopCursorPackCreateFromRcur(bytes, (size_t)size, &pack) != RoboOk || !pack) {
+        free(bytes);
+        printf("cursor: pack parse failed\n");
+        return;
+    }
+    free(bytes);
+    if (DesktopAttachCursorPack(desktop, pack) != RoboOk) {
+        DesktopCursorPackDestroy(pack);
+        return;
+    }
+    DesktopSetCursorScale(desktop, 2.0f);
+    printf("cursor: pack attached (%s) scale=2.0\n", RoboSystemCursorRcur);
 }
 
 /* ------------------------------------------------------------------ */
@@ -698,6 +757,7 @@ static int HostRunWindowed(FontFace *face, TypographyResolver *typography, unsig
                diag.message ? diag.message : "(none)");
         return 1; /* no interactive desktop session: the offscreen result stands */
     }
+    HostAttachCursorPack(scene);
     native = DesktopAttachedWindow(DesktopSceneDesktop(scene));
     printf("window: %s native=%u\n", WindowBackendName(), (unsigned)native);
 
@@ -709,6 +769,7 @@ static int HostRunWindowed(FontFace *face, TypographyResolver *typography, unsig
             DesktopSceneClose(scene);
             return 0;
         }
+        DesktopAdvanceCursorAnim(DesktopSceneDesktop(scene), HOST_FRAME_WAIT_MS);
         elapsed += HOST_FRAME_WAIT_MS;
 
         /* The windowed picture is probed once, on the first frame it presents: every check below is

@@ -445,11 +445,11 @@ Result DesktopComposePaint(Desktop *desktop,
             desktop->cursorOverlayValid = 0;
             if (desktop->showCursor && desktop->cursorVisible) {
                 GfxRect under =
-                    DesktopChromeCursorBounds(desktop->pointer.point, desktop->geometry.screen);
+                    DesktopChromeCursorBoundsFor(desktop, desktop->pointer.point);
                 if (under.width > 0 && under.height > 0 &&
                     DesktopCursorCapture(desktop, screen, under) == RoboOk) {
                     desktop->cursorDrawnAt = desktop->pointer.point;
-                    DesktopChromeDrawCursorAt(screen, desktop->pointer.point);
+                    DesktopChromeDrawCursorFor(desktop, screen, desktop->pointer.point);
                     ComposeMarkPresentDamage(desktop, under);
                 } else {
                     DesktopChromePaintCursor(desktop, raster, record);

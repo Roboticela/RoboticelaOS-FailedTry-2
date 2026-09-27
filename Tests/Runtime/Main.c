@@ -348,6 +348,7 @@ void TestRegisterRoboJSHost(void);
 void TestRegisterRoboJSIntegration(void);
 void TestRegisterDesktopTypography(void);
 void TestRegisterDesktopTypographyGallery(void);
+void TestRegisterDesktopCursorGallery(void);
 void TestRegisterDesktopScene(void);
 /* Phase 13.66--13.77 -- the shell's *consumption* of RoboInput: the loop and its lifecycle, the window
  * manager's gestures and hit test, and the document/text/command/clipboard chain. Registered beside the
@@ -758,6 +759,7 @@ int main(int argc, char **argv)
     /* Phase 12.3 -- registered before the scene suite, which shuts the layers down and brings them back. */
     TestRegisterDesktopTypography();
     TestRegisterDesktopTypographyGallery();
+    TestRegisterDesktopCursorGallery();
     TestRegisterDesktopInput();
     TestRegisterDesktopInputPointer();
     TestRegisterDesktopInputContent();

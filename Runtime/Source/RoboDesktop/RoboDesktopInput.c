@@ -384,7 +384,8 @@ Result DesktopInputRouteForWindow(const DesktopInput *input,
         /*
          * `InputRoute::clientBounds` is the client rectangle in **window** space (its documented meaning),
          * and `DesktopWindowClientBounds` answers in screen space -- so the frame's origin comes off here,
-         * once, rather than making every window\u2194document conversion add it back.
+         * once, rather than making every window
+\u2194document conversion add it back.
          */
         client.x -= bounds.x;
         client.y -= bounds.y;
@@ -1835,6 +1836,9 @@ static Result DrainOne(DesktopInput *input,
                 int changed = 0;
 
                 (void)InputCursorManagerUpdate(&input->cursors, &target, &changed);
+                if (input->desktop) {
+                    input->desktop->cursorShape = InputCursorManagerCurrent(&input->cursors);
+                }
                 if (changed) {
                     step->cursorChanges++;
                     input->stats.cursorChanges++;
@@ -1967,6 +1971,9 @@ static Result DrainOne(DesktopInput *input,
         int cursorChanged = 0;
 
         (void)InputCursorManagerUpdate(&input->cursors, &target, &cursorChanged);
+        if (input->desktop) {
+            input->desktop->cursorShape = InputCursorManagerCurrent(&input->cursors);
+        }
         if (cursorChanged) {
             step->cursorChanges++;
             input->stats.cursorChanges++;

@@ -1042,6 +1042,22 @@ function Invoke-RoboBuildUserland {
     Add-Pack "/System/Fonts/UI/Inter.ttf" $systemFontFace
     Add-Pack "/System/Fonts/system-fonts.manifest" $systemFontManifest
     Add-Pack "/System/Fonts/licenses/Inter-OFL.txt" $systemFontLicense
+    # System cursor pack (Phase 44.7): SVG masters + roboticela.rcur for the software cursor.
+    $systemCursors = Join-Path $script:Repo "System\Cursors"
+    $systemCursorRcur = Join-Path $systemCursors "roboticela.rcur"
+    $systemCursorManifest = Join-Path $systemCursors "system-cursors.manifest"
+    $systemCursorLicense = Join-Path $systemCursors "licenses\Roboticela-Cursor-License.txt"
+    foreach ($systemCursorRequired in @($systemCursorRcur, $systemCursorManifest, $systemCursorLicense)) {
+        if (-not (Test-Path -LiteralPath $systemCursorRequired)) {
+            throw ("system cursor pack incomplete: missing " + $systemCursorRequired)
+        }
+    }
+    Add-Pack "/System/Cursors/roboticela.rcur" $systemCursorRcur
+    Add-Pack "/System/Cursors/system-cursors.manifest" $systemCursorManifest
+    Add-Pack "/System/Cursors/licenses/Roboticela-Cursor-License.txt" $systemCursorLicense
+    Get-ChildItem -LiteralPath (Join-Path $systemCursors "Masters") -Filter "*.svg" -ErrorAction SilentlyContinue | ForEach-Object {
+        Add-Pack ("/System/Cursors/Masters/" + $_.Name) $_.FullName
+    }
     Add-Pack "/System/runtime/engines.manifest" $manifest
     Add-Pack "/bin/robospark" $elfs["robospark"]
     Add-Pack "/bin/robolayer-demo" $elfs["robolayer-demo"]

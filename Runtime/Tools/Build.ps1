@@ -582,6 +582,7 @@ $ProdSrcs = @(
     (Join-Path $SourceDir "RoboDesktop\RoboDesktopGeometry.c"),
     (Join-Path $SourceDir "RoboDesktop\RoboDesktopWindow.c"),
     (Join-Path $SourceDir "RoboDesktop\RoboDesktopChrome.c"),
+    (Join-Path $SourceDir "RoboDesktop\RoboDesktopCursorPack.c"),
     (Join-Path $SourceDir "RoboDesktop\RoboDesktopText.c"),
     (Join-Path $SourceDir "RoboDesktop\RoboDesktopDiagnostics.c"),
     (Join-Path $SourceDir "RoboDesktop\RoboDesktopDump.c"),
@@ -1080,6 +1081,7 @@ $SuiteSrcs = @(
     # defaults, and the one-face guarantee between a document's measurement and its paint.
     (Join-Path $TestsRoot "Desktop\SuiteRoboDesktopTypography.c"),
     (Join-Path $TestsRoot "Desktop\SuiteRoboDesktopTypographyGallery.c"),
+    (Join-Path $TestsRoot "Desktop\SuiteRoboDesktopCursorGallery.c"),
     (Join-Path $TestsRoot "Desktop\SuiteRoboDesktopScene.c"),
     (Join-Path $TestsRoot "Desktop\SuiteRoboDesktopInput.c"),
     (Join-Path $TestsRoot "Desktop\SuiteRoboDesktopInputPointer.c"),

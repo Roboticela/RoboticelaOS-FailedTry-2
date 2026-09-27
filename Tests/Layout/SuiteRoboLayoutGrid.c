@@ -197,8 +197,7 @@ static void LayoutGridStyleAdd(LayoutGridSource *source,
                                    &value, CssDeclarationValue(declaration), NULL),
                                RoboOk);
                 RoboCheckEqInt(CssComputedStyleSetEntry(
-                                   style,
-                                   CssDeclarationResolveProperty(declaration),
+                                   style, RoboCssPropertyIdNone,
                                    CssDeclarationName(declaration), 0u, &specified,
                                    &value, NULL),
                                RoboOk);
@@ -648,16 +647,18 @@ static void TestGridFixedColumns(void)
 static void TestGridFractionColumns(void)
 {
     LayoutGridFixture fixture;
-    LayoutGridRule rules[2];
+    LayoutGridRule rules[3];
     LayoutStats stats;
 
     LayoutGridBody(&rules[0], 300.0);
     LayoutGridRuleText(&rules[0], "grid-template-columns: 1fr 2fr");
     LayoutGridRuleInit(&rules[1], "div", 0, RoboCssDisplayBlock);
     LayoutGridRulePx(&rules[1], "height", 20.0);
+    LayoutGridRuleInit(&rules[2], "div", 1, RoboCssDisplayBlock);
+    LayoutGridRulePx(&rules[2], "height", 20.0);
 
     LayoutGridBegin(&fixture, "<html><body><div></div><div></div></body></html>",
-                    rules, 2u);
+                    rules, 3u);
     LayoutGridPass(&fixture, LAYOUT_GRID_VIEWPORT_WIDTH, &stats);
 
     /*
@@ -675,6 +676,37 @@ static void TestGridFractionColumns(void)
     LayoutGridEnd(&fixture);
 }
 
+static void TestGridPercentageColumns(void)
+{
+    LayoutGridFixture fixture;
+    LayoutGridRule rules[3];
+    LayoutStats stats;
+
+    LayoutGridBody(&rules[0], 300.0);
+    LayoutGridRuleText(&rules[0], "grid-template-columns: 50% 25%");
+    LayoutGridRuleInit(&rules[1], "div", 0, RoboCssDisplayBlock);
+    LayoutGridRulePx(&rules[1], "height", 20.0);
+    LayoutGridRuleInit(&rules[2], "div", 1, RoboCssDisplayBlock);
+    LayoutGridRulePx(&rules[2], "height", 20.0);
+
+    LayoutGridBegin(&fixture, "<html><body><div></div><div></div></body></html>",
+                    rules, 3u);
+    LayoutGridPass(&fixture, LAYOUT_GRID_VIEWPORT_WIDTH, &stats);
+
+    /*
+     * A percentage track resolves against the container's **content box** on its own
+     * axis -- the rule 19.2 gave every other box -- so 50% of 300 is 150. The two tracks
+     * then leave 75px unused, which `justify-content: normal` has no `auto` track to
+     * spend and therefore leaves at the end.
+     */
+    RoboCheckEqInt(LayoutGridWidthOf(&fixture, 0u), 150);
+    RoboCheckEqInt(LayoutGridXOf(&fixture, 1u), 150);
+    RoboCheckEqInt(LayoutGridWidthOf(&fixture, 1u), 75);
+    RoboCheckEqInt(stats.block.grid.frTracks, 0u);
+
+    LayoutGridEnd(&fixture);
+}
+
 static void TestGridGap(void)
 {
     LayoutGridFixture fixture;
@@ -687,9 +719,11 @@ static void TestGridGap(void)
     LayoutGridRulePx(&rules[0], "row-gap", 10.0);
     LayoutGridRuleInit(&rules[1], "div", 0, RoboCssDisplayBlock);
     LayoutGridRulePx(&rules[1], "height", 20.0);
+    LayoutGridRuleInit(&rules[2], "div", 1, RoboCssDisplayBlock);
+    LayoutGridRulePx(&rules[2], "height", 20.0);
 
     LayoutGridBegin(&fixture, "<html><body><div></div><div></div></body></html>",
-                    rules, 2u);
+                    rules, 3u);
     LayoutGridPass(&fixture, LAYOUT_GRID_VIEWPORT_WIDTH, &stats);
 
     /* The gutters are taken out of the space the tracks share *before* the fraction is
@@ -742,9 +776,10 @@ static void TestGridAutoStretch(void)
     LayoutGridBody(&rules[0], 300.0);
     LayoutGridRuleText(&rules[0], "grid-template-columns: auto auto");
     LayoutGridRuleInit(&rules[1], "div", 0, RoboCssDisplayBlock);
+    LayoutGridRuleInit(&rules[2], "div", 1, RoboCssDisplayBlock);
 
     LayoutGridBegin(&fixture, "<html><body><div>ab</div><div>cd</div></body></html>",
-                    rules, 2u);
+                    rules, 3u);
     LayoutGridScriptUse(&fixture, 10, 16);
     LayoutGridPass(&fixture, LAYOUT_GRID_VIEWPORT_WIDTH, &stats);
 
@@ -765,7 +800,7 @@ static void TestGridAutoStretch(void)
     LayoutGridRuleAlign(&rules[0], "justify-content", RoboCssFlexAlignCenter);
 
     LayoutGridBegin(&fixture, "<html><body><div>ab</div><div>cd</div></body></html>",
-                    rules, 2u);
+                    rules, 3u);
     LayoutGridScriptUse(&fixture, 10, 16);
     LayoutGridPass(&fixture, LAYOUT_GRID_VIEWPORT_WIDTH, &stats);
 
@@ -784,7 +819,7 @@ static void TestGridAutoStretch(void)
 static void TestGridImplicitRows(void)
 {
     LayoutGridFixture fixture;
-    LayoutGridRule rules[2];
+    LayoutGridRule rules[4];
     LayoutStats stats;
 
     /*
@@ -796,10 +831,14 @@ static void TestGridImplicitRows(void)
     LayoutGridRuleText(&rules[0], "grid-auto-columns: 50px");
     LayoutGridRuleInit(&rules[1], "div", 0, RoboCssDisplayBlock);
     LayoutGridRulePx(&rules[1], "height", 20.0);
+    LayoutGridRuleInit(&rules[2], "div", 1, RoboCssDisplayBlock);
+    LayoutGridRulePx(&rules[2], "height", 20.0);
+    LayoutGridRuleInit(&rules[3], "div", 2, RoboCssDisplayBlock);
+    LayoutGridRulePx(&rules[3], "height", 20.0);
 
     LayoutGridBegin(&fixture,
                     "<html><body><div></div><div></div><div></div></body></html>",
-                    rules, 2u);
+                    rules, 4u);
     LayoutGridPass(&fixture, LAYOUT_GRID_VIEWPORT_WIDTH, &stats);
 
     RoboCheckEqInt(LayoutGridWidthOf(&fixture, 0u), 50);
@@ -816,7 +855,7 @@ static void TestGridImplicitRows(void)
 static void TestGridAutoFlowColumn(void)
 {
     LayoutGridFixture fixture;
-    LayoutGridRule rules[2];
+    LayoutGridRule rules[4];
     LayoutStats stats;
 
     /*
@@ -830,10 +869,14 @@ static void TestGridAutoFlowColumn(void)
     LayoutGridRuleFlow(&rules[0], RoboCssGridAutoFlowColumn);
     LayoutGridRuleInit(&rules[1], "div", 0, RoboCssDisplayBlock);
     LayoutGridRulePx(&rules[1], "height", 20.0);
+    LayoutGridRuleInit(&rules[2], "div", 1, RoboCssDisplayBlock);
+    LayoutGridRulePx(&rules[2], "height", 20.0);
+    LayoutGridRuleInit(&rules[3], "div", 2, RoboCssDisplayBlock);
+    LayoutGridRulePx(&rules[3], "height", 20.0);
 
     LayoutGridBegin(&fixture,
                     "<html><body><div></div><div></div><div></div></body></html>",
-                    rules, 2u);
+                    rules, 4u);
     LayoutGridPass(&fixture, LAYOUT_GRID_VIEWPORT_WIDTH, &stats);
 
     RoboCheckEqInt(LayoutGridYOf(&fixture, 0u), 0);
@@ -1062,7 +1105,7 @@ static void TestGridAlignItems(void)
 static void TestGridAlignContent(void)
 {
     LayoutGridFixture fixture;
-    LayoutGridRule rules[2];
+    LayoutGridRule rules[3];
     LayoutStats stats;
 
     /*
@@ -1074,9 +1117,10 @@ static void TestGridAlignContent(void)
     LayoutGridBody(&rules[0], 100.0);
     LayoutGridRuleText(&rules[0], "grid-template-rows: 20px 20px");
     LayoutGridRuleInit(&rules[1], "div", 0, RoboCssDisplayBlock);
+    LayoutGridRuleInit(&rules[2], "div", 1, RoboCssDisplayBlock);
 
     LayoutGridBegin(&fixture, "<html><body><div></div><div></div></body></html>",
-                    rules, 2u);
+                    rules, 3u);
     LayoutGridPass(&fixture, LAYOUT_GRID_VIEWPORT_WIDTH, &stats);
 
     RoboCheckEqInt(LayoutGridYOf(&fixture, 0u), 0);
@@ -1179,7 +1223,7 @@ static void TestGridOverflow(void)
 static void TestGridRtl(void)
 {
     LayoutGridFixture fixture;
-    LayoutGridRule rules[2];
+    LayoutGridRule rules[3];
     LayoutStats stats;
 
     LayoutGridBody(&rules[0], 300.0);
@@ -1187,9 +1231,11 @@ static void TestGridRtl(void)
     LayoutGridRuleKeyword(&rules[0], "direction", "rtl");
     LayoutGridRuleInit(&rules[1], "div", 0, RoboCssDisplayBlock);
     LayoutGridRulePx(&rules[1], "height", 20.0);
+    LayoutGridRuleInit(&rules[2], "div", 1, RoboCssDisplayBlock);
+    LayoutGridRulePx(&rules[2], "height", 20.0);
 
     LayoutGridBegin(&fixture, "<html><body><div></div><div></div></body></html>",
-                    rules, 2u);
+                    rules, 3u);
     LayoutGridPass(&fixture, LAYOUT_GRID_VIEWPORT_WIDTH, &stats);
 
     /*
@@ -1248,18 +1294,24 @@ static void TestGridNested(void)
 static void TestGridCountersBalance(void)
 {
     LayoutGridFixture fixture;
-    LayoutGridRule rules[3];
+    LayoutGridRule rules[5];
     LayoutStats stats;
 
     LayoutGridBody(&rules[0], 300.0);
     LayoutGridRuleText(&rules[0], "grid-template-columns: 1fr 1fr");
     LayoutGridRuleInit(&rules[1], "div", 0, RoboCssDisplayBlock);
     LayoutGridRulePx(&rules[1], "height", 20.0);
+    LayoutGridRuleInit(&rules[2], "div", 1, RoboCssDisplayBlock);
+    LayoutGridRulePx(&rules[2], "height", 20.0);
+    LayoutGridRuleInit(&rules[3], "div", 2, RoboCssDisplayBlock);
+    LayoutGridRulePx(&rules[3], "height", 20.0);
+    LayoutGridRuleInit(&rules[4], "div", 3, RoboCssDisplayBlock);
+    LayoutGridRulePx(&rules[4], "height", 20.0);
 
     LayoutGridBegin(&fixture,
                     "<html><body><div></div><div></div><div></div><div></div>"
                     "</body></html>",
-                    rules, 2u);
+                    rules, 5u);
     LayoutGridPass(&fixture, LAYOUT_GRID_VIEWPORT_WIDTH, &stats);
 
     /*
@@ -1288,19 +1340,20 @@ static void TestGridAllocatorBalance(void)
     LayoutFixture();
     before = LayoutLiveBlocks();
 
-    for (index = 0u; index < 8u; index++) {
-        LayoutGridFixture fixture;
-        LayoutGridRule rules[3];
+    for (index = 0u; index < 8u; index++) {    LayoutGridFixture fixture;
+    LayoutGridRule rules[3];
 
         LayoutGridBody(&rules[0], 300.0);
         LayoutGridRuleText(&rules[0], "grid-template-columns: 1fr 2fr");
         LayoutGridRulePx(&rules[0], "column-gap", 10.0);
         LayoutGridRuleInit(&rules[1], "div", 0, RoboCssDisplayBlock);
         LayoutGridRulePx(&rules[1], "height", 20.0);
+        LayoutGridRuleInit(&rules[2], "div", 1, RoboCssDisplayBlock);
+        LayoutGridRulePx(&rules[2], "height", 20.0);
 
         LayoutGridBegin(&fixture,
                         "<html><body><div></div><div></div><div></div></body></html>",
-                        rules, 2u);
+                        rules, 3u);
         LayoutGridPass(&fixture, LAYOUT_GRID_VIEWPORT_WIDTH, NULL);
         LayoutGridEnd(&fixture);
         RoboCheckEqInt(LayoutLiveBlocks(), before);
@@ -1319,6 +1372,7 @@ void TestRegisterLayoutGrid(void)
     TestRegister("layout.grid.formatting_context", TestGridFormattingContext);
     TestRegister("layout.grid.fixed_columns", TestGridFixedColumns);
     TestRegister("layout.grid.fraction_columns", TestGridFractionColumns);
+    TestRegister("layout.grid.percentage_columns", TestGridPercentageColumns);
     TestRegister("layout.grid.gap", TestGridGap);
     TestRegister("layout.grid.content_column", TestGridContentColumn);
     TestRegister("layout.grid.auto_stretch", TestGridAutoStretch);

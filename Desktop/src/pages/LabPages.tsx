@@ -1,7 +1,8 @@
 import { Link } from "react-router-dom";
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 
 import { InteractiveDesktop, InteractiveWindow } from "@/components/interactive/Shell";
+import { CURSOR_LAB_ITEMS, cursorCssValue } from "@/cursors/cursorLab";
 import { useDesktopSession } from "@/session/useDesktopSession";
 
 function LabChrome({ title, children }: { title: string; children: ReactNode }) {
@@ -180,6 +181,53 @@ export function MenuBarPage() {
           </div>
         ) : null}
         <p className="p-8 text-ink-secondary">Click Roboticela or File. Type keys — status updates live.</p>
+      </div>
+    </LabChrome>
+  );
+}
+
+export function CursorLabPage() {
+  const [active, setActive] = useState<string | null>(null);
+  const categories = ["navigation", "resize", "editing", "status"] as const;
+
+  return (
+    <LabChrome title="Cursor Lab">
+      <div className="mx-auto max-w-4xl px-6 py-10">
+        <h1 className="text-3xl font-semibold tracking-tight text-ink">Cursor Lab</h1>
+        <p className="mt-2 max-w-2xl text-[17px] text-ink-secondary">
+          Hover each tile to preview the official RoboticelaOS cursor pack (SVG data URIs). The guest
+          shell paints the same shapes from <code className="text-[14px]">roboticela.rcur</code>.
+        </p>
+        <p className="mt-2 text-[13px] text-ink-tertiary">
+          Active: {active ?? "—"} · Formats: SVG + .rcur · Logical 16 pt × device scale
+        </p>
+        {categories.map((category) => (
+          <section key={category} className="mt-10">
+            <h2 className="text-[13px] font-medium uppercase tracking-[0.06em] text-ink-secondary">
+              {category}
+            </h2>
+            <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4">
+              {CURSOR_LAB_ITEMS.filter((item) => item.category === category).map((item) => (
+                <div
+                  key={item.id}
+                  className="flex min-h-[120px] flex-col justify-between rounded-xl bg-[#F5F5F7] p-4 transition hover:bg-[#EDEDEF]"
+                  style={{ cursor: cursorCssValue(item) }}
+                  onMouseEnter={() => setActive(`${item.id} · ${item.stateName}`)}
+                  onMouseLeave={() => setActive(null)}
+                >
+                  <div
+                    className="h-8 w-8"
+                    dangerouslySetInnerHTML={{ __html: item.svg }}
+                  />
+                  <div>
+                    <div className="text-[15px] font-semibold text-ink">{item.title}</div>
+                    <div className="mt-0.5 font-mono text-[11px] text-ink-tertiary">{item.stateName}</div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </section>
+        ))}
       </div>
     </LabChrome>
   );

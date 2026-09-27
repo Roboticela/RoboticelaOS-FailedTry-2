@@ -1,0 +1,9 @@
+RoboticelaOS Cursor Pack
+Copyright (c) 2026 Roboticela Systems
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this cursor pack and associated documentation files, to use, copy, modify,
+and redistribute them as part of RoboticelaOS, provided that this notice
+appears in supporting documentation.
+
+THE PACK IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND.

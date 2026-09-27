@@ -10,8 +10,10 @@
 #define ROBO_DESKTOP_INTERNAL_H
 
 #include "RoboDesktop/RoboDesktop.h"
+#include "RoboDesktop/RoboDesktopCursorPack.h"
 
 #include "RoboGraphics/RoboGraphicsRaster.h"
+#include "RoboInput/RoboInputCursor.h"
 #include "RoboRender/RoboRenderRasterizer.h"
 #include "RoboTypography/RoboTypography.h"
 
@@ -21,9 +23,12 @@
 extern "C" {
 #endif
 
-/** Software cursor cell size (matches `DesktopChromePaintCursor`). */
-#define RoboDesktopCursorWidth 11
-#define RoboDesktopCursorHeight 16
+/**
+ * Software cursor underlay budget (Phase 44.7).
+ * Packs ship 32/48/64 px bitmaps; 64 covers 16 pt @ 4×. Legacy fallback arrow is 11×16.
+ */
+#define RoboDesktopCursorWidth 64
+#define RoboDesktopCursorHeight 64
 
 /**
  * One shell window.
@@ -101,6 +106,16 @@ struct Desktop {
     int showCursor;
     /** Non-zero after the first pointer observation, so a cursor is never drawn at (0,0) on the first frame. */
     int cursorVisible;
+    /** Shape the software cursor should paint (`InputCursorManager` syncs this). */
+    InputCursorType cursorShape;
+    /** Light / dark pack theme; defaults to light. */
+    DesktopCursorTheme cursorTheme;
+    /** Device scale used to pick 32/48/64 pack frames (1.0 → 32). */
+    float cursorScale;
+    /** Milliseconds for animated wait/progress frames (caller or paint advances). */
+    uint32_t cursorAnimMs;
+    /** Owned system cursor pack, or NULL for the legacy 11×16 arrow fallback. */
+    DesktopCursorPack *cursorPack;
     /**
      * Non-zero when @ref target holds a complete shell paint (chrome + windows).
      * Cursor-only frames require this so they can restore pixels under the
@@ -375,14 +390,21 @@ void DesktopChromePaintCursor(Desktop *desktop,
 /**
  * The cursor's ink rectangle at @p origin, clipped to @p screen.
  * Empty when the cursor sits entirely outside the screen.
+ * Prefer @ref DesktopChromeCursorBoundsFor when a pack is attached.
  */
 GfxRect DesktopChromeCursorBounds(GfxPoint origin, GfxRect screen);
 
+/** Pack-aware bounds: hotspot and bitmap size from the desktop's cursor pack. */
+GfxRect DesktopChromeCursorBoundsFor(Desktop *desktop, GfxPoint origin);
+
 /**
  * Draw the software cursor bitmap at @p origin into @p surface (no raster clip).
- * Pixels outside the surface are skipped.
+ * Pixels outside the surface are skipped. Legacy fallback when no pack is set.
  */
 void DesktopChromeDrawCursorAt(GfxSurface *surface, GfxPoint origin);
+
+/** Pack-aware draw: resolves shape/theme/scale from @p desktop. */
+void DesktopChromeDrawCursorFor(Desktop *desktop, GfxSurface *surface, GfxPoint origin);
 
 /** Case-insensitive-free ASCII/UTF-8 compare, so this module needs no `strcmp`. */
 int DesktopStringEqual(const char *a, const char *b);

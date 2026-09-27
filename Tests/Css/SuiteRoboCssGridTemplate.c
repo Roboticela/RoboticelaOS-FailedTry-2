@@ -174,8 +174,8 @@ static void TestGridTemplateSimpleTracks(void)
                    (int)RoboCssGridBreadthLength);
     RoboCheckEqInt((int)list.tracks[0].maximum.kind,
                    (int)RoboCssGridBreadthLength);
-    RoboCheckEqInt(CssGridTrackSizeEqual(&list.tracks[0].minimum,
-                                         &list.tracks[0].maximum), 1);
+    RoboCheckEqInt(CssGridTrackBreadthEqual(&list.tracks[0].minimum,
+                                            &list.tracks[0].maximum), 1);
     GridTrackText(&list, text, sizeof(text));
     RoboCheckStrEq(text, "40px");
 
@@ -275,8 +275,8 @@ static void TestGridTemplateMinMax(void)
     RoboCheckEqInt(list.tracks[0].minimum.numeric.number == 40.0, 1);
     RoboCheckEqInt((int)list.tracks[0].maximum.kind,
                    (int)RoboCssGridBreadthFraction);
-    RoboCheckEqInt(CssGridTrackSizeEqual(&list.tracks[0].minimum,
-                                         &list.tracks[0].maximum), 0);
+    RoboCheckEqInt(CssGridTrackBreadthEqual(&list.tracks[0].minimum,
+                                            &list.tracks[0].maximum), 0);
     GridTrackText(&list, text, sizeof(text));
     RoboCheckStrEq(text, "minmax(40px, 1fr)");
 

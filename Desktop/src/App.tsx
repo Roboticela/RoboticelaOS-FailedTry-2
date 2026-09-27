@@ -4,6 +4,7 @@ import { IndexPage } from "@/pages/IndexPage";
 import {
   CombinedPage,
   ControlsPage,
+  CursorLabPage,
   DesktopPage,
   DockPage,
   InputLabPage,
@@ -21,6 +22,7 @@ export function App() {
       <Route path="/dock" element={<DockPage />} />
       <Route path="/menubar" element={<MenuBarPage />} />
       <Route path="/input-lab" element={<InputLabPage />} />
+      <Route path="/cursors" element={<CursorLabPage />} />
       <Route path="/combined" element={<CombinedPage />} />
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>

@@ -1,0 +1,32 @@
+# RoboticelaOS system cursor pack (Phase 44.7 foundation)
+# role = InputCursorTypeName → master SVG + .rcur state
+manifest 1
+pack roboticela-os
+version 1.0.0
+brand #3B9EFF
+rcur roboticela.rcur
+
+# Logical size is points; physical = points × device scale.
+logical_pt 16
+hotspot_space 256
+
+role default          Masters/RoboDefault.svg          hotspot 70,50
+role pointer          Masters/RoboPointer.svg          hotspot 84,49
+role text             Masters/RoboTextVertical.svg     hotspot 128,128
+role crosshair        Masters/RoboCrosshair.svg        hotspot 128,128
+role move             Masters/RoboMove.svg             hotspot 128,128
+role resize-h         Masters/RoboResizeEW.svg         hotspot 128,128
+role resize-v         Masters/RoboResizeNS.svg         hotspot 128,128
+role resize-diagonal  Masters/RoboResizeNWSE.svg       hotspot 128,128
+role not-allowed      Masters/RoboNotAllowed.svg       hotspot 128,128
+role wait             Masters/RoboWait.svg             hotspot 128,128
+role progress         Masters/RoboWorking.svg          hotspot 52,38
+role grabbing         Masters/RoboGrab.svg             hotspot 128,128
+
+# Extra masters (gallery / custom apps; state IDs ≥ 64 in .rcur)
+extra pencil          Masters/RoboEdit.svg             hotspot 40,220
+extra link            Masters/RoboLink.svg             hotspot 89,41
+extra vertical-text   Masters/RoboTextHorizontal.svg   hotspot 128,128
+extra resize-diag-nesw Masters/RoboResizeNESW.svg      hotspot 128,128
+extra col-resize      Masters/RoboResizeSplitEW.svg    hotspot 128,128
+extra row-resize      Masters/RoboResizeSplitNS.svg    hotspot 128,128

@@ -331,6 +331,11 @@ Result DesktopCreate(const DesktopConfig *config,
     desktop->nextId = 0u;
     desktop->showCursor = config->showCursor ? 1 : 0;
     desktop->cursorVisible = 0;
+    desktop->cursorShape = RoboInputCursorDefault;
+    desktop->cursorTheme = RoboDesktopCursorThemeLight;
+    desktop->cursorScale = 1.0f;
+    desktop->cursorAnimMs = 0u;
+    desktop->cursorPack = NULL;
     desktop->shellRasterValid = 0;
     desktop->cursorOverlayValid = 0;
     desktop->cursorDrawnAt = MakeGfxPoint(0, 0);
@@ -379,6 +384,10 @@ void DesktopDestroy(Desktop *desktop)
     }
     desktop->windowCount = 0u;
     DesktopComposeDestroy(desktop);
+    if (desktop->cursorPack) {
+        DesktopCursorPackDestroy(desktop->cursorPack);
+        desktop->cursorPack = NULL;
+    }
     if (desktop->target) {
         RenderTargetDestroy(desktop->target);
         desktop->target = NULL;
@@ -707,17 +716,17 @@ Result DesktopRepaintCursor(Desktop *desktop,
 
     oldRect = desktop->cursorOverlayValid
                   ? desktop->cursorUnderRect
-                  : DesktopChromeCursorBounds(desktop->cursorDrawnAt, desktop->geometry.screen);
+                  : DesktopChromeCursorBoundsFor(desktop, desktop->cursorDrawnAt);
     (void)DesktopCursorRestore(desktop, surface);
 
-    newRect = DesktopChromeCursorBounds(desktop->pointer.point, desktop->geometry.screen);
+    newRect = DesktopChromeCursorBoundsFor(desktop, desktop->pointer.point);
     if (newRect.width > 0 && newRect.height > 0) {
         if (DesktopCursorCapture(desktop, surface, newRect) != RoboOk) {
             return RoboDesktopDiag(diag, RoboDesktopDomainShell, RoboError,
                                      "the cursor underlay could not be captured");
         }
         desktop->cursorDrawnAt = desktop->pointer.point;
-        DesktopChromeDrawCursorAt(surface, desktop->pointer.point);
+        DesktopChromeDrawCursorFor(desktop, surface, desktop->pointer.point);
     }
 
     damage = GfxRectEmpty();
@@ -1355,4 +1364,63 @@ Result GetDesktopPointer(const Desktop *desktop, DesktopPointer *out)
     }
     *out = desktop->pointer;
     return RoboOk;
+}
+
+Result DesktopAttachCursorPack(Desktop *desktop, DesktopCursorPack *pack)
+{
+    if (!desktop) {
+        return RoboInvalidArgument;
+    }
+    if (desktop->cursorPack) {
+        DesktopCursorPackDestroy(desktop->cursorPack);
+        desktop->cursorPack = NULL;
+    }
+    desktop->cursorPack = pack;
+    desktop->cursorOverlayValid = 0;
+    return RoboOk;
+}
+
+DesktopCursorPack *DesktopGetCursorPack(Desktop *desktop)
+{
+    return desktop ? desktop->cursorPack : NULL;
+}
+
+void DesktopSetCursorShape(Desktop *desktop, InputCursorType shape)
+{
+    if (!desktop) {
+        return;
+    }
+    if (!InputCursorTypeIsKnown(shape)) {
+        shape = RoboInputCursorDefault;
+    }
+    desktop->cursorShape = shape;
+}
+
+InputCursorType DesktopGetCursorShape(const Desktop *desktop)
+{
+    return desktop ? desktop->cursorShape : RoboInputCursorDefault;
+}
+
+void DesktopSetCursorTheme(Desktop *desktop, DesktopCursorTheme theme)
+{
+    if (!desktop) {
+        return;
+    }
+    desktop->cursorTheme = theme;
+}
+
+void DesktopSetCursorScale(Desktop *desktop, float scale)
+{
+    if (!desktop) {
+        return;
+    }
+    desktop->cursorScale = scale > 0.0f ? scale : 1.0f;
+}
+
+void DesktopAdvanceCursorAnim(Desktop *desktop, uint32_t deltaMs)
+{
+    if (!desktop) {
+        return;
+    }
+    desktop->cursorAnimMs += deltaMs;
 }
