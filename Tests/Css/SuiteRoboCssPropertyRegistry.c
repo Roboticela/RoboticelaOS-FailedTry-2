@@ -128,7 +128,7 @@ static void TestCssRegistryStandardSet(void)
      *
      * A count is asserted rather than a lower bound so that a row added later is a
      * deliberate act rather than an accident. */
-    RoboCheckEqInt((int)CssPropertyRegistryCount(registry), 208);
+    RoboCheckEqInt((int)CssPropertyRegistryCount(registry), 224);
     /*
      * 18.15's twenty text rows move the inherited half by fourteen and the other by
      * six, and that split is the family's central fact stated as a count: an alignment,
@@ -156,7 +156,7 @@ static void TestCssRegistryStandardSet(void)
      * and expansion — not the cascade — is what distributes it. That is why the
      * inherited half moved by eighteen and the other by exactly one.
      */
-    RoboCheckEqInt((int)nonInherited, 151);
+    RoboCheckEqInt((int)nonInherited, 167);
 
     CssPropertyRegistryDestroy(registry);
 }
@@ -242,7 +242,15 @@ static void TestCssRegistryInheritedClassification(void)
         /* 18.17's three non-inherited background rows: a background is painted per
          * element, and its clip box, its origin box and its blend mode are the
          * element's own. */
-        "background-blend-mode", "background-clip", "background-origin"
+        "background-blend-mode", "background-clip", "background-origin",
+        /* 18.18's sixteen non-inherited border rows: the border-image decorations, the
+         * outline family and the four radius longhands and their shorthand. */
+        "border-image", "border-image-outset", "border-image-repeat",
+        "border-image-slice", "border-image-source", "border-image-width",
+        "border-radius", "border-top-left-radius", "border-top-right-radius",
+        "border-bottom-right-radius", "border-bottom-left-radius",
+        "outline", "outline-color", "outline-offset", "outline-style",
+        "outline-width"
     };
     CssPropertyRegistry *registry = NULL;
     size_t index;
@@ -569,7 +577,26 @@ static void TestCssRegistryInitialValues(void)
          * share the box vocabulary and differ only in their initial value. */
         {"background-blend-mode", "normal"},
         {"background-clip", "border-box"},
-        {"background-origin", "padding-box"}
+        {"background-origin", "padding-box"},
+        /* 18.18's sixteen border rows. Only `border-image-repeat` takes a closed
+         * vocabulary; `border-image-source` reuses the image shape and the rest are
+         * carried. */
+        {"border-image", "none"},
+        {"border-image-outset", "0"},
+        {"border-image-repeat", "stretch"},
+        {"border-image-slice", "100%"},
+        {"border-image-source", "none"},
+        {"border-image-width", "1"},
+        {"border-radius", "0"},
+        {"border-top-left-radius", "0"},
+        {"border-top-right-radius", "0"},
+        {"border-bottom-right-radius", "0"},
+        {"border-bottom-left-radius", "0"},
+        {"outline", "medium,_,none,_,currentcolor"},
+        {"outline-color", "currentcolor"},
+        {"outline-offset", "0"},
+        {"outline-style", "none"},
+        {"outline-width", "medium"}
     };
     CssPropertyRegistry *registry = NULL;
     size_t index;

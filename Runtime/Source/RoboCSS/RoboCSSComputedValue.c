@@ -2133,6 +2133,12 @@ static int ComputedVocabularyBlendModeKnown(CssSlice keyword)
     return CssBlendModeSliceIsKnown(keyword);
 }
 
+/* 18.18's one closed set: the border-image repeat vocabulary. */
+static int ComputedVocabularyBorderImageRepeatKnown(CssSlice keyword)
+{
+    return CssBorderImageRepeatSliceIsKnown(keyword);
+}
+
 /**
  * A closed vocabulary whose value *is* its keyword, carried as one.
  *
@@ -2361,7 +2367,13 @@ static const ComputedVocabularyGrammar computedVocabularyGrammars[] = {
       "not a single background box keyword", "not a background box value" },
     { RoboCssPropertyComputationBlendMode,
       ComputedVocabularyBlendModeKnown, ComputedVocabularyKeywordMake,
-      "not a single blend mode keyword", "not a background blend mode value" }
+      "not a single blend mode keyword", "not a background blend mode value" },
+    /* 18.18's row: the border-image repeat set, the border analogue of the background
+     * one. */
+    { RoboCssPropertyComputationBorderImageRepeat,
+      ComputedVocabularyBorderImageRepeatKnown, ComputedVocabularyKeywordMake,
+      "not a single border-image repeat keyword",
+      "not a border-image repeat value" }
 };
 
 /** The vocabulary grammar for @p computation, or NULL when it is not one. */
@@ -3279,6 +3291,8 @@ Result CssComputedValueCompute(
      */
     case RoboCssPropertyComputationBackgroundBox:
     case RoboCssPropertyComputationBlendMode:
+    /* And 18.18's row, the border family's closed set. */
+    case RoboCssPropertyComputationBorderImageRepeat:
         return ComputedComputeVocabulary(
             ComputedVocabularyGrammarFor(computation), out, specified, diag);
     case RoboCssPropertyComputationBackgroundImage:

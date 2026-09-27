@@ -527,6 +527,17 @@ typedef struct CssCapabilities {
      * the phase that has a box and a surface.
      */
     int blendModes;
+    /**
+     * The border family's 18.18 additions: the `outline` family (whose style reuses the
+     * border style set), the `border-image` family (whose repeat set is typed and whose
+     * source reuses the background image shape), and `border-radius` with its four
+     * corners (carried, because a radius is a geometry rather than a closed set).
+     *
+     * What it does not claim is border painting, a `border-image` slicer, or the radius
+     * geometry: the rows are registered so the cascade and the computed style stay
+     * correct, and no function here cuts, tiles, rounds or draws anything.
+     */
+    int borderDecorations;
 } CssCapabilities;
 
 /** Zero every flag. Safe on NULL. */

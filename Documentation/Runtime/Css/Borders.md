@@ -1,4 +1,13 @@
-# RoboCSS Borders (Phase 9.15)
+# RoboCSS Borders (Phase 9.15, extended by 18.18)
+
+> **18.18 completes the family this document describes.** It adds the sixteen rows §9
+> named as not built: the `border-image` decorations (with `border-image-repeat` as a
+> genuine closed set, and `border-image-source` reusing the 9.14 image shape), the
+> `outline` family (whose style reuses the border style set, width the shared line
+> width and colour the 9.9 colour), and `border-radius` with its four corners — carried,
+> with the **corner vocabulary** (`top-left` … `bottom-left`) as the module's one
+> spelling of their names. §9's list below is updated to match; `box-shadow`,
+> `border-image` slicing/tiling and the radius geometry remain absent.
 
 A border is written three ways, and all three have to agree:
 
@@ -363,12 +372,16 @@ Deliberately absent, and each a boundary rather than an unfinished edge:
 - **Geometry.** A `none` border's *used* width being zero regardless of `border-width` is a rule
   for the phase with a box; this build has the two facts (`border-width` and
   `generates_border`) and does not combine them.
-- **`border-radius`.** Not a value this build has. It is a whole second geometry, not a fourth
-  kind.
+- **`border-radius`.** *Registered by 18.18* as a shorthand over four carried corner rows,
+  with the corner vocabulary in the header; the *geometry* — four ellipse quadrants per
+  corner — still belongs to the phase that has a box, because it is a whole second geometry
+  rather than a fourth kind.
 - **`border-collapse` and `hidden`'s precedence.** The vocabulary carries `hidden` as a distinct
   value; the collapsing rule that makes it outrank every other style needs tables.
-- **`outline`, `box-shadow`, `border-image`.** Properties this build has not added, each needing
-  a paint model before it could mean anything.
+- **`outline`, `border-image`.** *Registered by 18.18* (see the blockquote at the top): the
+  outline family and the border-image decorations, with `border-image-repeat` typed and the
+  rest carried. **`box-shadow`** remains a property this build has not added — it needs a paint
+  model before it could mean anything.
 - **Range enforcement.** `border-width: 50%` and `border-width: -1px` compute, as 9.11 recorded.
   A phase with the property's range enforces it in one place.
 - **Per-side positional shorthands** (`border-top-width`'s own 1-value form is the longhand), and

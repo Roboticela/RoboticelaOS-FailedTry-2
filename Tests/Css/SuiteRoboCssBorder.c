@@ -897,9 +897,22 @@ static void TestBorderRegistry(void)
                           registry, CssSliceFromText("border-width"))
                           ->initialText,
                       "medium");
-    /* `border-radius` is not a value this build has. */
+    /*
+     * 18.18 registered `border-radius` (as a shorthand over four carried corner rows),
+     * so it is present; `box-shadow` is the property that is still not a value this
+     * build has, and asserting *that* is what keeps the boundary honest.
+     */
+    {
+        const CssPropertyDefinition *radius =
+            CssPropertyRegistryFindSlice(registry, CssSliceFromText("border-radius"));
+
+        RoboCheck(radius != NULL);
+        if (radius) {
+            RoboCheckEqInt((radius->flags & RoboCssPropertyFlagShorthand) != 0, 1);
+        }
+    }
     RoboCheck(CssPropertyRegistryFindSlice(
-                   registry, CssSliceFromText("border-radius")) == NULL);
+                   registry, CssSliceFromText("box-shadow")) == NULL);
 
     CssPropertyRegistryDestroy(registry);
 }
@@ -1869,6 +1882,193 @@ static void TestBorderDeterminism(void)
 }
 
 /* ------------------------------------------------------------------ */
+/* The 18.18 additions: border-image repeat, corners, outline           */
+/* ------------------------------------------------------------------ */
+
+/**
+ * The border-image repeat vocabulary, and the two adjustments.
+ *
+ * `round` and `space` answer the same question — what happens to the space a whole
+ * number of tiles does not fill — and they scale and space respectively; `stretch` is
+ * the one that does not tile at all. Three columns, none the negation of another.
+ */
+static void TestBorderImageRepeatVocabulary(void)
+{
+    static const char *const keywords[] = { "stretch", "repeat", "round",
+                                            "space" };
+    static const struct {
+        int tiles;
+        int rounds;
+        int spaces;
+    } expected[] = {
+        {0, 0, 0}, {1, 0, 0}, {1, 1, 0}, {1, 0, 1}
+    };
+    size_t index;
+
+    CssFixture();
+    RoboCheckEqInt((int)RoboCssBorderImageRepeatCount, 4);
+    RoboCheckEqInt((int)CssBorderImageRepeatCount(), 4);
+    for (index = 0u; index < 4u; index++) {
+        CssBorderImageRepeat repeat = (CssBorderImageRepeat)index;
+
+        RoboCheckEqInt(CssBorderImageRepeatIsKnown(repeat), 1);
+        RoboCheckStrEq(CssBorderImageRepeatName(repeat), keywords[index]);
+        RoboCheckEqInt(CssBorderImageRepeatFromText(keywords[index]),
+                          (int)repeat);
+        RoboCheck(CssBorderImageRepeatSliceIsKnown(
+                      CssSliceFromText(keywords[index])) == 1);
+        RoboCheckEqInt(CssBorderImageRepeatTiles(repeat), expected[index].tiles);
+        RoboCheckEqInt(CssBorderImageRepeatRounds(repeat), expected[index].rounds);
+        RoboCheckEqInt(CssBorderImageRepeatSpaces(repeat), expected[index].spaces);
+    }
+    RoboCheckEqInt(CssBorderImageRepeatIsKnown((CssBorderImageRepeat)99), 0);
+    RoboCheckStrEq(CssBorderImageRepeatName((CssBorderImageRepeat)99), "");
+    RoboCheckEqInt(CssBorderImageRepeatFromText("ROUND"),
+                      (int)RoboCssBorderImageRepeatRound);
+    RoboCheckEqInt(CssBorderImageRepeatFromText(NULL),
+                      (int)RoboCssBorderImageRepeatStretch);
+    RoboCheckEqInt(CssBorderImageRepeatFromText("banana"),
+                      (int)RoboCssBorderImageRepeatStretch);
+    RoboCheckEqInt(CssBorderImageRepeatSliceIsKnown(
+                      CssSliceFromText("banana")), 0);
+    /* `round` and `space` are both adjustments and neither is `repeat`. */
+    RoboCheckEqInt(CssBorderImageRepeatRounds(RoboCssBorderImageRepeatRound), 1);
+    RoboCheckEqInt(CssBorderImageRepeatSpaces(RoboCssBorderImageRepeatRound), 0);
+    RoboCheckEqInt(CssBorderImageRepeatSpaces(RoboCssBorderImageRepeatSpace), 1);
+    RoboCheckEqInt(CssBorderImageRepeatRounds(RoboCssBorderImageRepeatSpace), 0);
+    RoboCheckEqInt(CssBorderImageRepeatTiles(
+                      (CssBorderImageRepeat)99), 0);
+    RoboCheckEqInt(CssBorderImageRepeatRounds(
+                      (CssBorderImageRepeat)99), 0);
+
+    {
+        char buffer[RoboCssBorderImageRepeatTextMax];
+        size_t length = 0u;
+
+        RoboCheckEqInt(CssBorderImageRepeatWrite(
+                           RoboCssBorderImageRepeatStretch, buffer,
+                           sizeof(buffer), &length, NULL),
+                          RoboOk);
+        RoboCheckStrEq(buffer, "stretch");
+        RoboCheckEqInt((int)length, 7);
+        RoboCheckEqInt(CssBorderImageRepeatWrite((CssBorderImageRepeat)99,
+                                                 buffer, sizeof(buffer),
+                                                 &length, NULL),
+                          RoboInvalidArgument);
+    }
+}
+
+/** The four corners, which are the only spelling of the radius longhands' names. */
+static void TestBorderCornerVocabulary(void)
+{
+    static const char *const names[] = { "top-left", "top-right", "bottom-right",
+                                         "bottom-left" };
+    size_t index;
+
+    CssFixture();
+    RoboCheckEqInt((int)RoboCssBorderCornerCount, 4);
+    RoboCheckEqInt((int)CssBorderCornerCount(), 4);
+    for (index = 0u; index < 4u; index++) {
+        CssBorderCorner corner = (CssBorderCorner)index;
+
+        RoboCheckEqInt(CssBorderCornerIsKnown(corner), 1);
+        RoboCheckStrEq(CssBorderCornerName(corner), names[index]);
+    }
+    RoboCheckEqInt(CssBorderCornerIsKnown((CssBorderCorner)99), 0);
+    RoboCheckEqInt(CssBorderCornerIsKnown((CssBorderCorner)-1), 0);
+    RoboCheckStrEq(CssBorderCornerName((CssBorderCorner)99), "");
+}
+
+/** 18.18's one closed set and the reused shapes, through the real grammar. */
+static void TestBorderDecorationsComputed(void)
+{
+    CssFixture();
+
+    CssComputeEquals(RoboCssPropertyComputationBorderImageRepeat,
+                       "o: round", "round");
+    CssComputeEquals(RoboCssPropertyComputationBorderImageRepeat,
+                       "o: SPACE", "space");
+    RoboCheckStrEq(CssComputeKind(
+                          RoboCssPropertyComputationBorderImageRepeat,
+                          "o: stretch"),
+                      "keyword");
+    /* The reuse is the point: outline-style is the border style shape. */
+    CssComputeEquals(RoboCssPropertyComputationBorderStyle, "o: dashed",
+                       "dashed");
+    CssComputeEquals(RoboCssPropertyComputationLineWidth, "o: thick", "thick");
+    /* `border-image-source` is the image shape, so `none` is a keyword and a url is
+     * carried. */
+    CssComputeEquals(RoboCssPropertyComputationBackgroundImage, "o: none", "none");
+    CssComputeEquals(RoboCssPropertyComputationBackgroundImage,
+                       "o: url(b.png)", "url(b.png)");
+    /* The carried half survives intact. */
+    CssComputeEquals(RoboCssPropertyComputationPreserve, "o: 30% fill",
+                       "30% fill");
+    CssComputeEquals(RoboCssPropertyComputationPreserve, "o: 5px 8px",
+                       "5px 8px");
+    CssComputeEquals(RoboCssPropertyComputationPreserve, "o: 2px", "2px");
+
+    CssComputeEquals(RoboCssPropertyComputationBorderImageRepeat,
+                       "o: banana", "not a border-image repeat value");
+    CssComputeEquals(RoboCssPropertyComputationBorderImageRepeat, "o: 3px",
+                       "not an identifier");
+    CssComputeEquals(RoboCssPropertyComputationBorderImageRepeat,
+                       "o: repeat round",
+                       "not a single border-image repeat keyword");
+}
+
+/** The sixteen rows, their shapes and their initials. */
+static void TestBorderDecorationsRegistry(void)
+{
+    static const struct {
+        const char *name;
+        CssPropertyComputation computation;
+        const char *initial;
+    } rows[] = {
+        { "border-image", RoboCssPropertyComputationPreserve, "none" },
+        { "border-image-outset", RoboCssPropertyComputationPreserve, "0" },
+        { "border-image-repeat", RoboCssPropertyComputationBorderImageRepeat,
+          "stretch" },
+        { "border-image-slice", RoboCssPropertyComputationPreserve, "100%" },
+        { "border-image-source", RoboCssPropertyComputationBackgroundImage,
+          "none" },
+        { "border-image-width", RoboCssPropertyComputationPreserve, "1" },
+        { "border-radius", RoboCssPropertyComputationPreserve, "0" },
+        { "border-top-left-radius", RoboCssPropertyComputationPreserve, "0" },
+        { "outline", RoboCssPropertyComputationPreserve,
+          "medium none currentcolor" },
+        { "outline-color", RoboCssPropertyComputationColor, "currentcolor" },
+        { "outline-offset", RoboCssPropertyComputationPreserve, "0" },
+        { "outline-style", RoboCssPropertyComputationBorderStyle, "none" },
+        { "outline-width", RoboCssPropertyComputationLineWidth, "medium" }
+    };
+    CssPropertyRegistry *registry = NULL;
+    size_t index;
+
+    CssFixture();
+    RoboCheckEqInt(CssPropertyRegistryCreateStandard(&registry, NULL), RoboOk);
+    for (index = 0u; index < sizeof(rows) / sizeof(rows[0]); index++) {
+        const CssPropertyDefinition *definition =
+            CssPropertyRegistryFind(registry, rows[index].name);
+
+        RoboCheck(definition != NULL);
+        if (!definition) {
+            continue;
+        }
+        RoboCheckEqInt(definition->computation, (int)rows[index].computation);
+        RoboCheckEqInt(CssPropertyDefinitionInherited(definition), 0);
+        RoboCheckStrEq(definition->initialText, rows[index].initial);
+    }
+    RoboCheckEqInt(CssPropertyComputationIsKnown(
+                          RoboCssPropertyComputationBorderImageRepeat),
+                      1);
+    RoboCheckStrEq(CssPropertyComputationName(
+                          RoboCssPropertyComputationBorderImageRepeat),
+                      "border-image-repeat");
+    CssPropertyRegistryDestroy(registry);
+}
+
+/* ------------------------------------------------------------------ */
 
 void TestRegisterCssBorder(void);
 
@@ -1898,4 +2098,11 @@ void TestRegisterCssBorder(void)
                        TestBorderShorthandUndistributed);
     TestRegister("css.border.robust", TestBorderRobust);
     TestRegister("css.border.determinism", TestBorderDeterminism);
+    TestRegister("css.border.image_repeat.vocabulary",
+                       TestBorderImageRepeatVocabulary);
+    TestRegister("css.border.corner.vocabulary", TestBorderCornerVocabulary);
+    TestRegister("css.border.decorations.computed",
+                       TestBorderDecorationsComputed);
+    TestRegister("css.border.decorations.registry",
+                       TestBorderDecorationsRegistry);
 }

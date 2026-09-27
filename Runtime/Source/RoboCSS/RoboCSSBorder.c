@@ -168,6 +168,177 @@ int CssBorderStyleGeneratesBorder(CssBorderStyle style)
 }
 
 /* ------------------------------------------------------------------ */
+/* The border-image repeat vocabulary (18.18)                          */
+/* ------------------------------------------------------------------ */
+
+typedef struct borderImageRepeatRow {
+    CssBorderImageRepeat value;
+    const char *keyword;
+    int tiles;
+    int rounds;
+    int spaces;
+} BorderImageRepeatRow;
+
+static const BorderImageRepeatRow borderImageRepeatVocabulary[] = {
+    { RoboCssBorderImageRepeatStretch, "stretch", 0, 0, 0 },
+    { RoboCssBorderImageRepeatRepeat,  "repeat",  1, 0, 0 },
+    { RoboCssBorderImageRepeatRound,   "round",   1, 1, 0 },
+    { RoboCssBorderImageRepeatSpace,   "space",   1, 0, 1 }
+};
+
+#define BORDER_IMAGE_REPEAT_VOCABULARY_COUNT \
+    (sizeof(borderImageRepeatVocabulary) / sizeof(borderImageRepeatVocabulary[0]))
+
+static const BorderImageRepeatRow *BorderImageRepeatRowOf(
+    CssBorderImageRepeat repeat)
+{
+    size_t index;
+
+    for (index = 0u; index < BORDER_IMAGE_REPEAT_VOCABULARY_COUNT; index++) {
+        if (borderImageRepeatVocabulary[index].value == repeat) {
+            return &borderImageRepeatVocabulary[index];
+        }
+    }
+    return NULL;
+}
+
+int CssBorderImageRepeatIsKnown(CssBorderImageRepeat repeat)
+{
+    return BorderImageRepeatRowOf(repeat) != NULL;
+}
+
+const char *CssBorderImageRepeatName(CssBorderImageRepeat repeat)
+{
+    const BorderImageRepeatRow *row = BorderImageRepeatRowOf(repeat);
+
+    return row ? row->keyword : "";
+}
+
+size_t CssBorderImageRepeatCount(void)
+{
+    return BORDER_IMAGE_REPEAT_VOCABULARY_COUNT;
+}
+
+CssBorderImageRepeat CssBorderImageRepeatFromSlice(CssSlice keyword)
+{
+    size_t index;
+
+    if (CssSliceIsAbsent(keyword) || keyword.length == 0u) {
+        return RoboCssBorderImageRepeatStretch;
+    }
+    for (index = 0u; index < BORDER_IMAGE_REPEAT_VOCABULARY_COUNT; index++) {
+        if (CssBytesEqualAsciiCi(keyword.bytes, keyword.length,
+                                          borderImageRepeatVocabulary[index].keyword)) {
+            return borderImageRepeatVocabulary[index].value;
+        }
+    }
+    return RoboCssBorderImageRepeatStretch;
+}
+
+CssBorderImageRepeat CssBorderImageRepeatFromText(const char *keyword)
+{
+    if (!keyword) {
+        return RoboCssBorderImageRepeatStretch;
+    }
+    return CssBorderImageRepeatFromSlice(
+        CssSliceFromBytes((const uint8_t *)keyword, strlen(keyword)));
+}
+
+int CssBorderImageRepeatSliceIsKnown(CssSlice keyword)
+{
+    size_t index;
+
+    if (CssSliceIsAbsent(keyword) || keyword.length == 0u) {
+        return 0;
+    }
+    for (index = 0u; index < BORDER_IMAGE_REPEAT_VOCABULARY_COUNT; index++) {
+        if (CssBytesEqualAsciiCi(keyword.bytes, keyword.length,
+                                          borderImageRepeatVocabulary[index].keyword)) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+int CssBorderImageRepeatTiles(CssBorderImageRepeat repeat)
+{
+    const BorderImageRepeatRow *row = BorderImageRepeatRowOf(repeat);
+
+    return row ? row->tiles : 0;
+}
+
+int CssBorderImageRepeatRounds(CssBorderImageRepeat repeat)
+{
+    const BorderImageRepeatRow *row = BorderImageRepeatRowOf(repeat);
+
+    return row ? row->rounds : 0;
+}
+
+int CssBorderImageRepeatSpaces(CssBorderImageRepeat repeat)
+{
+    const BorderImageRepeatRow *row = BorderImageRepeatRowOf(repeat);
+
+    return row ? row->spaces : 0;
+}
+
+Result CssBorderImageRepeatWrite(CssBorderImageRepeat repeat,
+                                 char *buffer,
+                                 size_t capacity,
+                                 size_t *outLength,
+                                 CssDiag *diag)
+{
+    const BorderImageRepeatRow *row;
+    size_t length;
+
+    if (!buffer || !outLength || capacity == 0u) {
+        return RoboCssDiag(diag, RoboCssDomainBorder, RoboInvalidArgument,
+                             "buffer and out_length are required");
+    }
+    buffer[0] = '\0';
+    *outLength = 0u;
+    row = BorderImageRepeatRowOf(repeat);
+    if (!row) {
+        return RoboCssDiag(diag, RoboCssDomainBorder, RoboInvalidArgument,
+                             "not a border-image repeat value");
+    }
+    length = strlen(row->keyword);
+    if (length >= capacity) {
+        *outLength = length;
+        return RoboCssDiag(diag, RoboCssDomainBorder, RoboNotSupported,
+                             "the border-image repeat keyword does not fit");
+    }
+    memcpy(buffer, row->keyword, length + 1u);
+    *outLength = length;
+    return RoboOk;
+}
+
+/* ------------------------------------------------------------------ */
+/* The corner vocabulary (18.18)                                       */
+/* ------------------------------------------------------------------ */
+
+static const char *const borderCornerNames[] = {
+    "top-left", "top-right", "bottom-right", "bottom-left"
+};
+
+int CssBorderCornerIsKnown(CssBorderCorner corner)
+{
+    return corner >= 0 && corner < (int)RoboCssBorderCornerCount;
+}
+
+const char *CssBorderCornerName(CssBorderCorner corner)
+{
+    if (!CssBorderCornerIsKnown(corner)) {
+        return "";
+    }
+    return borderCornerNames[(size_t)corner];
+}
+
+size_t CssBorderCornerCount(void)
+{
+    return RoboCssBorderCornerCount;
+}
+
+/* ------------------------------------------------------------------ */
 /* The kinds                                                           */
 /* ------------------------------------------------------------------ */
 

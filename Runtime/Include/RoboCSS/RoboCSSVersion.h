@@ -994,6 +994,33 @@
  *
  * One capability joins the table (`blendModes`).
  *
+ * 0.36.0 is Phase 18.18, **CSS borders**, and it completes the family 9.15 began the
+ * same way 18.17 completed the background family. It adds the sixteen rows 9.15's §9
+ * named as not built: the `border-image` decorations, the `outline` family, and
+ * `border-radius` with its four corners.
+ *
+ * One of the sixteen takes a shape of its own. `border-image-repeat` is a genuine
+ * closed set — `stretch | repeat | round | space` — and the border-image analogue of
+ * the background repeat set: `round` and `space` are the two adjustments that avoid a
+ * partial tile (scaling, and gaps), and neither is `repeat`. `border-image-source`
+ * reuses 9.14's image shape unchanged, so `none | <image>` is the same computation as
+ * `background-image`; `outline-style`, `outline-width` and `outline-color` reuse
+ * 9.15's border style, the shared line width and 9.9's colour; and the slice, width,
+ * outset and radius grammars are wider than any closed set (a `fill` keyword, a
+ * slash-separated pair, a length-percentage pair), so they are carried. `border-radius`
+ * additionally carries the **corner vocabulary** — four corners, the only spelling of
+ * whose names it is — for the phase that models the geometry.
+ *
+ * All sixteen are non-inherited, because a border, an outline and an image are painted
+ * per element, and `outline-color` is the fifth row in the table whose initial is the
+ * reference `currentcolor`.
+ *
+ * The boundary is 9.15's: nothing paints a border, no image is sliced or tiled, and the
+ * radius geometry (four ellipse quadrants per corner) is left to the phase that has a
+ * paint surface.
+ *
+ * One capability joins the table (`borderDecorations`).
+ *
  * The surface will keep growing for the whole of Phase 9, so API freeze is
  * NOT claimed here (RoboCssApiFrozen=0).
  */
@@ -1002,9 +1029,9 @@
 #define ROBO_CSS_VERSION_H
 
 #define RoboCssVersionMajor 0
-#define RoboCssVersionMinor 35
+#define RoboCssVersionMinor 36
 #define RoboCssVersionPatch 0
-#define RoboCssVersionString "0.35.0"
+#define RoboCssVersionString "0.36.0"
 
 /** 1 once the Phase 9 surface is frozen (not yet — see header comment). */
 #define RoboCssApiFrozen 0

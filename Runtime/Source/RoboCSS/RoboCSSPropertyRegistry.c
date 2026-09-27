@@ -293,6 +293,8 @@ const char *CssPropertyComputationName(
         return "background-box";
     case RoboCssPropertyComputationBlendMode:
         return "blend-mode";
+    case RoboCssPropertyComputationBorderImageRepeat:
+        return "border-image-repeat";
     default:
         return "unknown";
     }
@@ -965,6 +967,63 @@ static const RegistryStandardEntry registryStandardEntries[] = {
     { "border-width",    RoboCssPropertyInheritanceNonInherited,
       RoboCssPropertyComputationPreserve,   "medium",
       RoboCssPropertyFlagShorthand },
+
+    /*
+     * --- 18.18 completes the border family ---
+     *
+     * Three families of rows the 9.15 phase named as not built: the `border-image`
+     * decorations, the `outline` family, and `border-radius` with its four corners.
+     *
+     * Only one of the sixteen takes a shape of its own. `border-image-repeat` is a
+     * genuine closed set — `stretch | repeat | round | space` — and a second copy of
+     * the background repeat idea for the border image's middle; the rest reuse a shape
+     * or are carried. `border-image-source` is `none | <image>`, so it reuses 9.14's
+     * `BACKGROUND_IMAGE` shape unchanged; the slice, width, outset and radius grammars
+     * are all wider than any closed set (a fill keyword, a slash-separated pair, a
+     * length-percentage pair), so they are carried; and `outline-style` reuses 9.15's
+     * `BORDER_STYLE`, `outline-width` the shared `LINE_WIDTH` and `outline-color` the
+     * 9.9 colour. That is the same typed/carried split every phase since 9.14 uses.
+     *
+     * All sixteen are non-inherited, because a border, an outline and an image are all
+     * painted per element. `outline-color` is the fifth row here (after the four border
+     * colour rows) whose initial is the *reference* `currentcolor`.
+     */
+    { "border-image",       RoboCssPropertyInheritanceNonInherited,
+      RoboCssPropertyComputationPreserve,   "none",
+      RoboCssPropertyFlagShorthand },
+    { "border-image-outset", RoboCssPropertyInheritanceNonInherited,
+      RoboCssPropertyComputationPreserve,   "0",          0 },
+    { "border-image-repeat", RoboCssPropertyInheritanceNonInherited,
+      RoboCssPropertyComputationBorderImageRepeat, "stretch", 0 },
+    { "border-image-slice", RoboCssPropertyInheritanceNonInherited,
+      RoboCssPropertyComputationPreserve,   "100%",       0 },
+    { "border-image-source", RoboCssPropertyInheritanceNonInherited,
+      RoboCssPropertyComputationBackgroundImage, "none",   0 },
+    { "border-image-width", RoboCssPropertyInheritanceNonInherited,
+      RoboCssPropertyComputationPreserve,   "1",          0 },
+    { "border-radius",     RoboCssPropertyInheritanceNonInherited,
+      RoboCssPropertyComputationPreserve,   "0",
+      RoboCssPropertyFlagShorthand },
+    /* The four corners in CSS's own order, top-left round to bottom-left. */
+    { "border-top-left-radius", RoboCssPropertyInheritanceNonInherited,
+      RoboCssPropertyComputationPreserve,   "0",          0 },
+    { "border-top-right-radius", RoboCssPropertyInheritanceNonInherited,
+      RoboCssPropertyComputationPreserve,   "0",          0 },
+    { "border-bottom-right-radius", RoboCssPropertyInheritanceNonInherited,
+      RoboCssPropertyComputationPreserve,   "0",          0 },
+    { "border-bottom-left-radius", RoboCssPropertyInheritanceNonInherited,
+      RoboCssPropertyComputationPreserve,   "0",          0 },
+    { "outline",          RoboCssPropertyInheritanceNonInherited,
+      RoboCssPropertyComputationPreserve,   "medium none currentcolor",
+      RoboCssPropertyFlagShorthand },
+    { "outline-color",    RoboCssPropertyInheritanceNonInherited,
+      RoboCssPropertyComputationColor,      "currentcolor", 0 },
+    { "outline-offset",   RoboCssPropertyInheritanceNonInherited,
+      RoboCssPropertyComputationPreserve,   "0",          0 },
+    { "outline-style",    RoboCssPropertyInheritanceNonInherited,
+      RoboCssPropertyComputationBorderStyle, "none",       0 },
+    { "outline-width",    RoboCssPropertyInheritanceNonInherited,
+      RoboCssPropertyComputationLineWidth,  "medium",     0 },
 
     /*
      * --- positioning (9.13) ---

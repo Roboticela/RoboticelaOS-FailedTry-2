@@ -461,6 +461,10 @@ Result CssGetCapabilities(CssCapabilities *out)
      * blend modes. What it does not claim is multiple layers, a renderer that samples
      * a gradient or blends a pixel, or percentage resolution. */
     out->blendModes = 1;
+    /* The border family's 18.18 additions: the outline family, the border-image family
+     * and the border-radius rows. What it does not claim is border painting, a
+     * border-image slicer or the radius geometry. */
+    out->borderDecorations = 1;
     out->defaultStyles = 0;
     out->stylesheetLoading = 0;
     return RoboOk;

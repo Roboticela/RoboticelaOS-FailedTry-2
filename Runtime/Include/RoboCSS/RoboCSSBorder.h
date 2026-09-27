@@ -160,6 +160,127 @@ Result CssBorderStyleWrite(CssBorderStyle style,
 int CssBorderStyleGeneratesBorder(CssBorderStyle style);
 
 /* ------------------------------------------------------------------ */
+/* The border-image repeat vocabulary (18.18)                          */
+/* ------------------------------------------------------------------ */
+
+/**
+ * A computed `border-image-repeat`.
+ *
+ * Four values, added by 18.18, and they answer one question — how the *middle* of a
+ * border image's edge is filled between its corners — in three different ways. `stretch`
+ * stretches a single copy; `repeat` tiles at the source size and clips the last copy;
+ * `round` tiles and *scales* the tiles so a whole number fits; `space` tiles and
+ * distributes the leftover as gaps. So the set is the border-image analogue of the
+ * background repeat vocabulary: `round` and `space` are the two adjustments that avoid a
+ * partial tile, and neither is `repeat`.
+ *
+ * STRETCH is 0 because it is the property's initial value (and, with `repeat`, the value
+ * browsers used before `round`/`space` existed).
+ */
+typedef enum CssBorderImageRepeat {
+    /** `stretch`: one copy, stretched to fill the edge. The initial value. */
+    RoboCssBorderImageRepeatStretch = 0,
+    /** `repeat`: tile at the source size, clipping the last copy. */
+    RoboCssBorderImageRepeatRepeat = 1,
+    /** `round`: tile, scaling the tiles so a whole number fits. */
+    RoboCssBorderImageRepeatRound = 2,
+    /** `space`: tile, distributing the leftover as gaps. */
+    RoboCssBorderImageRepeatSpace = 3
+} CssBorderImageRepeat;
+
+/** Number of defined border-image repeat values. */
+#define RoboCssBorderImageRepeatCount 4u
+
+/** Non-zero when @p repeat is one of the four. */
+int CssBorderImageRepeatIsKnown(CssBorderImageRepeat repeat);
+
+/** Human-readable name ("stretch"); never NULL, "" for unknown. */
+const char *CssBorderImageRepeatName(CssBorderImageRepeat repeat);
+
+/** Number of rows in the vocabulary. */
+size_t CssBorderImageRepeatCount(void);
+
+/** The value an identifier spells, or `stretch` when it spells none of them. */
+CssBorderImageRepeat CssBorderImageRepeatFromSlice(CssSlice keyword);
+
+/** NUL-terminated flavour of the above. */
+CssBorderImageRepeat CssBorderImageRepeatFromText(const char *keyword);
+
+/** Non-zero when @p keyword spells one of the vocabulary, case-insensitively. */
+int CssBorderImageRepeatSliceIsKnown(CssSlice keyword);
+
+/**
+ * Whether @p repeat copies the edge's source more than once at all (`repeat`, `round`,
+ * `space`).
+ *
+ * `stretch` is the one that does not: it lays a single copy down. An unknown value
+ * answers 0.
+ */
+int CssBorderImageRepeatTiles(CssBorderImageRepeat repeat);
+
+/**
+ * Whether @p repeat **scales** its tiles so a whole number fits (`round`).
+ *
+ * The adjustment `repeat` does not make; asked separately from whether it tiles at all,
+ * because it is a second fact. An unknown value answers 0.
+ */
+int CssBorderImageRepeatRounds(CssBorderImageRepeat repeat);
+
+/**
+ * Whether @p repeat distributes the leftover as **gaps** (`space`).
+ *
+ * The other adjustment, and `space` and `round` are the two answers to one question —
+ * what happens to the space a whole number of tiles does not fill — so neither is the
+ * negation of the other and both are distinct from `repeat`. An unknown value answers 0.
+ */
+int CssBorderImageRepeatSpaces(CssBorderImageRepeat repeat);
+
+/** Write @p repeat's canonical keyword; same contract as the style writer. */
+Result CssBorderImageRepeatWrite(CssBorderImageRepeat repeat,
+                                 char *buffer,
+                                 size_t capacity,
+                                 size_t *outLength,
+                                 CssDiag *diag);
+
+/** Capacity @ref CssBorderImageRepeatWrite needs: `stretch` (7) + NUL. */
+#define RoboCssBorderImageRepeatTextMax 8u
+
+/* ------------------------------------------------------------------ */
+/* The corner vocabulary (18.18)                                       */
+/* ------------------------------------------------------------------ */
+
+/**
+ * One of a border box's four rounded corners.
+ *
+ * The four `border-*-radius` longhands name them, and this enumeration is the only
+ * spelling of that set in the module — so a consumer that walks the corners reaches
+ * every longhand rather than spelling `border-top-left-radius` again. Which one a
+ * corner is comes from the box's side pair; the enumerator is the name.
+ */
+typedef enum CssBorderCorner {
+    /** `border-top-left-radius`. */
+    RoboCssBorderCornerTopLeft = 0,
+    /** `border-top-right-radius`. */
+    RoboCssBorderCornerTopRight = 1,
+    /** `border-bottom-right-radius`. */
+    RoboCssBorderCornerBottomRight = 2,
+    /** `border-bottom-left-radius`. */
+    RoboCssBorderCornerBottomLeft = 3
+} CssBorderCorner;
+
+/** Number of corners a border box has. */
+#define RoboCssBorderCornerCount 4u
+
+/** Non-zero when @p corner is one of the four. */
+int CssBorderCornerIsKnown(CssBorderCorner corner);
+
+/** Human-readable corner name ("top-left"); never NULL, "" for unknown. */
+const char *CssBorderCornerName(CssBorderCorner corner);
+
+/** Number of corners. */
+size_t CssBorderCornerCount(void);
+
+/* ------------------------------------------------------------------ */
 /* The kinds                                                           */
 /* ------------------------------------------------------------------ */
 

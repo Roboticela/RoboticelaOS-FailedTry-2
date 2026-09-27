@@ -222,6 +222,29 @@ static const CssConformanceInitial cssConformanceInitials[] = {
     {"border-top-color", "colour", "currentColor"},
     {"border-top-style", "border-style", "none"},
     {"border-width", "preserved", "medium"},
+    /*
+     * 18.18 completes the border family: the border-image decorations, the outline
+     * family and `border-radius` with its four corners. Only `border-image-repeat`
+     * takes a closed vocabulary; `border-image-source` reuses the image shape (so its
+     * `none` computes to a keyword) and the rest are carried. `outline-style` reuses
+     * the border style shape, `outline-width` the shared line width and
+     * `outline-color` the colour — so their kinds are the border family's own. */
+    {"border-image", "preserved", "none"},
+    {"border-image-outset", "preserved", "0"},
+    {"border-image-repeat", "keyword", "stretch"},
+    {"border-image-slice", "preserved", "100%"},
+    {"border-image-source", "keyword", "none"},
+    {"border-image-width", "preserved", "1"},
+    {"border-radius", "preserved", "0"},
+    {"border-top-left-radius", "preserved", "0"},
+    {"border-top-right-radius", "preserved", "0"},
+    {"border-bottom-right-radius", "preserved", "0"},
+    {"border-bottom-left-radius", "preserved", "0"},
+    {"outline", "preserved", "medium none currentcolor"},
+    {"outline-color", "colour", "currentColor"},
+    {"outline-offset", "preserved", "0"},
+    {"outline-style", "border-style", "none"},
+    {"outline-width", "keyword", "medium"},
     /* Positioning: an inset starts at `auto` and `z-index` at `auto`, neither of
      * which is zero — the one pair of initial values whose wrong answer would
      * look entirely plausible. */
@@ -729,6 +752,21 @@ static const CssConformanceDeclaration cssConformanceDeclarations[] = {
     {"border-top-style", "border-top-style: banana", "invalid",
      "not a border style value"},
     {"border-top-color", "border-top-color: #00ff00", "colour", "#00ff00"},
+    /* 18.18: the one closed set among the sixteen rows, one refusal for it, and the
+     * carried/reused half — an image source, an outline and a radius all survive. */
+    {"border-image-repeat", "border-image-repeat: round", "keyword", "round"},
+    {"border-image-repeat", "border-image-repeat: banana", "invalid",
+     "not a border-image repeat value"},
+    {"border-image-source", "border-image-source: url(b.png)", "preserved",
+     "url(b.png)"},
+    {"border-image-slice", "border-image-slice: 30% fill", "preserved",
+     "30% fill"},
+    {"outline-style", "outline-style: dashed", "border-style", "dashed"},
+    {"outline-width", "outline-width: thick", "keyword", "thick"},
+    {"outline-offset", "outline-offset: 2px", "preserved", "2px"},
+    {"border-radius", "border-radius: 10px", "preserved", "10px"},
+    {"border-top-left-radius", "border-top-left-radius: 5px 8px", "preserved",
+     "5px 8px"},
     /* The font / text properties, so the matrix is the whole surface and not the
      * half Phase 9's later goals happen to have touched. */
     {"font-family", "font-family: Georgia, serif", "family-list", "Georgia, serif"},
@@ -1917,7 +1955,8 @@ static void TestCssConformanceCapabilitiesEveryFlag(void)
         {"fonts", 1},
         {"text", 1},
         {"images", 1},
-        {"blendModes", 1}
+        {"blendModes", 1},
+        {"borderDecorations", 1}
     };
     CssCapabilities caps;
     int *asInts = (int *)&caps;
@@ -1954,11 +1993,13 @@ static void TestCssConformanceCapabilitiesEveryFlag(void)
     RoboCheckEqInt(caps.images, 1);
     /* And for 18.17, whose flag the background suite asserts too. */
     RoboCheckEqInt(caps.blendModes, 1);
+    /* And for 18.18. */
+    RoboCheckEqInt(caps.borderDecorations, 1);
 
     /* The frozen-surface flag is a promise about the phase, not a capability. */
     RoboCheckEqInt(RoboCssApiFrozen, 0);
     RoboCheckEqInt(RoboCssVersionMajor, 0);
-    RoboCheckEqInt(RoboCssVersionMinor, 35);
+    RoboCheckEqInt(RoboCssVersionMinor, 36);
 }
 
 void TestRegisterCssConformance(void);

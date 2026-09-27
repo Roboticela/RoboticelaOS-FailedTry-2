@@ -1212,7 +1212,7 @@ static void TestTextCapabilities(void)
 
     RoboCheckEqInt(CssGetCapabilities(&caps), RoboOk);
     RoboCheckEqInt(caps.text, 1);
-    RoboCheckEqInt((int)RoboCssPropertyComputationCount, 73);
+    RoboCheckEqInt((int)RoboCssPropertyComputationCount, 74);
     RoboCheckEqInt(CssPropertyComputationIsKnown(
                           RoboCssPropertyComputationTextAlign),
                       1);

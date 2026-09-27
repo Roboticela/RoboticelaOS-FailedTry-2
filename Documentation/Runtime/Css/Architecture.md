@@ -975,6 +975,36 @@ this build's value model), nothing paints a background, no percentage is resolve
 box, and no image is loaded. One capability joins the table (`blendModes`), two computations
 join the closed-vocabulary body, and the module moves to `0.35.0`.
 
+### The border family completed (18.18)
+
+Phase 18.18 completes the border family 9.15 began, the way 18.17 completed the
+background one. It adds the sixteen rows `docs/Borders.md` §9 named as not built: the
+`border-image` decorations, the `outline` family, and `border-radius` with its four
+corners.
+
+Only one of the sixteen takes a shape of its own. `border-image-repeat` is a genuine
+closed set — `stretch | repeat | round | space` — and the border-image analogue of the
+background repeat set: `round` and `space` are the two adjustments that avoid a partial
+tile (scaling, and gaps), and neither is `repeat`. Every other row reuses a shape or is
+carried, which is the split every phase since 9.14 uses: `border-image-source` is
+`none | <image>` and so reuses 9.14's image shape unchanged; `outline-style`,
+`outline-width` and `outline-color` reuse 9.15's border style, the shared line width and
+9.9's colour; and the slice, width, outset and radius grammars are wider than any closed
+set (a `fill` keyword, a slash-separated pair, a length-percentage pair), so they are
+carried.
+
+`border-radius` additionally carries the **corner vocabulary** — four corners, the
+module's one spelling of `border-top-left-radius` and its siblings — because a radius is
+a geometry (four ellipse quadrants per corner) rather than a closed set, and the phase
+that models it is the one with a paint surface. All sixteen rows are non-inherited,
+because a border, an outline and an image are painted per element, and `outline-color`
+is the fifth row in the table whose initial is the reference `currentcolor`.
+
+The boundary is 9.15's: nothing paints a border, no image is sliced or tiled, and the
+radius geometry is left to the layout/paint phase. One capability joins the table
+(`borderDecorations`), one computation joins the closed-vocabulary body, and the module
+moves to `0.36.0`.
+
 ### Colour
 
 A *colour* is the one shape whose meaning is arithmetic, so since 9.9 it is a type

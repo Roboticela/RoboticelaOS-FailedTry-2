@@ -722,11 +722,19 @@ typedef enum CssPropertyComputation {
      * compute each colour channel independently, and the four **non-separable** ones
      * that mix the channels together.
      */
-    RoboCssPropertyComputationBlendMode = 72
+    RoboCssPropertyComputationBlendMode = 72,
+    /**
+     * One of the closed `border-image-repeat` vocabulary (18.18) — `stretch`, `repeat`,
+     * `round` or `space`.
+     *
+     * The border-image analogue of the background repeat set: `round` and `space` are the
+     * two adjustments that avoid a partial tile, and neither is `repeat`.
+     */
+    RoboCssPropertyComputationBorderImageRepeat = 73
 } CssPropertyComputation;
 
 /** Number of defined computations. */
-#define RoboCssPropertyComputationCount 73u
+#define RoboCssPropertyComputationCount 74u
 
 /** Non-zero when @p computation is a defined enumerator. */
 int CssPropertyComputationIsKnown(CssPropertyComputation computation);
