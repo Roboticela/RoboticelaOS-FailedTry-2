@@ -354,6 +354,38 @@ static void TestFragmentRegistry(void)
         RoboCheckEqInt(CssPropertyFlagsShorthand(inside->flags), 0);
     }
 
+    /*
+     * And the two line floors, which are the family's inherited half and therefore the
+     * half a registry-wide classification test cannot check by family: a break is the
+     * box's own, a floor travels with the text. Both are numeric rows with the initial
+     * value 2 -- written down rather than left to the zero of a number.
+     */
+    {
+        const CssPropertyDefinition *orphans =
+            CssPropertyRegistryFind(registry, "orphans");
+        const CssPropertyDefinition *widows =
+            CssPropertyRegistryFind(registry, "widows");
+
+        RoboCheck(orphans != NULL);
+        RoboCheck(widows != NULL);
+        if (orphans && widows) {
+            RoboCheckEqInt(CssPropertyDefinitionInherited(orphans), 1);
+            RoboCheckEqInt(CssPropertyDefinitionInherited(widows), 1);
+            RoboCheckEqInt((int)orphans->computation,
+                              (int)RoboCssPropertyComputationOrphans);
+            RoboCheckEqInt((int)widows->computation,
+                              (int)RoboCssPropertyComputationWidows);
+            /* Two properties, two computations, one shared *shape* -- which is the
+             * opposite of the break rows above, where the vocabulary is shared and the
+             * computations are not. */
+            RoboCheck((int)orphans->computation != (int)widows->computation);
+            RoboCheckStrEq(orphans->initialText, "2");
+            RoboCheckStrEq(widows->initialText, "2");
+            RoboCheckEqInt(CssPropertyFlagsShorthand(orphans->flags), 0);
+            RoboCheckEqInt(CssPropertyFlagsShorthand(widows->flags), 0);
+        }
+    }
+
     CssPropertyRegistryDestroy(registry);
 }
 
@@ -384,6 +416,15 @@ static void TestFragmentCapabilities(void)
                       1);
     RoboCheckEqInt(CssPropertyComputationIsKnown(
                           RoboCssPropertyComputationBreakInside),
+                      1);
+    RoboCheckStrEq(CssPropertyComputationName(
+                          RoboCssPropertyComputationOrphans),
+                      "orphans");
+    RoboCheckStrEq(CssPropertyComputationName(
+                          RoboCssPropertyComputationWidows),
+                      "widows");
+    RoboCheckEqInt(CssPropertyComputationIsKnown(
+                          RoboCssPropertyComputationOrphans),
                       1);
     RoboCheckStrEq(CssDiagnosticDomainName(RoboCssDomainFragment), "fragment");
     RoboCheckEqInt(CssDiagnosticDomainIsKnown(RoboCssDomainFragment), 1);
