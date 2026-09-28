@@ -730,11 +730,55 @@ typedef enum CssPropertyComputation {
      * The border-image analogue of the background repeat set: `round` and `space` are the
      * two adjustments that avoid a partial tile, and neither is `repeat`.
      */
-    RoboCssPropertyComputationBorderImageRepeat = 73
+    RoboCssPropertyComputationBorderImageRepeat = 73,
+    /**
+     * One of the closed `break-between` vocabulary (19.7) — `auto`, the four `avoid`
+     * values, the three container-forced values `page`/`column`/`region`, `always`,
+     * and the four page-side values `left`/`right`/`recto`/`verso`.
+     *
+     * One kind and **two** properties: `break-before` and `break-after` hold the same
+     * thirteen spellings and mean the same thing by them, so they share a computation
+     * and a vocabulary module rather than owning two copies that could drift. Which
+     * side of a boundary the value is about is carried by the declaration, not by the
+     * value — the same split `background-clip`/`background-origin` make over the box
+     * vocabulary (18.17).
+     */
+    RoboCssPropertyComputationBreakBefore = 74,
+    /** The same `break-between` vocabulary as @ref RoboCssPropertyComputationBreakBefore,
+     *  on the trailing edge of the box. A second *kind* rather than a second table: the
+     *  registry keys a computation by property, so two properties need two kinds even
+     *  when they share a vocabulary. */
+    RoboCssPropertyComputationBreakAfter = 75,
+    /**
+     * One of the closed `break-inside` vocabulary (19.7) — `auto` or the four `avoid`
+     * values.
+     *
+     * Deliberately smaller than `break-between` and not a subset of it by accident:
+     * an interior boundary cannot be *forced*, because there is no next fragmentainer
+     * for the break to begin one, so `break-inside: column` is not a value with no
+     * effect — it is not a value.
+     */
+    RoboCssPropertyComputationBreakInside = 76,
+    /**
+     * The minimum number of lines left at the **end** of a fragment (19.7): a positive
+     * whole number.
+     *
+     * A shape of the integer family rather than a closed set, and its bound is the
+     * interesting half: zero lines is not a smaller floor, it is not a floor at all, so
+     * `0` and a negative or fractional number are mistakes rather than values to clamp.
+     * The initial value is 2, which the registry writes down rather than leaving to a
+     * zero.
+     */
+    RoboCssPropertyComputationOrphans = 77,
+    /** The minimum number of lines carried to the **start** of the next fragment (19.7),
+     *  the mirror of @ref RoboCssPropertyComputationOrphans and a second kind for the same
+     *  reason `break-before` and `break-after` are two: the registry keys a computation by
+     *  property. */
+    RoboCssPropertyComputationWidows = 78
 } CssPropertyComputation;
 
 /** Number of defined computations. */
-#define RoboCssPropertyComputationCount 74u
+#define RoboCssPropertyComputationCount 79u
 
 /** Non-zero when @p computation is a defined enumerator. */
 int CssPropertyComputationIsKnown(CssPropertyComputation computation);

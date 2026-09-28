@@ -342,7 +342,7 @@ static void TestMediaCapabilities(void)
 
         RoboCheckEqInt(CssPropertyRegistryCreateStandard(&registry, NULL),
                        RoboOk);
-        RoboCheckEqInt((int)CssPropertyRegistryCount(registry), 226);
+        RoboCheckEqInt((int)CssPropertyRegistryCount(registry), 231);
         CssPropertyRegistryDestroy(registry);
     }
 }

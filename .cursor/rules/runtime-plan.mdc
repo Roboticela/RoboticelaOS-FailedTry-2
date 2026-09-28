@@ -5,12 +5,63 @@ alwaysApply: true
 # RoboticelaOS runtime plan
 
 Phase + goal number + short name. Each phase ends with a **wire/integrate** goal against all completed phases.
-Completed stack today: **Phases 0–13**, **15–18** (HTML/CSS complete; RoboJS host-complete). **Phase 14** (Beautiful Desktop Shell) and **Phase 19** (layout/paint depth) are the active premium-UI path. Phases **44–47** are the Apple-class HD / materials / motion gate after 14+19.
+
+Completed stack today: **Phases 0–13**, **15–18** (HTML/CSS complete; RoboJS host-complete; Compositor wired).
+**Active premium path (ASAP shell first):** **Phase 14** → remaining **Phase 19** paint/layout depth the shell needs → **44 → 45 → 46 → 47**.
+Do not reorder past the ASAP shell track in Phase 14 to chase later product surfaces.
+
+---
+
+## Application & UI doctrine (standing rule for every app)
+
+Every product surface — Desktop shell, Settings, Finder-class apps, future third-party apps — follows the same performance model. This is not optional architecture.
+
+```text
+┌─────────────────────────────────────────────────────────────┐
+│  Roboticela React package (@roboticela/react)                 │
+│  Author UI in React on the host. Bindings map JS calls → C. │
+│  Guest never runs a React reconciler / VDOM.                 │
+└───────────────┬─────────────────────────────┬───────────────┘
+                │ SSR / export                │ command / bridge
+                ▼                             ▼
+     HTML + CSS (design)              RoboJS (thin) → DesktopBridge
+     RoboHTML / RoboCSS /             allowlisted verbs only
+     Layout / Paint                   │
+                │                     ▼
+                └──────────►     C runtime (behavior)
+                                 RoboDesktop / Input / Compositor /
+                                 Window / future RoboOS Native API
+```
+
+| Layer | Owns | Must not own |
+|---|---|---|
+| **C** | Window manager, focus, drag/resize, z-order, input capture, clipboard, compositor present, system commands, app launch, performance-critical logic | Per-frame layout authored as ad-hoc pixel math inside React |
+| **HTML + CSS** | Look of window **content** and document chrome that paints through the document pipeline | Pointer-driven WM (move/resize every mousemove) |
+| **Roboticela React package** | Host authoring components, design tokens, `data-command` / bridge helpers, SSR export to `DesktopPage.h` | A second JS engine; guest React; unrestricted FFI |
+| **RoboJS** | Click/handlers that call bridge verbs; tiny DOM updates for status | Window manager; full SPA; Chromium/V8 |
+
+**Performance rule:** pointer motion, frame present, and window chrome stay in **C**. JS is a **command bus** (`data-command` / bridge API) that executes **C**. Apps that follow this get the best frame pacing this runtime can deliver; apps that drive the desk from RoboJS every frame will jank.
+
+**React rule:** React is the **design/devkit** language. Build with Vite on the host; export static HTML/CSS + a small page script for the guest. `14.x` React runtime rule forbids shipping a guest React runtime.
+
+**Chromium lesson (reference only):** Aura/Views-class chrome and compositor stay native; content is a document. Never add Blink/V8/Skia.
+
+---
+
+## Next work order (do in this order)
+
+1. **Phase 14 ASAP shell track** — doctrine, React package, DesktopBridge, C window chrome, menu bar, dock, wallpaper, tokens, one HTML/CSS app document, host tests.
+2. **Phase 14 product track** — settings, launcher, notifications, workspaces (after the shell boots and feels real).
+3. **Phase 19 remainder** — only goals the shell visibly needs next (scroll, stacking, transforms/filters as paint supports them).
+4. **Phases 44 → 45 → 46 → 47** — HiDPI, materials, motion, premium gate.
+5. **Phase 22 / 28** — grow DesktopBridge verbs into the full RoboOS Native API / RoboAPI (same C core, richer JS surface via the React package).
+
+---
 
 ## Cross-stack integration (completed phases)
 
-- **X.1** Wire and integrate Phases 0-15 with each other ✅ (Base->Mem->Containers->Unicode/I18N->Font->Text->Graphics->Display->Window->HTML->CSS->Layout->Paint->Render->Desktop->Compositor)
-- **X.2** Close remaining consumer seams among completed phases — Input→Desktop ✅; Compositor→Desktop ✅; RoboJS→Desktop page script ✅ (`RoboDesktopScript`); DesktopBridge/`data-command` and focus-delivery refinements remain Phase 14 work
+- **X.1** Wire and integrate Phases 0-15 with each other ✅ (Base→Mem→Containers→Unicode/I18N→Font→Text→Graphics→Display→Window→HTML→CSS→Layout→Paint→Render→Desktop→Compositor)
+- **X.2** Close remaining consumer seams among completed phases — Input→Desktop ✅; Compositor→Desktop ✅; RoboJS→Desktop page script ✅ (`RoboDesktopScript`). **Open in Phase 14 ASAP track:** DesktopBridge / `data-command` → C, Roboticela React package, focus-delivery polish for document apps.
 
 ---
 
@@ -313,76 +364,83 @@ Completed stack today: **Phases 0–13**, **15–18** (HTML/CSS complete; RoboJS
 
 # Phase 14 - Beautiful Desktop Shell
 
-Product shell (menu, dock, windows, settings). Visual **density / materials / motion** beyond this phase live in **Phases 44–47** — do not declare the Beautiful OS gate done until those are green.
+Product shell (menu, dock, windows, settings) under the **Application & UI doctrine**:
+**C = behavior**, **HTML/CSS = design**, **Roboticela React package = authoring + JS→C bridge**.
+Visual density / materials / motion beyond foundation live in **Phases 44–47** — do not declare the Beautiful OS gate done until those are green.
+
+**Execution order matters.** Finish **Track A (ASAP shell)** before Track B. Do not start Track B product surfaces until Track A boots a real desk on Host (and QEMU when guest-visible).
+
+Foundations already landed outside this phase (do not rebuild): Phase **11.13** native shell paint, Phase **13.66–13.77** Input→Desktop (move/resize/focus/clipboard/cursor), Phase **15.19** compositor present, Phase **16** RoboJS + RoboDesktopScript, Phases **17–18** complete HTML/CSS, Phase **14.0** out-of-flow.
+
+---
+
+## Track A — ASAP shell (do first)
+
+Goal: a bootable premium desk as soon as possible — C chrome + one HTML/CSS app window + bridge + React package.
 
 14.0 Out-of-flow placement ✅
-14.1 Desktop shell architecture
-14.2 React application entry
-14.3 Desktop state model
-14.4 Window model
-14.5 Window manager
-14.6 Desktop workspace
-14.7 Wallpaper system
-14.8 Top menu / system bar
-14.9 Menu system
-14.10 Context menus
-14.11 Dock / launcher
-14.12 Application icon system
-14.13 Window title bar
-14.14 Window dragging
-14.15 Window resizing
-14.16 Window focus
-14.17 Snap / tiling foundation
-14.18 Multi-window z-order
-14.19 Shadows and materials
-14.20 Design token system
-14.21 Typography integration
-14.22 System font tokens
-14.23 Icon system
-14.24 Button system
-14.25 Input control system
-14.26 Text field integration
-14.27 Focus rings
-14.28 Scrolling
-14.29 Scrollbars
-14.30 Panel system
-14.31 Dialog system
-14.32 Notification system
-14.33 Notification center
-14.34 Workspace system
-14.35 Workspace transitions
-14.36 Desktop icons
-14.37 Desktop selection
-14.38 Launcher / application search
-14.39 System status components
-14.40 Native desktop bridge
-14.41 Desktop bridge security
-14.42 Desktop runtime loader
-14.43 Desktop build pipeline
-14.44 Desktop build integration
-14.45 Desktop output validation
-14.46 React runtime rule
-14.47 Desktop routing
-14.48 Application window content
-14.49 Window embedding architecture
-14.50 Application switcher
-14.51 System menu
-14.52 Settings foundation
-14.53 Appearance settings
-14.54 Light / dark appearance
-14.55 Reduced motion
-14.56 Responsive desktop layout
-14.57 Display scale (foundation; full HiDPI product path is Phase 44)
-14.58 Desktop motion system (foundation; full pacing/recording polish is Phase 46)
-14.59 Window open/close motion
-14.60 Microinteractions
-14.61 Desktop accessibility foundation
-14.62 Input integration
-14.63 Desktop event adapter
-14.64 Desktop UI event contract
-14.65 Desktop UI testing
-14.66 Desktop visual testing
-14.67 Wire and integrate Phase 14 with all completed phases
+14.1 Desktop shell architecture (C shell owns desk; documents are content-only; doctrine above is law)
+14.2 Roboticela React package (@roboticela/react) — host components, tokens, bridge helpers, SSR/export contracts
+14.3 React application entry (Desktop/ Vite lab + guest export entry)
+14.4 React runtime rule — React authors on host; guest is HTML/CSS + thin RoboJS; no guest React/VDOM
+14.5 Native desktop bridge — data-command / bridge verbs → C (RoboDesktopScript + allowlisted DesktopBridge table)
+14.6 Desktop bridge security — allowlist only; no host FS/network/process from page script; refuse unknown verbs
+14.7 Desktop build pipeline (BuildDesktopUi.ps1 → DesktopPage.h + CSS + page script)
+14.8 Desktop build integration + output validation (export validator; silent CSS no-ops banned)
+14.9 Desktop state model — **C-owned** session/window list; React mirrors for lab only
+14.10 Window model — records in C (bounds, title, content document id, z, focus)
+14.11 Window manager — raise/close/activate through C (Input path already wired; product API surface here)
+14.12 Window title bar — native C chrome (not nested HTML traffic lights)
+14.13 Window dragging / resizing / focus / multi-window z-order — product polish on Phase 13 foundations
+14.14 Top menu / system bar — native C chrome (or shell layer; never a fake HTML window manager)
+14.15 Dock / launcher — native C hit targets + icon slots; launch = bridge verb → C opens document window
+14.16 Wallpaper system — shell surface fill / image (compositor-friendly; not a nested full-desk HTML page)
+14.17 Design token system — one token source for React package + generated guest CSS (color-rule / design-rule)
+14.18 Typography integration + system font tokens — roles through RoboTypography (Phase 12); no ad-hoc px at call sites
+14.19 Application window content — HTML/CSS documents from React export inside native frames
+14.20 Desktop runtime loader — load exported page into DesktopDocument + attach RoboDesktopScript
+14.21 Input integration + Desktop event adapter + UI event contract — clicks → bridge; keys/text → editors; WM stays C
+14.22 Desktop UI testing + visual testing (Host galleries; QEMU markers when guest-visible)
+14.23 ASAP shell wire — Host desk boots with menu + dock + ≥1 HTML/CSS app; bridge verbs work; -Verify green
+
+---
+
+## Track B — Product shell surfaces (after Track A)
+
+14.24 Desktop workspace
+14.25 Menu system (app menus)
+14.26 Context menus
+14.27 Application icon system
+14.28 Icon system (shared)
+14.29 Button / input control / text field / focus-ring systems — HTML/CSS via React package (document paint path)
+14.30 Scrolling + scrollbars — document/layout path (pull Phase 19.11 as needed)
+14.31 Panel / dialog systems
+14.32 Notification system + notification center
+14.33 Desktop icons + desktop selection
+14.34 Launcher / application search
+14.35 System status components
+14.36 Desktop routing (lab routes + guest app ids)
+14.37 Window embedding architecture
+14.38 Application switcher
+14.39 System menu
+14.40 Settings foundation + appearance (light/dark) + reduced motion flags
+14.41 Responsive desktop layout
+14.42 Snap / tiling foundation
+14.43 Shadows and materials foundation (full craft is Phase 45)
+14.44 Display scale foundation (full HiDPI is Phase 44)
+14.45 Desktop motion foundation + window open/close + microinteractions (full pacing is Phase 46)
+14.46 Desktop accessibility foundation
+14.47 Workspace transitions
+14.48 Wire and integrate Phase 14 with all completed phases
+
+---
+
+## Phase 14 notes (agents)
+
+- Prefer the next **unchecked Track A** goal over Track B or drive-by refactors.
+- Growing bridge verbs is correct; inventing a second script engine or guest React is a defect.
+- Phase **22** (RoboOS Native API) and Phase **28** (RoboAPI) **extend** DesktopBridge — they do not replace the ASAP shell pattern.
+- Dock/menu/title bar = **C**. Settings/Finder content = **HTML/CSS**. User writes JS only through React package bridge helpers that call **C**.
 
 # Phase 15 - RoboCompositor ✅
 15.1 Compositor architecture ✅
@@ -466,12 +524,15 @@ Product shell (menu, dock, windows, settings). Visual **density / materials / mo
 
 # Phase 19 - Complete Layout & Rendering
 
+After Phase 14 Track A, pull only what the shell/apps visibly need next (scroll, stacking, transforms/filters).
+Document apps stay HTML/CSS → this pipeline; do not reimplement layout in the React package.
+
 19.1 Intrinsic sizing ✅
 19.2 Percentage resolution ✅
 19.3 Advanced flex layout ✅
 19.4 Advanced grid layout ✅
 19.5 Absolute/fixed positioning ✅
-19.6 Table layout
+19.6 Table layout ✅
 19.7 Fragmentation
 19.8 Pagination
 19.9 Writing modes
@@ -531,6 +592,8 @@ Product shell (menu, dock, windows, settings). Visual **density / materials / mo
 21.16 Wire and integrate Phase 21 with all completed phases
 
 # Phase 22 - RoboOS Native API
+
+Grows Phase 14 DesktopBridge into the full OS capability surface. Same rule: **C implements**, React package / RoboJS **call allowlisted verbs**. Do not start this phase until Phase 14 Track A bridge exists — extend it, do not fork a second FFI.
 
 22.1 Native API architecture
 22.2 Capability/permission model
@@ -698,6 +761,8 @@ Product shell (menu, dock, windows, settings). Visual **density / materials / mo
 27.16 Wire and integrate Phase 27 with all completed phases
 
 # Phase 28 - RoboAPI / Application Bridge
+
+Application-facing bridge on top of Phase 22. The **Roboticela React package** is the host/app authoring face of these APIs (typed helpers that SSR to `data-command` / guest bridge calls). Runtime execution remains **C**.
 
 28.1 RoboAPI architecture
 28.2 Frontend/backend bridge
@@ -1003,6 +1068,7 @@ Product shell (menu, dock, windows, settings). Visual **density / materials / mo
 # Phase 44 - HiDPI / Retina Visual Density
 
 Goal: screenshots and screen recordings look sharp on modern displays — logical UI × physical scale, never soft 1× upscales.
+Applies to **C chrome and HTML/CSS content** alike; the React package authors in logical CSS `px`, C allocates physical framebuffers.
 
 44.1 Logical vs physical pixel contract (points × scale)
 44.2 Default display scale 2.0 for host demos and QEMU HD profiles

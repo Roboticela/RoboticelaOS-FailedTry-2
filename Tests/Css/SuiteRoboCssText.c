@@ -1212,7 +1212,7 @@ static void TestTextCapabilities(void)
 
     RoboCheckEqInt(CssGetCapabilities(&caps), RoboOk);
     RoboCheckEqInt(caps.text, 1);
-    RoboCheckEqInt((int)RoboCssPropertyComputationCount, 74);
+    RoboCheckEqInt((int)RoboCssPropertyComputationCount, 79);
     RoboCheckEqInt(CssPropertyComputationIsKnown(
                           RoboCssPropertyComputationTextAlign),
                       1);
@@ -1234,7 +1234,7 @@ static void TestTextCapabilities(void)
                       0);
     RoboCheckStrEq(CssDiagnosticDomainName(RoboCssDomainText), "text");
     RoboCheckEqInt(CssDiagnosticDomainIsKnown(RoboCssDomainText), 1);
-    RoboCheckEqInt(RoboCssDomainCount, 37);
+    RoboCheckEqInt(RoboCssDomainCount, 38);
 }
 
 /** The same declaration computes to the same value twice, by structural equality. */

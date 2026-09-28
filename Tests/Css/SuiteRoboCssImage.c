@@ -520,7 +520,7 @@ static void TestImageCapabilities(void)
 
     RoboCheckEqInt(CssGetCapabilities(&caps), RoboOk);
     RoboCheckEqInt(caps.images, 1);
-    RoboCheckEqInt((int)RoboCssPropertyComputationCount, 74);
+    RoboCheckEqInt((int)RoboCssPropertyComputationCount, 79);
     RoboCheckEqInt(CssPropertyComputationIsKnown(
                           RoboCssPropertyComputationImageRendering),
                       1);
@@ -539,7 +539,7 @@ static void TestImageCapabilities(void)
                       0);
     RoboCheckStrEq(CssDiagnosticDomainName(RoboCssDomainImage), "image");
     RoboCheckEqInt(CssDiagnosticDomainIsKnown(RoboCssDomainImage), 1);
-    RoboCheckEqInt(RoboCssDomainCount, 37);
+    RoboCheckEqInt(RoboCssDomainCount, 38);
 }
 
 /** The same declaration computes to the same value twice, by structural equality. */

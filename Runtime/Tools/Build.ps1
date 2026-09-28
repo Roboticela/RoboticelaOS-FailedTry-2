@@ -499,6 +499,10 @@ $ProdSrcs = @(
     # spatial, eight colour) over the carried filter/backdrop-filter lists. It blurs no
     # pixel and fetches no SVG filter.
     (Join-Path $SourceDir "RoboCSS\RoboCSSFilter.c"),
+    # The fragmentation vocabulary (19.7): the `break-between` and `break-inside` sets
+    # and their classifications, read by the phase that has a fragmentainer. It splits
+    # no box and sizes no column.
+    (Join-Path $SourceDir "RoboCSS\RoboCSSFragment.c"),
     (Join-Path $SourceDir "RoboLayout\RoboLayout.c"),
     (Join-Path $SourceDir "RoboLayout\RoboLayoutTypes.c"),
     (Join-Path $SourceDir "RoboLayout\RoboLayoutDiagnostics.c"),
@@ -1025,6 +1029,10 @@ $SuiteSrcs = @(
     # The filter suite (18.19): the function vocabulary, its classifications, the two
     # carried rows and the capability.
     (Join-Path $TestsRoot "Css\SuiteRoboCssFilter.c"),
+    # The fragmentation suite (19.7): the two break vocabularies, their classifications,
+    # the three registered rows and the capability. The first css/ suite belonging to a
+    # layout phase rather than to a Phase 18 value phase.
+    (Join-Path $TestsRoot "Css\SuiteRoboCssFragment.c"),
     # The selector/DOM integration suite deliberately lives outside css/: it
     # includes both RoboCSS and RoboHTML, and the two are peers whose guards
     # forbid each other's headers. A suite that must see both belongs in neither.

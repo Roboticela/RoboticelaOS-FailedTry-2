@@ -229,6 +229,16 @@ const char *CssPropertyComputationName(
         return "column-span";
     case RoboCssPropertyComputationColumnFill:
         return "column-fill";
+    case RoboCssPropertyComputationBreakBefore:
+        return "break-before";
+    case RoboCssPropertyComputationBreakAfter:
+        return "break-after";
+    case RoboCssPropertyComputationBreakInside:
+        return "break-inside";
+    case RoboCssPropertyComputationOrphans:
+        return "orphans";
+    case RoboCssPropertyComputationWidows:
+        return "widows";
     case RoboCssPropertyComputationDirection:
         return "direction";
     case RoboCssPropertyComputationWritingMode:
@@ -1624,7 +1634,40 @@ static const RegistryStandardEntry registryStandardEntries[] = {
     { "filter",            RoboCssPropertyInheritanceNonInherited,
       RoboCssPropertyComputationPreserve,   "none",      0 },
     { "backdrop-filter",   RoboCssPropertyInheritanceNonInherited,
-      RoboCssPropertyComputationPreserve,   "none",      0 }
+      RoboCssPropertyComputationPreserve,   "none",      0 },
+
+    /*
+     * --- the fragmentation family (19.7) ---
+     *
+     * Three rows, none inherited, all three initial `auto`. A break is a property of the
+     * *box* whose boundary it is about, so a child that inherited `break-before: column`
+     * from its container would force a break it never asked for -- the same argument the
+     * multi-column family above makes for inheriting a column count.
+     *
+     * `break-before` and `break-after` are two rows and one **computation**: the closed
+     * `break-between` set is the same thirteen spellings on either edge of a box, and
+     * which edge the value is about is carried by the declaration rather than by the value.
+     * `break-inside` is a third computation and a smaller set, because an interior boundary
+     * cannot be forced -- there is no next fragmentainer for the break to begin one.
+     *
+     * `orphans` and `widows` **are** rows, and they are the two exceptions to the paragraph
+     * above in one respect: they are the only members of this family that **inherit**. The
+     * break properties describe a boundary, which belongs to the box that owns it; the two
+     * line floors describe how much text a fragment may be left with, which is a property
+     * of the *text*, and CSS inherits them so a nested block does not lose the page's own
+     * floors. Their initial value is 2, which is why the row writes it down rather than
+     * relying on a zero.
+     */
+    { "break-after",       RoboCssPropertyInheritanceNonInherited,
+      RoboCssPropertyComputationBreakAfter,  "auto",     0 },
+    { "break-before",      RoboCssPropertyInheritanceNonInherited,
+      RoboCssPropertyComputationBreakBefore, "auto",     0 },
+    { "break-inside",      RoboCssPropertyInheritanceNonInherited,
+      RoboCssPropertyComputationBreakInside, "auto",     0 },
+    { "orphans",           RoboCssPropertyInheritanceInherited,
+      RoboCssPropertyComputationOrphans,     "2",        0 },
+    { "widows",            RoboCssPropertyInheritanceInherited,
+      RoboCssPropertyComputationWidows,      "2",        0 }
 };
 
 Result CssPropertyRegistryCreateStandard(

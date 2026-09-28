@@ -282,6 +282,7 @@ void TestRegisterCssGrid(void);
 void TestRegisterCssGridTemplate(void);
 void TestRegisterCssTable(void);
 void TestRegisterCssColumn(void);
+void TestRegisterCssFragment(void);
 void TestRegisterCssWriting(void);
 void TestRegisterCssTransform(void);
 void TestRegisterCssTransition(void);
@@ -695,6 +696,7 @@ int main(int argc, char **argv)
     TestRegisterCssGridTemplate();
     TestRegisterCssTable();
     TestRegisterCssColumn();
+    TestRegisterCssFragment();
     TestRegisterCssWriting();
     TestRegisterCssTransform();
     TestRegisterCssTransition();

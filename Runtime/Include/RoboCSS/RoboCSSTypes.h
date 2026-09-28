@@ -425,11 +425,14 @@ typedef enum CssDiagnosticDomain {
     RoboCssDomainImage = 35,
     /** The filter vocabulary: the `<filter-function>` names and their classifications
      * (18.19). */
-    RoboCssDomainFilter = 36
+    RoboCssDomainFilter = 36,
+    /** The fragmentation vocabulary: the `break-between` and `break-inside` sets and
+     * their classifications (19.7). */
+    RoboCssDomainFragment = 37
 } CssDiagnosticDomain;
 
 /** Number of defined diagnostic domains. */
-#define RoboCssDomainCount 37u
+#define RoboCssDomainCount 38u
 
 /** Non-zero if @p domain is a defined diagnostic domain enumerator. */
 int CssDiagnosticDomainIsKnown(CssDiagnosticDomain domain);

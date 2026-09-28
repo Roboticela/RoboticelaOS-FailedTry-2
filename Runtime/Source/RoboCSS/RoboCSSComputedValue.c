@@ -1928,6 +1928,22 @@ static int ComputedVocabularyColumnFillKnown(CssSlice keyword)
     return CssColumnFillSliceIsKnown(keyword);
 }
 
+/* The fragmentation vocabularies (19.7): two predicates for three properties, and
+ * the sharing is the interesting half -- `break-before` and `break-after` hold one
+ * vocabulary, so they share one predicate and one row body, while `break-inside`
+ * holds a smaller set of its own and gets its own. A build that gave all three the
+ * `break-between` predicate would accept `break-inside: column`, which is not a
+ * value: a break *inside* a box has no next fragmentainer to begin. */
+static int ComputedVocabularyBreakBetweenKnown(CssSlice keyword)
+{
+    return CssBreakBetweenSliceIsKnown(keyword);
+}
+
+static int ComputedVocabularyBreakInsideKnown(CssSlice keyword)
+{
+    return CssBreakInsideSliceIsKnown(keyword);
+}
+
 /* The writing-mode vocabularies (18.13): three more predicates and the same make body.
  * `direction` is the one whose shape is *upgraded* rather than added -- it used to be
  * the KEYWORD shape -- so its predicate is what makes `direction: banana` a refusal
@@ -2226,6 +2242,19 @@ static const ComputedVocabularyGrammar computedVocabularyGrammars[] = {
     { RoboCssPropertyComputationColumnFill, ComputedVocabularyColumnFillKnown,
       ComputedVocabularyKeywordMake, "not a single column-fill keyword",
       "not a column-fill value" },
+    /* The fragmentation vocabularies (19.7) are three rows over two vocabularies: the
+     * `break-between` set answers both edges of a box and the `break-inside` set answers
+     * the interior, so the pair of rows that share a predicate are the pair that share a
+     * meaning. */
+    { RoboCssPropertyComputationBreakBefore, ComputedVocabularyBreakBetweenKnown,
+      ComputedVocabularyKeywordMake, "not a single break-before keyword",
+      "not a break-before value" },
+    { RoboCssPropertyComputationBreakAfter, ComputedVocabularyBreakBetweenKnown,
+      ComputedVocabularyKeywordMake, "not a single break-after keyword",
+      "not a break-after value" },
+    { RoboCssPropertyComputationBreakInside, ComputedVocabularyBreakInsideKnown,
+      ComputedVocabularyKeywordMake, "not a single break-inside keyword",
+      "not a break-inside value" },
     /* The writing-mode vocabularies (18.13) are three more rows in the same table. */
     { RoboCssPropertyComputationDirection, ComputedVocabularyDirectionKnown,
       ComputedVocabularyKeywordMake, "not a single direction keyword",
@@ -3075,6 +3104,53 @@ static Result ComputedComputeColumnCount(CssComputedValue *out,
 }
 
 /**
+ * Compute an `orphans` or a `widows`: a positive whole number (19.7).
+ *
+ * One body for two properties, because their grammar *is* the same one -- a positive
+ * `<integer>` with the initial value 2 -- and the only thing that differs is the reason
+ * a refusal prints, which is the computation the caller handed in. That is the opposite
+ * decision from the two `break-*` rows above, and deliberately: those share a
+ * *vocabulary* (order-independent, no bound) while these share a *shape*, and a shared
+ * shape is one function where a shared vocabulary is one table.
+ *
+ * The floor is 1 rather than 0, for `column-count`'s reason with a different argument:
+ * "keep no lines" is not a smaller floor, it is the absence of one, and CSS says the
+ * property must be positive. A fraction is refused outright rather than rounded, because
+ * a line is a countable thing.
+ */
+static Result ComputedComputeLineFloor(CssComputedValue *out,
+                                       const CssValue *specified,
+                                       CssPropertyComputation computation,
+                                       const char *reason,
+                                       CssDiag *diag)
+{
+    CssNumeric numeric = CssNumericNone();
+    int64_t integer = 0;
+
+    switch (CssNumericFromValue(specified, &numeric)) {
+    case RoboCssNumericParseResolved:
+        break;
+    case RoboCssNumericParseDeferred:
+        return ComputedKeep(out, specified, 1, diag);
+    case RoboCssNumericParseNonFinite:
+        return ComputedReject(out, computation, "not a finite number", diag);
+    default:
+        return ComputedReject(out, computation, reason, diag);
+    }
+
+    if (numeric.kind != RoboCssNumericInteger ||
+        !CssNumericIntegerValue(numeric, &integer)) {
+        return ComputedReject(out, computation,
+                              "a line floor must be a whole number", diag);
+    }
+    if (integer < 1) {
+        return ComputedReject(out, computation,
+                              "a line floor must be at least one", diag);
+    }
+    return CssComputedValueMakeNumber(out, (double)integer, 1, diag);
+}
+
+/**
  * Compute an `animation-iteration-count`: `infinite`, or a non-negative number (18.9).
  *
  * A shape of its own because of the two things at once: the keyword `infinite` is not
@@ -3229,6 +3305,16 @@ Result CssComputedValueCompute(
     /* And the multi-column vocabularies (18.6) are two more rows. */
     case RoboCssPropertyComputationColumnSpan:
     case RoboCssPropertyComputationColumnFill:
+    /*
+     * And the fragmentation vocabularies (19.7) are three more rows over two
+     * vocabularies. They arrive here for the reason the overflow row did: what a
+     * fragmentation pass needs is not a new computation but a *typed* value it can
+     * classify -- forced, avoided, and which container honours the break -- so the row
+     * carries the keyword and RoboCSSFragment.h's table owns the classification.
+     */
+    case RoboCssPropertyComputationBreakBefore:
+    case RoboCssPropertyComputationBreakAfter:
+    case RoboCssPropertyComputationBreakInside:
     /* And the writing-mode vocabularies (18.13) are three more rows -- the writing
      * mode is data whose value *is* its keyword here; turning it into a run or a line
      * is RoboText's, and that is a reader this table does not own. */
@@ -3337,6 +3423,20 @@ Result CssComputedValueCompute(
      */
     case RoboCssPropertyComputationColumnCount:
         return ComputedComputeColumnCount(out, specified, diag);
+    /*
+     * And the two line floors fragmentation adds (19.7): `orphans` and `widows`, which are
+     * the same positive-integer shape with two different initial values' worth of meaning.
+     * They are numeric rows rather than vocabularies, which is why they arrive in *this*
+     * switch rather than beside the three `break-*` rows above.
+     */
+    case RoboCssPropertyComputationOrphans:
+        return ComputedComputeLineFloor(out, specified,
+                                       RoboCssPropertyComputationOrphans,
+                                       "not a positive whole number", diag);
+    case RoboCssPropertyComputationWidows:
+        return ComputedComputeLineFloor(out, specified,
+                                       RoboCssPropertyComputationWidows,
+                                       "not a positive whole number", diag);
     /*
      * And the one numeric shape animations add (18.9): `animation-iteration-count`,
      * which is `infinite` or a non-negative number, so its floor (a half iteration is

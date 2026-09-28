@@ -128,7 +128,7 @@ static void TestCssRegistryStandardSet(void)
      *
      * A count is asserted rather than a lower bound so that a row added later is a
      * deliberate act rather than an accident. */
-    RoboCheckEqInt((int)CssPropertyRegistryCount(registry), 226);
+    RoboCheckEqInt((int)CssPropertyRegistryCount(registry), 231);
     /*
      * 18.15's twenty text rows move the inherited half by fourteen and the other by
      * six, and that split is the family's central fact stated as a count: an alignment,
@@ -138,7 +138,12 @@ static void TestCssRegistryStandardSet(void)
      * clips the text, so a child does not — and a link's underlined text would be every
      * descendant of the link if the line propagated.
      */
-    RoboCheckEqInt((int)inherited, 57);
+    /* 19.7's `orphans` and `widows` are the fragmentation family's only inherited rows,
+     * and they inherit for a reason the break properties do not share: a break describes a
+     * boundary and belongs to the box that owns it, while a line floor describes how much
+     * text a fragment may be left with -- a property of the *text*, so a nested block keeps
+     * the page's floors instead of losing them at the first level of nesting. */
+    RoboCheckEqInt((int)inherited, 59);
     /* 18.3's twelve flexbox rows and 18.4's twenty grid rows are all non-inherited,
      * which is why only this half of the count moved: a flex container's direction, a
      * wrap rule, an alignment, a factor, a basis and an order are the box's own, and a
@@ -156,7 +161,12 @@ static void TestCssRegistryStandardSet(void)
      * and expansion — not the cascade — is what distributes it. That is why the
      * inherited half moved by eighteen and the other by exactly one.
      */
-    RoboCheckEqInt((int)nonInherited, 169);
+    /* 19.7's three break rows are the first family here added by a *layout* phase rather
+     * than by one of the 18.x value phases, and all three are non-inherited: a break belongs
+     * to the box whose boundary it is about, so a child inheriting `break-before: column`
+     * would force a break it never asked for. The non-inherited half moves by three and the
+     * other by none. */
+    RoboCheckEqInt((int)nonInherited, 172);
 
     CssPropertyRegistryDestroy(registry);
 }
@@ -201,7 +211,12 @@ static void TestCssRegistryInheritedClassification(void)
          * that holds the image, so a child inside a paragraph that displays the same
          * image sits on the same rules; fitting the content to a box is the box's
          * own business and is the non-inherited half asserted below. */
-        "image-orientation", "image-rendering", "image-resolution"
+        "image-orientation", "image-rendering", "image-resolution",
+        /* 19.7's two inherited line floors, and the last family in the table. They are
+         * the fragmentation family's only inherited members: a break belongs to the box
+         * whose boundary it is, while a floor on how much text a fragment may be left
+         * with belongs to the text, so a nested block keeps the page's floors. */
+        "orphans", "widows"
     };
     /* The eight the phase names as the things that must NOT propagate, plus the
      * box model's fourteen (9.11) — every one of which is the *opposite* of an
@@ -601,7 +616,16 @@ static void TestCssRegistryInitialValues(void)
         {"outline-width", "medium"},
         /* 18.19's two rows: the carried filter lists, both starting at `none`. */
         {"filter", "none"},
-        {"backdrop-filter", "none"}
+        {"backdrop-filter", "none"},
+        /* 19.7's three rows: the breaks, all three starting at `auto` -- which is both the
+         * initial value and the value that neither forces nor forbids a break. */
+        {"break-before", "auto"},
+        {"break-after", "auto"},
+        {"break-inside", "auto"},
+        /* 19.7's two line floors: the family's only inherited rows, and the only ones
+         * whose initial value is a number rather than a keyword. */
+        {"orphans", "2"},
+        {"widows", "2"}
     };
     CssPropertyRegistry *registry = NULL;
     size_t index;

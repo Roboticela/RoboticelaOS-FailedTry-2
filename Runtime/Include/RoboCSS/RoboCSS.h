@@ -550,6 +550,21 @@ typedef struct CssCapabilities {
      * filter a renderer applies; the pixels belong to the phase that has a surface.
      */
     int filters;
+    /**
+     * The fragmentation family (19.7): the two closed break vocabularies —
+     * `break-before`/`break-after`'s shared `break-between` set and `break-inside`'s
+     * smaller set — and the three registered rows that carry them, with the
+     * classifications a fragmentation pass dispatches on (forced, avoided, and which
+     * container honours a forced break).
+     *
+     * What it does not claim is a fragmentation: no function here splits a box, sizes a
+     * fragmentainer, counts lines on either side of a break, balances columns or reads
+     * `orphans`/`widows` — which are not registered rows at all, because this build has
+     * no line-counting container for them to mean anything in. A value in this family
+     * says *where* a split is allowed or required; producing the fragments belongs to
+     * the phase that has a box.
+     */
+    int fragmentation;
 } CssCapabilities;
 
 /** Zero every flag. Safe on NULL. */

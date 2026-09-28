@@ -469,6 +469,11 @@ Result CssGetCapabilities(CssCapabilities *out)
      * carried `filter`/`backdrop-filter` lists. What it does not claim is a filter
      * engine -- no pixel is blurred, no shadow shifted and no SVG filter fetched. */
     out->filters = 1;
+    /* The fragmentation family (19.7): the `break-between` and `break-inside`
+     * vocabularies over the three registered break rows, with the classifications a
+     * pass dispatches on. What it does not claim is a fragmentation -- no box is split,
+     * no fragmentainer is sized and `orphans`/`widows` are not rows at all. */
+    out->fragmentation = 1;
     out->defaultStyles = 0;
     out->stylesheetLoading = 0;
     return RoboOk;

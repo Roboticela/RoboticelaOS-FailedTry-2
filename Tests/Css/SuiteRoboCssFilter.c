@@ -233,7 +233,7 @@ static void TestFilterCapabilities(void)
     RoboCheckEqInt(caps.filters, 1);
     RoboCheckStrEq(CssDiagnosticDomainName(RoboCssDomainFilter), "filter");
     RoboCheckEqInt(CssDiagnosticDomainIsKnown(RoboCssDomainFilter), 1);
-    RoboCheckEqInt(RoboCssDomainCount, 37);
+    RoboCheckEqInt(RoboCssDomainCount, 38);
     RoboCheckEqInt(RoboCssVersionMinor, 39);
     RoboCheckStrEq(CssVersionString(), "0.39.0");
 }

@@ -430,7 +430,24 @@ static const CssConformanceInitial cssConformanceInitials[] = {
     /* 18.19's two rows: the carried filter lists. `none` is a value, not an empty
      * list. */
     {"filter", "preserved", "none"},
-    {"backdrop-filter", "preserved", "none"}
+    {"backdrop-filter", "preserved", "none"},
+    /* 19.7's three break rows. A break is a KEYWORD shape rather than a preserved
+     * declaration, and the distinction is the whole reason the row exists: `preserved`
+     * would carry whatever an author wrote, while a keyword row's initial goes through
+     * the same vocabulary the declaration does -- which is what makes `break-before: auto`
+     * and an undeclared `break-before` the same value. */
+    /* In the registry's own order, which is the array's order and not an alphabetical
+     * sort of this file's choosing -- the walk above compares a definition's name with
+     * this table's row by index, so a row out of place is reported as two properties
+     * disagreeing about their own names. */
+    {"break-after", "keyword", "auto"},
+    {"break-before", "keyword", "auto"},
+    {"break-inside", "keyword", "auto"},
+    /* And 19.7's two line floors, which are NUMBER rows rather than keyword ones: a floor
+     * is a count, and its initial 2 goes through the same positive-integer shape an
+     * author's own declaration does. */
+    {"orphans", "number", "2"},
+    {"widows", "number", "2"}
 };
 
 /**
@@ -1925,14 +1942,14 @@ static void TestCssConformancePipelineLifetime(void)
  * answer either:
  *
  *   the classification's consequence, registry-wide   not "is `color` inherited"
- *                           but "does every one of the 226 rows behave the way its
+ *                           but "does every one of the 229 rows behave the way its
  *                           classification says it will", on one element, at once.
  *                           A flag is a promise about the product, and only a
  *                           registry walk checks all of them together.
  *   every registered initial through the whole chain   not through the
  *                           normaliser alone (which is 9.16's table) but through
  *                           tokenizer, parser, matcher, cascade, inheritance and
- *                           computation: all 226, each declared as itself, each
+ *                           computation: all 229, each declared as itself, each
  *                           answered with the same *kind* the normaliser gives.
  *   one document, eighteen families                  the families of Phase 18
  *                           together on one element, which is the only place a
@@ -2277,6 +2294,7 @@ static void TestCssConformancePhase18DocumentEveryFamily(void)
     RoboCheckEqInt(caps.blendModes, 1);
     RoboCheckEqInt(caps.borderDecorations, 1);
     RoboCheckEqInt(caps.filters, 1);
+    RoboCheckEqInt(caps.fragmentation, 1);
 
     CssComputedStyleDestroy(style);
     CssInheritEnd(&fixture);
@@ -2337,7 +2355,8 @@ static void TestCssConformanceCapabilitiesEveryFlag(void)
         {"images", 1},
         {"blendModes", 1},
         {"borderDecorations", 1},
-        {"filters", 1}
+        {"filters", 1},
+        {"fragmentation", 1}
     };
     CssCapabilities caps;
     int *asInts = (int *)&caps;
@@ -2378,6 +2397,10 @@ static void TestCssConformanceCapabilitiesEveryFlag(void)
     RoboCheckEqInt(caps.borderDecorations, 1);
     /* And for 18.19. */
     RoboCheckEqInt(caps.filters, 1);
+    /* And for 19.7, whose flag the fragmentation suite asserts too -- the first flag in
+     * this list whose phase number is above eighteen, which is the point: the same pair
+     * of promises is kept by a layout-side phase as by a value phase. */
+    RoboCheckEqInt(caps.fragmentation, 1);
 
     /* The frozen-surface flag is a promise about the phase, not a capability. */
     RoboCheckEqInt(RoboCssApiFrozen, 0);
