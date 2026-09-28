@@ -129,6 +129,7 @@ static const struct {
     { "flex_layout", 1 },
     { "grid_layout", 1 },
     { "table_layout", 1 },
+    { "fragmentation", 1 },
     { "painting", 0 }
 };
 
@@ -355,7 +356,8 @@ static void TestModuleDiagnosticDomains(void)
     RoboCheckEqInt(LayoutDiagnosticDomainIsKnown(RoboLayoutDomainFlex), 1);
     RoboCheckEqInt(LayoutDiagnosticDomainIsKnown(RoboLayoutDomainGrid), 1);
     RoboCheckEqInt(LayoutDiagnosticDomainIsKnown(RoboLayoutDomainTable), 1);
-    RoboCheckEqInt(LayoutDiagnosticDomainIsKnown((LayoutDiagnosticDomain)27), 0);
+    RoboCheckEqInt(LayoutDiagnosticDomainIsKnown(RoboLayoutDomainFragment), 1);
+    RoboCheckEqInt(LayoutDiagnosticDomainIsKnown((LayoutDiagnosticDomain)28), 0);
     RoboCheckEqInt(LayoutDiagnosticDomainIsKnown((LayoutDiagnosticDomain)200), 0);
 
     /* Every enumerator answers, every name is non-NULL, and no two names are the

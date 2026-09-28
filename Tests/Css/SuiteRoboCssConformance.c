@@ -2405,7 +2405,7 @@ static void TestCssConformanceCapabilitiesEveryFlag(void)
     /* The frozen-surface flag is a promise about the phase, not a capability. */
     RoboCheckEqInt(RoboCssApiFrozen, 0);
     RoboCheckEqInt(RoboCssVersionMajor, 0);
-    RoboCheckEqInt(RoboCssVersionMinor, 39);
+    RoboCheckEqInt(RoboCssVersionMinor, 40);
 }
 
 void TestRegisterCssConformance(void);

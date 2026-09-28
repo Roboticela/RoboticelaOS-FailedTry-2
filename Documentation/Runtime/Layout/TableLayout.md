@@ -289,11 +289,19 @@ Five, and each is a re-pin rather than a new claim:
 - `SuiteRoboCssDisplay.c` — the vocabulary walk (18 values), the outer/inner counts (4/6), the
   per-value classification table (an internal box is neither block- nor inline-level) and the
   unknown-keyword list (`table` is a value now).
-- `SuiteRoboLayout.c` — the version (`0.22.0`), the capability table (a `table_layout` row), the
-  domain count (27) and the domain ordering (`table` is the newest, `grid` the one before it).
+- `SuiteRoboLayout.c` — the version, the capability table (a `table_layout` row), the domain
+  count and the domain ordering (`table` was the newest when this phase landed, `grid` the one
+  before it).
 - `SuiteRoboLayoutOverflow.c`, `SuiteRoboLayoutPosition.c` — the domain count.
-- `SuiteRoboLayoutConformance.c` — the capability table, the "implemented" count (28 of 29,
-  `painting` the only 0), the version statement and the seventh context kind.
+- `SuiteRoboLayoutConformance.c` — the capability table, the "implemented" count, the version
+  statement and the seventh context kind.
+
+**The numbers in those three bullets are deliberately not written down here any more.** 19.6
+recorded them as `0.22.0`, `27`, `28 of 29` and `table`; 19.7 then moved four of the five
+(`0.23.0`, `28`, `29 of 30`, `fragment`), which is the ordinary cost of a phase and not a
+defect — but it is a cost this file should stop paying one phase at a time. The suites pin the
+numbers where they belong, and this document names *which* suite asserts what rather than
+repeating the value that will move.
 - `SuiteRoboLayoutFormattingContext.c` — the seventh kind, `LayoutFcKindIsKnown` one enumerator
   further, and ten rows in the can-establish/is-a-block-container table.
 

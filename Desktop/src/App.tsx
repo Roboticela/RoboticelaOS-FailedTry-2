@@ -11,6 +11,7 @@ import {
   InputLabPage,
   MenuBarPage,
   WindowPage,
+  TrackBPage,
 } from "@/pages/LabPages";
 
 export function App() {
@@ -26,6 +27,7 @@ export function App() {
       <Route path="/combined"    element={<CombinedPage />} />
       <Route path="/background"  element={<BackgroundPage />} />
       <Route path="/folder"      element={<FolderPage />} />
+      <Route path="/trackb"      element={<TrackBPage />} />
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   );

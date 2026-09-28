@@ -533,7 +533,7 @@ Document apps stay HTML/CSS → this pipeline; do not reimplement layout in the 
 19.4 Advanced grid layout ✅
 19.5 Absolute/fixed positioning ✅
 19.6 Table layout ✅
-19.7 Fragmentation
+19.7 Fragmentation ✅
 19.8 Pagination
 19.9 Writing modes
 19.10 RTL layout

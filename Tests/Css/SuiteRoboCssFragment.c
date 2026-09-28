@@ -21,6 +21,7 @@
 
 #include "RoboCssTestSupport.h"
 #include "RoboCSS/RoboCSSFragment.h"
+#include "RoboCSS/RoboCSSVersion.h"
 
 #include <string.h>
 
@@ -429,6 +430,11 @@ static void TestFragmentCapabilities(void)
     RoboCheckStrEq(CssDiagnosticDomainName(RoboCssDomainFragment), "fragment");
     RoboCheckEqInt(CssDiagnosticDomainIsKnown(RoboCssDomainFragment), 1);
     RoboCheckEqInt(RoboCssDomainCount, 38);
+
+    /* The version this family moved, and it is the first one in this module raised by a
+     * *layout* phase rather than by a 9.x value phase or an 18.x family. */
+    RoboCheckEqInt(RoboCssVersionMinor, 40);
+    RoboCheckStrEq(CssVersionString(), "0.40.0");
 }
 
 /** The same declaration computes to the same value twice, by structural equality. */

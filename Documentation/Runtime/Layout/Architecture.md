@@ -870,6 +870,7 @@ of them is deliberately 0:
 | `flex_layout` | 1 | 19.3 |
 | `grid_layout` | 1 | 19.4 |
 | `table_layout` | 1 | 19.6 |
+| `fragmentation` | 1 | 19.7 |
 | `painting` | **0** | Phase 11 |
 
 The table is in declaration order rather than in the order fields landed, so the

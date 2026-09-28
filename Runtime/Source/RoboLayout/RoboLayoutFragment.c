@@ -363,6 +363,24 @@ static LayoutFragmentainerKind FragmentForcedContainer(
     return LayoutFragmentainerKindOfForcedBreak(boundary->after);
 }
 
+/**
+ * Whether either declaration at this boundary **forces** a break.
+ *
+ * Asked of the declarations directly (`CssBreakBetweenIsForced`) and deliberately **not**
+ * through the container a forced break names. The two questions look like one and are not:
+ * `region` is forced and names a container this build does not have, so
+ * `FragmentForcedContainer` answers NONE for it -- and a policy that tested the container
+ * instead of the declaration would let `break-before: region` fall through to the room rule
+ * and break nothing. That is a real defect this suite caught, and the two functions are kept
+ * apart so it cannot come back: `forced` is a fact about the declaration and the container
+ * is a fact about the container.
+ */
+static int FragmentForces(const LayoutFragmentBoundary *boundary)
+{
+    return CssBreakBetweenIsForced(boundary->before) ||
+           CssBreakBetweenIsForced(boundary->after);
+}
+
 Result LayoutFragmentBreakDecide(const LayoutFragmentBoundary *boundary,
                                  LayoutFragmentainerKind kind,
                                  LayoutBreakDecision *out,
@@ -374,6 +392,13 @@ Result LayoutFragmentBreakDecide(const LayoutFragmentBoundary *boundary,
         return RoboLayoutDiag(diag, RoboLayoutDomainFragment, RoboInvalidArgument,
                               "a break decision needs a boundary and an out");
     }
+    /*
+     * Cleared **before** the validity checks, and the order is deliberate: a refusal must
+     * leave behind the record that says nothing may break here rather than whatever the
+     * caller's variable held. A caller that ignored the status then reads a refusal instead
+     * of a stale answer, which is the only failure mode a status code can have.
+     */
+    LayoutBreakDecisionInit(out);
     if (!LayoutFragmentBoundaryIsValid(boundary)) {
         return RoboLayoutDiag(diag, RoboLayoutDomainFragment, RoboInvalidArgument,
                               "the boundary is not a record this build may read");
@@ -382,8 +407,6 @@ Result LayoutFragmentBreakDecide(const LayoutFragmentBoundary *boundary,
         return RoboLayoutDiag(diag, RoboLayoutDomainFragment, RoboInvalidArgument,
                               "the container kind is not one this build knows");
     }
-
-    LayoutBreakDecisionInit(out);
 
     /* Rule 1: a box that establishes no fragmentation context cannot break. The check is on
      * the *kind* rather than on the declarations, because a `break-before: page` inside a
@@ -403,7 +426,7 @@ Result LayoutFragmentBreakDecide(const LayoutFragmentBoundary *boundary,
      * empty page, and saying no is an answer. An `avoid` at the start is not suppressed --
      * it is trivially satisfied, because there is nothing to separate -- and it falls through
      * to rule 4, which answers the same action with the reason that says why. */
-    if (!boundary->anythingBefore && forcedBy != LayoutFragmentainerKindNone) {
+    if (!boundary->anythingBefore && FragmentForces(boundary)) {
         FragmentDecide(out, LayoutBreakAllowed, LayoutBreakReasonSuppressedAtStart,
                        LayoutFragmentainerKindNone);
         return RoboOk;
@@ -414,7 +437,7 @@ Result LayoutFragmentBreakDecide(const LayoutFragmentBoundary *boundary,
      * narrowed to the container's own kind. A `page` break inside a *column* container is
      * still forced; `forcedBy` records that the declaration named a page, which is the fact a
      * caller reporting the document needs. */
-    if (forcedBy != LayoutFragmentainerKindNone) {
+    if (FragmentForces(boundary)) {
         FragmentDecide(out, LayoutBreakForced, LayoutBreakReasonForcedByDeclaration,
                        forcedBy);
         return RoboOk;
@@ -461,12 +484,13 @@ Result LayoutFragmentBreakLines(int totalLines,
         return RoboLayoutDiag(diag, RoboLayoutDomainFragment, RoboInvalidArgument,
                               "a line-floor decision needs an out");
     }
+    /* Cleared first, for the reason `LayoutFragmentBreakDecide` clears first: a refusal
+     * leaves a refusal behind rather than a stale record. */
+    LayoutBreakDecisionInit(out);
     if (totalLines < 0 || breakAfterLine < 0 || orphans < 0 || widows < 0) {
         return RoboLayoutDiag(diag, RoboLayoutDomainFragment, RoboInvalidArgument,
                               "a line count and a line floor are never negative");
     }
-
-    LayoutBreakDecisionInit(out);
 
     /*
      * The two degenerate cases first, and both are refusals with a reason rather than

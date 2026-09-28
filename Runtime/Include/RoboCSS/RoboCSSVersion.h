@@ -1077,6 +1077,20 @@
  * prove the Phase 18 vocabulary crosses it. The module moves to `0.39.0` for the
  * promises.
  *
+ * 0.40.0 is Phase **19.7**, **fragmentation**, and it is the first version in this
+ * file moved by a phase of the *layout* stack rather than by a 9.x value phase or a
+ * Phase 18 family. The module gains the `break-between` and `break-inside` closed sets
+ * (`RoboCSSFragment.h`), five registered rows (`break-before`, `break-after`,
+ * `break-inside`, `orphans` and `widows`), a new diagnostic domain and a new
+ * `fragmentation` capability flag — so what it claims is the *vocabulary* of where
+ * contents may split and the two line floors a fragment may be left with, and nothing
+ * about splitting anything. RoboLayout's `RoboLayoutFragment.h` is the policy that reads
+ * it; producing the fragments belongs to a pass with a fragmentainer, and this module
+ * has none.
+ *
+ * The version moves for the surface here as it did in 18.x — five rows, four computation
+ * kinds and a domain are surface — and the two flags that are still 0 are unchanged.
+ *
  * The surface will keep growing for the whole of Phase 9, so API freeze is
  * NOT claimed here (RoboCssApiFrozen=0).
  */
@@ -1085,9 +1099,9 @@
 #define ROBO_CSS_VERSION_H
 
 #define RoboCssVersionMajor 0
-#define RoboCssVersionMinor 39
+#define RoboCssVersionMinor 40
 #define RoboCssVersionPatch 0
-#define RoboCssVersionString "0.39.0"
+#define RoboCssVersionString "0.40.0"
 
 /** 1 once the Phase 9 surface is frozen (not yet — see header comment). */
 #define RoboCssApiFrozen 0

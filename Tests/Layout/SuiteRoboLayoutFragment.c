@@ -33,6 +33,7 @@
  */
 
 #include "RoboLayoutTestSupport.h"
+#include "RoboLayout/RoboLayoutFragment.h"
 
 #include <string.h>
 
@@ -60,7 +61,7 @@ static void TestFragmentKindVocabulary(void)
     /* `none` is not a container; the other three are. This is the door every policy
      * question is gated on, so getting it backwards refuses every real container and
      * permits the one that cannot break. */
-    RoboCheckEqInt(LayoutFragmentainerKindEstablishes(RoboLayoutFragmentainerKindNone), 0);
+    RoboCheckEqInt(LayoutFragmentainerKindEstablishes(LayoutFragmentainerKindNone), 0);
     RoboCheckEqInt(LayoutFragmentainerKindEstablishes(LayoutFragmentainerKindColumn), 1);
     RoboCheckEqInt(LayoutFragmentainerKindEstablishes(LayoutFragmentainerKindPage), 1);
     RoboCheckEqInt(LayoutFragmentainerKindEstablishes(LayoutFragmentainerKindRegion), 1);
@@ -263,7 +264,7 @@ static void TestFragmentRuleNoContext(void)
     boundary.inside = RoboCssBreakInsideAvoidColumn;
     boundary.roomLeft = 0;
 
-    RoboCheckEqInt(LayoutFragmentBreakDecide(&boundary, RoboLayoutFragmentainerKindNone,
+    RoboCheckEqInt(LayoutFragmentBreakDecide(&boundary, LayoutFragmentainerKindNone,
                                                     &decision, NULL),
                       RoboOk);
     RoboCheckEqInt((int)decision.action, (int)LayoutBreakForbidden);
@@ -274,7 +275,7 @@ static void TestFragmentRuleNoContext(void)
     /* The rule is on the *kind*, not on the declarations, so an empty boundary in a
      * non-container answers the same thing. */
     LayoutFragmentBoundaryInit(&boundary);
-    RoboCheckEqInt(LayoutFragmentBreakDecide(&boundary, RoboLayoutFragmentainerKindNone,
+    RoboCheckEqInt(LayoutFragmentBreakDecide(&boundary, LayoutFragmentainerKindNone,
                                                     &decision, NULL),
                       RoboOk);
     RoboCheckEqInt((int)decision.reason, (int)LayoutBreakReasonNoContext);
@@ -616,10 +617,10 @@ static void TestFragmentInsideRefuses(void)
 
     /* And a non-container refuses nothing, because there is no boundary to refuse. */
     RoboCheckEqInt(LayoutFragmentInsideRefuses(RoboCssBreakInsideAvoid,
-                                                        RoboLayoutFragmentainerKindNone),
+                                                        LayoutFragmentainerKindNone),
                       0);
     RoboCheckEqInt(LayoutFragmentInsideRefuses(RoboCssBreakInsideAvoidColumn,
-                                                        RoboLayoutFragmentainerKindNone),
+                                                        LayoutFragmentainerKindNone),
                       0);
     RoboCheckEqInt(LayoutFragmentInsideRefuses(RoboCssBreakInsideAvoidColumn,
                                                         (LayoutFragmentainerKind)99),

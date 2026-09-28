@@ -327,3 +327,11 @@ export function FolderPage() {
     </LabChrome>
   );
 }
+
+/* ── Track B — full macOS Sonoma desktop (14.24–14.48) ─────────────────────── */
+import { TrackBDesktop } from "@/components/trackb/TrackBDesktop";
+
+export function TrackBPage() {
+  // No LabChrome — the desktop is the chrome
+  return <TrackBDesktop />;
+}

@@ -1896,3 +1896,37 @@ correctly scoped and re-reading them was the point: **percentage insets** do not
 **`z-index`/stacking, `sticky`, static position, `box-sizing: border-box`** and out-of-flow
 inline-level absences are each still true as written.
 
+## 26. What the 19.7 suite found
+
+Seventeen new cases (`layout.fragment.*`) over the fragmentation break policy, the container
+kinds, the interior refusal, the two line floors, the fragment record and the counters — and
+five CSS rows (`css.fragment.*`, 19.7's other half, in `Documentation/Runtime/CSS/Fragmentation.md`).
+
+**1. Two questions that look like one.** The forced rule was first written as
+`forcedBy != NONE` — "a declaration forced a break" asked *through* the container it names.
+Those are the same question for `column`, `page` and `always` and different ones for `region`:
+`region` is forced (RoboCSS's table says so) and names a container this build does not lay out,
+so `break-before: region` fell through to the room rule and broke **nothing** in a container with
+room. `layout.fragment.forced_beats_avoided` failed on it and nothing else did. The fix is two
+functions kept apart with a comment saying why — `FragmentForces` asks the declaration
+(`CssBreakBetweenIsForced`) and `FragmentForcedContainer` asks the container — because the
+durable form of "these are two questions" is two names, not a note.
+
+**2. A refusal left the caller's variable untouched.** `LayoutFragmentBreakDecide` validated its
+arguments before clearing `*out`, so a caller that ignored `RoboInvalidArgument` read whatever
+its variable held — and the suite's refusal case read garbage (`154533112` as an action).
+Clearing first is the rule the other doors in this module already followed, and
+`layout.fragment.decide_refusals` now asserts it: a refusal leaves the cleared record behind, so
+the only failure mode a status code can have is closed.
+
+**3. The count sweep this phase moved, recorded once so the next phase can find it.** Five CSS
+rows and four computation kinds moved `RoboCssPropertyComputationCount` (74→79), the registry
+count (226→231) and the inherited family (57→59 — `orphans`/`widows` are the fragmentation
+family's **only** inherited members, and `CSS_INHERITED_FAMILY` is the macro that had to move);
+a diagnostic domain on each side moved `RoboCssDomainCount` (37→38) and
+`RoboLayoutDomainCount` (27→28); and the layout capability gained a field, which moves the
+*positional* walks in `SuiteRoboLayout.c` and `SuiteRoboLayoutConformance.c` — the two tables
+that read the struct positionally rather than by name. One phase, two modules, eleven pinned
+counts: the sweep is the phase's real cost and the reason `Tests.md` §24 recorded it the same
+way.
+

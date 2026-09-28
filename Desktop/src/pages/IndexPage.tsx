@@ -2,6 +2,12 @@ import { Link } from "react-router-dom";
 
 const routes = [
   {
+    to: "/trackb",
+    title: "🆕 Track B Desktop",
+    body: "macOS Sonoma clone — workspace switcher, Spotlight, Notification Centre, App Switcher, Settings, Control Centre, context menus, vibrancy, shadows. All of 14.24–14.48.",
+    highlight: true,
+  },
+  {
     to: "/desktop",
     title: "Desktop",
     body: "Full interactive shell — menu bar, dock, windows, drag, focus, close.",
@@ -48,6 +54,7 @@ const routes = [
   },
 ];
 
+
 export function IndexPage() {
   return (
     <div className="lab-shell">
@@ -60,7 +67,16 @@ export function IndexPage() {
         </p>
         <div className="mt-10 grid gap-3 sm:grid-cols-2">
           {routes.map((route) => (
-            <Link key={route.to} to={route.to} className="lab-link">
+            <Link
+              key={route.to}
+              to={route.to}
+              className={[
+                "lab-link",
+                (route as any).highlight
+                  ? "ring-2 ring-[#0E7AFF]/40 bg-[#0E7AFF]/5"
+                  : "",
+              ].join(" ")}
+            >
               <div className="text-[17px] font-semibold text-ink">{route.title}</div>
               <div className="mt-1 text-[14px] text-ink-secondary">{route.body}</div>
               <div className="mt-3 text-[13px] font-medium text-brand">{route.to}</div>
