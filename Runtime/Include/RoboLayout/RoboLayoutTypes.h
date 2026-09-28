@@ -142,11 +142,14 @@ typedef enum LayoutDiagnosticDomain {
     RoboLayoutDomainGrid = 25,
     /** Phase 19.6: the table pass. A fifth way to lay contents out, and the failures
      *  the table algorithm reports are its own. */
-    RoboLayoutDomainTable = 26
+    RoboLayoutDomainTable = 26,
+    /** Fragmentation: the break policy, the container kinds, the line floors and the
+     *  fragments a pass reports (19.7). */
+    RoboLayoutDomainFragment = 27
 } LayoutDiagnosticDomain;
 
 /** Number of defined diagnostic domains. */
-#define RoboLayoutDomainCount 27u
+#define RoboLayoutDomainCount 28u
 
 /** Non-zero if @p domain is a defined diagnostic domain enumerator. */
 int LayoutDiagnosticDomainIsKnown(LayoutDiagnosticDomain domain);

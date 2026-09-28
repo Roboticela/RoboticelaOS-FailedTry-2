@@ -562,7 +562,7 @@ static void TestPositioningKindVocabulary(void)
      * 19.6 appended theirs, with `position` the nineteenth -- the first domain in this module
      * about *where* rather than about *how big*, and no longer the last since 10.13, 10.14,
      * 19.1, 19.3, 19.4 and 19.6 followed it. */
-    RoboCheckEqInt((int)RoboLayoutDomainCount, 27);
+    RoboCheckEqInt((int)RoboLayoutDomainCount, 28);
     RoboCheckStrEq(LayoutDiagnosticDomainName(RoboLayoutDomainPosition),
                       "position");
     RoboCheckEqInt((int)RoboLayoutDomainOverflow,

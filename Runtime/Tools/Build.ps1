@@ -533,6 +533,10 @@ $ProdSrcs = @(
     (Join-Path $SourceDir "RoboLayout\RoboLayoutBorder.c"),
     (Join-Path $SourceDir "RoboLayout\RoboLayoutPosition.c"),
     (Join-Path $SourceDir "RoboLayout\RoboLayoutAbsolute.c"),
+    # The fragmentation break policy (19.7): the container kinds, the boundary precedence,
+    # the interior refusal and the two line floors. It splits nothing and produces no
+    # fragment geometry.
+    (Join-Path $SourceDir "RoboLayout\RoboLayoutFragment.c"),
     (Join-Path $SourceDir "RoboLayout\RoboLayoutOverflow.c"),
     (Join-Path $SourceDir "RoboLayout\RoboLayoutInvalidation.c"),
     (Join-Path $SourceDir "RoboPaint\RoboPaint.c"),
@@ -594,6 +598,7 @@ $ProdSrcs = @(
     (Join-Path $SourceDir "RoboDesktop\RoboDesktopDocument.c"),
     (Join-Path $SourceDir "RoboDesktop\RoboDesktopFontProvider.c"),
     (Join-Path $SourceDir "RoboDesktop\RoboDesktopScript.c"),
+    (Join-Path $SourceDir "RoboDesktop\RoboDesktopBridge.c"),
     # RoboDesktop 13.66--13.77 -- the *input integration*: the one place in the tree where the shell and
     # the input model meet. It owns a session, a queue, a dispatcher, the shell's listener store, a
     # shortcut table, a command router and a cursor manager; it supplies the three providers
@@ -1059,6 +1064,7 @@ $SuiteSrcs = @(
     (Join-Path $TestsRoot "Layout\SuiteRoboLayoutBorder.c"),
     (Join-Path $TestsRoot "Layout\SuiteRoboLayoutPosition.c"),
     (Join-Path $TestsRoot "Layout\SuiteRoboLayoutAbsolute.c"),
+    (Join-Path $TestsRoot "Layout\SuiteRoboLayoutFragment.c"),
     (Join-Path $TestsRoot "Layout\SuiteRoboLayoutOverflow.c"),
     (Join-Path $TestsRoot "Layout\SuiteRoboLayoutInvalidation.c"),
     (Join-Path $TestsRoot "Layout\SuiteRoboLayoutTree.c"),
@@ -1089,6 +1095,7 @@ $SuiteSrcs = @(
     (Join-Path $TestsRoot "Desktop\SuiteRoboDesktopWindow.c"),
     (Join-Path $TestsRoot "Desktop\SuiteRoboDesktopFrame.c"),
     (Join-Path $TestsRoot "Desktop\SuiteRoboDesktopDocument.c"),
+    (Join-Path $TestsRoot "Desktop\SuiteRoboDesktopBridge.c"),
     (Join-Path $TestsRoot "Desktop\SuiteRoboDesktopPresent.c"),
     # Phase 12.3 -- the desktop's typography binding: the chrome's roles, the document's generated
     # defaults, and the one-face guarantee between a document's measurement and its paint.
@@ -1501,8 +1508,8 @@ function Assert-RoboDesktopBoundaries {
     $exempt = '(?i)must never depend|Forbidden:|temporary technical reference|never depend|no Chromium|without Chromium|independence|Chromium reference|not a dependency|does not depend on|has no business|does not read|reaching for|a document layer|names absent|document-layer include|not a document|no markup|reads \*no\* markup'
 
     $rules = @(
-        @{ Roots = @((Join-Path $RuntimeRoot "Include\RoboDesktop")); Pattern = $document; Skip = @('RoboDesktopDocument', 'RoboDesktopScene', 'RoboDesktopHost', 'RoboDesktopFontProvider', 'RoboDesktopScript') },
-        @{ Roots = @((Join-Path $RuntimeRoot "Source\RoboDesktop")); Pattern = $document; Skip = @('RoboDesktopDocument', 'RoboDesktopScene', 'RoboDesktopHost', 'RoboDesktopFontProvider', 'RoboDesktopScript') },
+        @{ Roots = @((Join-Path $RuntimeRoot "Include\RoboDesktop")); Pattern = $document; Skip = @('RoboDesktopDocument', 'RoboDesktopScene', 'RoboDesktopHost', 'RoboDesktopFontProvider', 'RoboDesktopScript', 'RoboDesktopBridge') },
+        @{ Roots = @((Join-Path $RuntimeRoot "Source\RoboDesktop")); Pattern = $document; Skip = @('RoboDesktopDocument', 'RoboDesktopScene', 'RoboDesktopHost', 'RoboDesktopFontProvider', 'RoboDesktopScript', 'RoboDesktopBridge') },
         @{ Roots = $allRoots; Pattern = $upward; Skip = @('RoboDesktopCompose', 'RoboDesktopScript') }
     )
     foreach ($rule in $rules) {

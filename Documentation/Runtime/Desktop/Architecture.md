@@ -1,5 +1,8 @@
 # RoboDesktop Architecture (Phase 11.13)
 
+Product shell law (Phase 14): **C = behavior, HTML/CSS = design, `@roboticela/react` = authoring + JS→C bridge.**
+See `Documentation/Runtime/Desktop/ShellArchitecture.md`.
+
 This module's shape: what its files own, the numbers it ships with and why each is that number, the
 vocabularies a caller reads, and the boundary the build enforces. `desktop/README.md` states the
 module's *decisions*; this document states its *inventory*.
@@ -26,6 +29,7 @@ RoboDesktop: shell fill → panel → windows in z-order → the screen target
 | `RoboDesktopChrome.c` | The shell's own painting: the surface, the panel, its labels, a window's decorations, the close button, a title bar's text |
 | `RoboDesktopDocument.c` | The markup bridge: HTML + CSS → layout → paint → a display list (the **one** file allowed to name a document layer for building) |
 | `RoboDesktopScript.c` | The RoboJS bridge: attach a runtime to the document, evaluate the page script, pump the loop, post clicks (the **one** file allowed to include RoboJS) |
+| `RoboDesktopBridge.c` | Allowlisted `data-command` / `data-last-command` verbs → C (status, raise); refuse unknown verbs (Phase 14.5/14.6) |
 | `RoboDesktopDump.c` | The seven-line developer dump, written through the public doors only |
 | `RoboDesktopDiagnostics.c` | The diagnostic record and the domain vocabulary |
 | `RoboDesktopTypes.c` | Area and state names, their predicates, the count constants |

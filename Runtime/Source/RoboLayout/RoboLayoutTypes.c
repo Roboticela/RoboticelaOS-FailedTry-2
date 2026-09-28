@@ -105,6 +105,8 @@ const char *LayoutDiagnosticDomainName(LayoutDiagnosticDomain domain)
         return "grid";
     case RoboLayoutDomainTable:
         return "table";
+    case RoboLayoutDomainFragment:
+        return "fragment";
     default:
         return "unknown";
     }

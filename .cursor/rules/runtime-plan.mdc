@@ -379,29 +379,29 @@ Foundations already landed outside this phase (do not rebuild): Phase **11.13** 
 Goal: a bootable premium desk as soon as possible — C chrome + one HTML/CSS app window + bridge + React package.
 
 14.0 Out-of-flow placement ✅
-14.1 Desktop shell architecture (C shell owns desk; documents are content-only; doctrine above is law)
-14.2 Roboticela React package (@roboticela/react) — host components, tokens, bridge helpers, SSR/export contracts
-14.3 React application entry (Desktop/ Vite lab + guest export entry)
-14.4 React runtime rule — React authors on host; guest is HTML/CSS + thin RoboJS; no guest React/VDOM
-14.5 Native desktop bridge — data-command / bridge verbs → C (RoboDesktopScript + allowlisted DesktopBridge table)
-14.6 Desktop bridge security — allowlist only; no host FS/network/process from page script; refuse unknown verbs
-14.7 Desktop build pipeline (BuildDesktopUi.ps1 → DesktopPage.h + CSS + page script)
-14.8 Desktop build integration + output validation (export validator; silent CSS no-ops banned)
-14.9 Desktop state model — **C-owned** session/window list; React mirrors for lab only
-14.10 Window model — records in C (bounds, title, content document id, z, focus)
-14.11 Window manager — raise/close/activate through C (Input path already wired; product API surface here)
-14.12 Window title bar — native C chrome (not nested HTML traffic lights)
-14.13 Window dragging / resizing / focus / multi-window z-order — product polish on Phase 13 foundations
-14.14 Top menu / system bar — native C chrome (or shell layer; never a fake HTML window manager)
-14.15 Dock / launcher — native C hit targets + icon slots; launch = bridge verb → C opens document window
-14.16 Wallpaper system — shell surface fill / image (compositor-friendly; not a nested full-desk HTML page)
-14.17 Design token system — one token source for React package + generated guest CSS (color-rule / design-rule)
-14.18 Typography integration + system font tokens — roles through RoboTypography (Phase 12); no ad-hoc px at call sites
-14.19 Application window content — HTML/CSS documents from React export inside native frames
-14.20 Desktop runtime loader — load exported page into DesktopDocument + attach RoboDesktopScript
-14.21 Input integration + Desktop event adapter + UI event contract — clicks → bridge; keys/text → editors; WM stays C
-14.22 Desktop UI testing + visual testing (Host galleries; QEMU markers when guest-visible)
-14.23 ASAP shell wire — Host desk boots with menu + dock + ≥1 HTML/CSS app; bridge verbs work; -Verify green
+14.1 Desktop shell architecture (C shell owns desk; documents are content-only; doctrine above is law) ✅
+14.2 Roboticela React package (@roboticela/react) — host components, tokens, bridge helpers, SSR/export contracts ✅
+14.3 React application entry (Desktop/ Vite lab + guest export entry) ✅
+14.4 React runtime rule — React authors on host; guest is HTML/CSS + thin RoboJS; no guest React/VDOM ✅
+14.5 Native desktop bridge — data-command / bridge verbs → C (RoboDesktopScript + allowlisted DesktopBridge table) ✅
+14.6 Desktop bridge security — allowlist only; no host FS/network/process from page script; refuse unknown verbs ✅
+14.7 Desktop build pipeline (BuildDesktopUi.ps1 → DesktopPage.h + CSS + page script) ✅
+14.8 Desktop build integration + output validation (export validator; silent CSS no-ops banned) ✅
+14.9 Desktop state model — **C-owned** session/window list; React mirrors for lab only ✅
+14.10 Window model — records in C (bounds, title, content document id, z, focus) ✅
+14.11 Window manager — raise/close/activate through C (Input path already wired; product API surface here) ✅
+14.12 Window title bar — native C chrome (not nested HTML traffic lights) ✅
+14.13 Window dragging / resizing / focus / multi-window z-order — product polish on Phase 13 foundations ✅
+14.14 Top menu / system bar — native C chrome (or shell layer; never a fake HTML window manager) ✅
+14.15 Dock / launcher — native C hit targets + icon slots; launch = bridge verb → C opens document window ✅
+14.16 Wallpaper system — shell surface fill / image (compositor-friendly; not a nested full-desk HTML page) ✅
+14.17 Design token system — one token source for React package + generated guest CSS (color-rule / design-rule) ✅
+14.18 Typography integration + system font tokens — roles through RoboTypography (Phase 12); no ad-hoc px at call sites ✅
+14.19 Application window content — HTML/CSS documents from React export inside native frames ✅
+14.20 Desktop runtime loader — load exported page into DesktopDocument + attach RoboDesktopScript ✅
+14.21 Input integration + Desktop event adapter + UI event contract — clicks → bridge; keys/text → editors; WM stays C ✅
+14.22 Desktop UI testing + visual testing (Host galleries; QEMU markers when guest-visible) ✅
+14.23 ASAP shell wire — Host desk boots with menu + dock + ≥1 HTML/CSS app; bridge verbs work; -Verify green ✅
 
 ---
 

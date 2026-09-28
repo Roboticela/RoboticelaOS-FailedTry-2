@@ -43,10 +43,10 @@ static void TestModuleVersion(void)
     I32 patch = -1;
 
     RoboCheckEqInt(RoboLayoutVersionMajor, 0);
-    RoboCheckEqInt(RoboLayoutVersionMinor, 22);
+    RoboCheckEqInt(RoboLayoutVersionMinor, 23);
     RoboCheckEqInt(RoboLayoutVersionPatch, 0);
-    RoboCheckStrEq(RoboLayoutVersionString, "0.22.0");
-    RoboCheckStrEq(LayoutVersionString(), "0.22.0");
+    RoboCheckStrEq(RoboLayoutVersionString, "0.23.0");
+    RoboCheckStrEq(LayoutVersionString(), "0.23.0");
 
     RoboCheckEqInt(LayoutGetVersion(&major, &minor, &patch), RoboOk);
     RoboCheckEqInt(major, RoboLayoutVersionMajor);
@@ -341,7 +341,7 @@ static void TestModuleDiagnosticDomains(void)
     size_t index;
     size_t seen[RoboLayoutDomainCount];
 
-    RoboCheckEqInt((int)RoboLayoutDomainCount, 27);
+    RoboCheckEqInt((int)RoboLayoutDomainCount, 28);
     RoboCheckEqInt((int)RoboLayoutDomainNone, 0);
     RoboCheckEqInt(LayoutDiagnosticDomainIsKnown(RoboLayoutDomainTextLayout), 1);
     RoboCheckEqInt(LayoutDiagnosticDomainIsKnown(RoboLayoutDomainSizing), 1);
@@ -439,8 +439,14 @@ static void TestModuleDiagnosticDomains(void)
      * is a fifth way to lay contents out, and it resolves its two axes from its
      * *contents* rather than from declarations. */
     RoboCheckStrEq(LayoutDiagnosticDomainName(RoboLayoutDomainTable), "table");
-    RoboCheckEqInt((int)RoboLayoutDomainTable,
+    /* 19.7's domain is the tail now, so the chain below starts here: `fragment` last,
+     * `table` before it, and every earlier domain one below the one after it. The chain
+     * is what catches a domain appended in the middle, which a count alone would not. */
+    RoboCheckStrEq(LayoutDiagnosticDomainName(RoboLayoutDomainFragment), "fragment");
+    RoboCheckEqInt((int)RoboLayoutDomainFragment,
                       (int)RoboLayoutDomainCount - 1);
+    RoboCheckEqInt((int)RoboLayoutDomainTable,
+                      (int)RoboLayoutDomainFragment - 1);
     RoboCheckEqInt((int)RoboLayoutDomainGrid,
                       (int)RoboLayoutDomainTable - 1);
     RoboCheckEqInt((int)RoboLayoutDomainFlex,
@@ -646,7 +652,7 @@ static void TestModuleAllocatorBalance(void)
         RoboCheckEqInt(LayoutGetVersion(&caps.objectModel, &caps.constraints,
                                                   &caps.resultModel),
                           RoboOk);
-        RoboCheckStrEq(LayoutVersionString(), "0.22.0");
+        RoboCheckStrEq(LayoutVersionString(), "0.23.0");
         RoboCheckEqInt(LayoutGeometryIsImplemented(), 1);
         memset(buffer, 0, sizeof(buffer));
         strncpy(buffer, LayoutObjectKindName(RoboLayoutObjectBox),

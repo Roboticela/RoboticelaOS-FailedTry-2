@@ -193,7 +193,7 @@ static void TestCssComputedDefaultThenInherited(void)
      * registry's initial value, each normalised: `black` is a colour, `serif` is
      * a family list, `medium` is a keyword, and `text-indent`'s `0` is the one
      * bare number CSS lets a length be. */
-    RoboCheckEqInt((int)CssComputedStyleCount(root), 57);
+    RoboCheckEqInt((int)CssComputedStyleCount(root), 59);
     CssComputedIs(root, "color", "#000000");
     CssComputedFlagsAre(root, "color", "default");
     CssComputedIs(root, "font-family", "serif");
@@ -800,7 +800,7 @@ static void TestCssComputedNoStylesheets(void)
     RoboCheckEqInt(CssComputedStyleCreate(&style, NULL), RoboOk);
 
     CssComputeOf(&fixture, div, style);
-    RoboCheckEqInt((int)CssComputedStyleCount(style), 57);
+    RoboCheckEqInt((int)CssComputedStyleCount(style), 59);
     CssComputedIs(style, "color", "#000000");
     CssComputedIs(style, "display", "<absent>");
     RoboCheckEqInt(CssComputedStyleIsTruncated(style), 0);

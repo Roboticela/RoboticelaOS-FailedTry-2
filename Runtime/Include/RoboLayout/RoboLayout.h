@@ -464,6 +464,25 @@ typedef struct LayoutCapabilities {
      * replaced elements. See `RoboLayoutTableLayoutImplemented`.
      */
     int tableLayout;
+    /**
+     * Resolving **fragmentation** breaks (19.7).
+     *
+     * **1** since 19.7. The break policy that decides *where* contents split: the four
+     * container kinds, the boundary rule (a forced break beats an `avoid`, from either
+     * side, and a forced break at the start of a fragment is suppressed), the interior
+     * rule (`break-inside` is one statement and *which container it is about* is the
+     * container's answer), and the two line floors `orphans`/`widows` read against 10.6's
+     * line boxes.
+     *
+     * **Not** "fragmentation is finished": nothing here *generates* a fragment. A column
+     * container's track arithmetic, `column-fill` balancing, a page box, a region, a
+     * fragment's own geometry (where its content box begins and how an edge margin is
+     * truncated at a break) and an ancestor's `break-inside` applied at a deeper boundary
+     * are each absent by name in `RoboLayoutFragment.h`. This flag says the *decision* is
+     * expressible, which is what a pass above it consults. See
+     * `RoboLayoutFragmentationImplemented`.
+     */
+    int fragmentation;
     /** Painting a box. **0**: Phase 11. */
     int painting;
 } LayoutCapabilities;

@@ -7,6 +7,7 @@
  */
 
 import type { ReactElement } from "react";
+import { CommandButton, commandProps } from "@roboticela/react";
 
 import { buildDesktopModel, type DesktopModel } from "@/session/model";
 import { renderDesktopStyleSheet } from "@/theme/stylesheet";
@@ -41,18 +42,17 @@ export function GuestOverviewApp(): ReactElement {
         ))}
       </div>
       <div className="appActions">
-        <div
+        <CommandButton
           className="buttonPrimary"
           id="overviewOpenLab"
-          role="button"
           aria-label="Open Input Lab"
-          data-command="app.openInputLab"
+          verb="app.openInputLab"
         >
           Open Input Lab
-        </div>
-        <div className="button" role="button" aria-label="About" data-command="system.about">
+        </CommandButton>
+        <CommandButton className="button" aria-label="About" verb="system.about">
           About
-        </div>
+        </CommandButton>
       </div>
       <div className="appStatus" id="overviewStatus">
         Ready
@@ -92,18 +92,17 @@ export function GuestInputLabApp(): ReactElement {
 
       <div className="sectionLabel">Buttons</div>
       <div className="appRow">
-        <div
+        <CommandButton
           className="buttonPrimary"
           id="labPrimary"
-          role="button"
           aria-label="Primary"
-          data-command="lab.primary"
+          verb="lab.primary"
         >
           Primary
-        </div>
-        <div className="button" role="button" aria-label="Secondary" data-command="lab.secondary">
+        </CommandButton>
+        <CommandButton className="button" aria-label="Secondary" verb="lab.secondary">
           Secondary
-        </div>
+        </CommandButton>
       </div>
       <div className="appRow">
         <div className="buttonActive" role="button" aria-pressed="true" aria-label="Pressed">
@@ -116,21 +115,33 @@ export function GuestInputLabApp(): ReactElement {
 
       <div className="sectionLabel">Toggles and checks</div>
       <div className="appRow">
-        <div className="toggleOn" role="switch" aria-checked="true" aria-label="On" data-command="lab.toggle" />
-        <div className="toggle" role="switch" aria-checked="false" aria-label="Off" data-command="lab.toggle" />
+        <div
+          className="toggleOn"
+          role="switch"
+          aria-checked="true"
+          aria-label="On"
+          {...commandProps("lab.toggle")}
+        />
+        <div
+          className="toggle"
+          role="switch"
+          aria-checked="false"
+          aria-label="Off"
+          {...commandProps("lab.toggle")}
+        />
         <div
           className="checkboxOn"
           role="checkbox"
           aria-checked="true"
           aria-label="Checked"
-          data-command="lab.check"
+          {...commandProps("lab.check")}
         />
         <div
           className="checkbox"
           role="checkbox"
           aria-checked="false"
           aria-label="Unchecked"
-          data-command="lab.check"
+          {...commandProps("lab.check")}
         />
       </div>
 

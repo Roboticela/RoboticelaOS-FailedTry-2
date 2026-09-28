@@ -57,6 +57,7 @@ buildSync({
   loader: { ".ts": "ts", ".tsx": "tsx" },
   alias: {
     "@": join(root, "src"),
+    "@roboticela/react": join(root, "packages", "roboticela-react", "src", "index.ts"),
   },
 });
 

@@ -7,6 +7,7 @@ export default defineConfig({
   resolve: {
     alias: {
       "@": fileURLToPath(new URL("./src", import.meta.url)),
+      "@roboticela/react": fileURLToPath(new URL("./packages/roboticela-react/src/index.ts", import.meta.url)),
     },
   },
   server: {

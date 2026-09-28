@@ -81,6 +81,7 @@ static const struct {
     { "flex_layout", 1 },
     { "grid_layout", 1 },
     { "table_layout", 1 },
+    { "fragmentation", 1 },
     { "painting", 0 }
 };
 
@@ -112,7 +113,7 @@ static void TestConformanceCapabilities(void)
      * that turned one on and one off at the same time -- which field-by-field would
      * still catch, but a reader would have to diff to see -- is visible at a
      * glance. The twenty-ninth is `painting`, and it is the only one that is 0. */
-    RoboCheckEqInt(implemented, 28u);
+    RoboCheckEqInt(implemented, 29u);
 
     /*
      * The four that matter are the direction pair, the field that names both, and
@@ -1115,7 +1116,7 @@ static void TestConformanceStatement(void)
      * the build claiming it does not.
      */
     RoboCheckEqInt(LayoutGeometryIsImplemented(), 1);
-    RoboCheckStrEq(LayoutVersionString(), "0.22.0");
+    RoboCheckStrEq(LayoutVersionString(), "0.23.0");
     RoboCheckEqInt(RoboLayoutApiFrozen, 0);
 
     /*

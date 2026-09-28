@@ -1,6 +1,9 @@
 # Desktop UI
 
-The OS desktop **window documents** are authored in `Desktop/` as a Vite + React + TypeScript app.
+The OS desktop **window documents** are authored in `Desktop/` as a Vite + React + TypeScript app,
+using `@roboticela/react` (`Desktop/packages/roboticela-react`) for `data-command` helpers that map to
+**DesktopBridge** (C). Guest never runs React — SSR export only. See
+`Documentation/Runtime/Desktop/ShellArchitecture.md`.
 
 ## Two surfaces
 

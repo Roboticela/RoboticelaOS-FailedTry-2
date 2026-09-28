@@ -32,6 +32,7 @@
 #include "RoboDesktop/RoboDesktopScene.h"
 
 #include "RoboBase/RoboLog.h"
+#include "RoboDesktop/RoboDesktopBridge.h"
 #include "RoboDesktop/RoboDesktopInput.h"
 #include "RoboDesktop/RoboDesktopScript.h"
 #include "RoboDesktopInternal.h"
@@ -654,6 +655,8 @@ static void SceneStepInput(DesktopScene *scene,
             clicked = primary;
         }
         if (clicked && clicked->script && clicked->document) {
+            DesktopBridgeOutcome bridge;
+
             (void)DesktopScriptPostClick(clicked->script,
                                          DesktopDocumentTree(clicked->document),
                                          inputStep.documentClickNode,
@@ -661,6 +664,34 @@ static void SceneStepInput(DesktopScene *scene,
                                          inputStep.documentClickY,
                                          diag);
             (void)DesktopScriptPump(clicked->script, 16u, diag);
+            DesktopBridgeOutcomeInit(&bridge);
+            (void)DesktopBridgeConsumeDocument(scene->desktop,
+                                               DesktopDocumentHtml(clicked->document),
+                                               &bridge,
+                                               diag);
+            if (bridge.applied &&
+                bridge.verb == RoboDesktopBridgeVerbAppOpenInputLab) {
+                size_t raiseIndex;
+
+                for (raiseIndex = 0u; raiseIndex < scene->appCount; raiseIndex++) {
+                    const char *title = scene->apps[raiseIndex].title;
+                    const char *want = RoboDesktopSceneInputLabTitle;
+                    size_t t = 0u;
+
+                    if (!title) {
+                        continue;
+                    }
+                    while (title[t] != '\0' && want[t] != '\0' && title[t] == want[t]) {
+                        t++;
+                    }
+                    if (title[t] == '\0' && want[t] == '\0') {
+                        (void)DesktopWindowRaise(scene->desktop,
+                                                 scene->apps[raiseIndex].window);
+                        scene->primary = raiseIndex;
+                        break;
+                    }
+                }
+            }
             SceneRefreshAfterScript(scene, diag);
         }
     } else if (primary && primary->script) {

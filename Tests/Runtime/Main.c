@@ -314,6 +314,7 @@ void TestRegisterLayoutPadding(void);
 void TestRegisterLayoutBorder(void);
 void TestRegisterLayoutPosition(void);
 void TestRegisterLayoutAbsolute(void);
+void TestRegisterLayoutFragment(void);
 void TestRegisterLayoutOverflow(void);
 void TestRegisterLayoutInvalidation(void);
 void TestRegisterLayoutTree(void);
@@ -344,6 +345,7 @@ void TestRegisterDesktopGeometry(void);
 void TestRegisterDesktopWindow(void);
 void TestRegisterDesktopFrame(void);
 void TestRegisterDesktopDocument(void);
+void TestRegisterDesktopBridge(void);
 void TestRegisterDesktopPresent(void);
 void TestRegisterRoboJS(void);
 void TestRegisterRoboJSHost(void);
@@ -729,6 +731,7 @@ int main(int argc, char **argv)
     TestRegisterLayoutBorder();
     TestRegisterLayoutPosition();
     TestRegisterLayoutAbsolute();
+    TestRegisterLayoutFragment();
     TestRegisterLayoutOverflow();
     TestRegisterLayoutInvalidation();
     TestRegisterLayoutTree();
@@ -759,6 +762,7 @@ int main(int argc, char **argv)
     TestRegisterDesktopWindow();
     TestRegisterDesktopFrame();
     TestRegisterDesktopDocument();
+    TestRegisterDesktopBridge();
     TestRegisterDesktopPresent();
     /* Phase 12.3 -- registered before the scene suite, which shuts the layers down and brings them back. */
     TestRegisterDesktopTypography();

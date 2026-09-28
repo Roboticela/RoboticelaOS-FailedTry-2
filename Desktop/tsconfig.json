@@ -19,7 +19,8 @@
     "resolveJsonModule": true,
     "baseUrl": ".",
     "paths": {
-      "@/*": ["src/*"]
+      "@/*": ["src/*"],
+      "@roboticela/react": ["packages/roboticela-react/src/index.ts"]
     }
   },
   "include": ["src"]

@@ -215,6 +215,13 @@ Result LayoutGetCapabilities(LayoutCapabilities *out)
      * writing mode and no collapse resolution between two tables.
      */
     out->tableLayout = RoboLayoutTableLayoutImplemented;
+    /*
+     * And `fragmentation`, the field 19.7 added. **Not** "fragmentation is finished": the
+     * break policy decides where contents split, and nothing here produces the fragments --
+     * a column container's track arithmetic, a page box, a region and a fragment's own
+     * geometry are each absent by name in `RoboLayoutFragment.h`.
+     */
+    out->fragmentation = RoboLayoutFragmentationImplemented;
     out->painting = 0;
     return RoboOk;
 }

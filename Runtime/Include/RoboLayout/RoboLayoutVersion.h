@@ -340,9 +340,9 @@
 #define ROBO_LAYOUT_VERSION_H
 
 #define RoboLayoutVersionMajor 0
-#define RoboLayoutVersionMinor 22
+#define RoboLayoutVersionMinor 23
 #define RoboLayoutVersionPatch 0
-#define RoboLayoutVersionString "0.22.0"
+#define RoboLayoutVersionString "0.23.0"
 
 /** 1 once the Phase 10 surface is frozen (not yet — see header comment). */
 #define RoboLayoutApiFrozen 0
@@ -930,5 +930,27 @@
  * it were named for "tables are finished".
  */
 #define RoboLayoutTableLayoutImplemented 1
+
+/**
+ * Fragmentation (19.7): the break policy — the container kinds, the boundary precedence,
+ * the interior refusal and the two line floors — is `RoboLayoutFragment.h`.
+ *
+ * **1** since 19.7, "not fragmentation is finished", for the reason every flag in this
+ * file gives: nothing here *produces* a fragment. The phase adds no pass, no context, no
+ * fragment geometry and no engine change — the block pass still stacks boxes and 10.6
+ * still produces the lines `orphans`/`widows` are counted against — and what it adds is
+ * the one answer to "may the contents break here, must they, and why" that a later
+ * column, page or region pass will consult.
+ *
+ * Named as absent at the flag, and named again in `RoboLayoutFragment.h` where a reader
+ * meets it: **multi-column layout itself** (a `column-count` is 18.6's computed value and
+ * no track arithmetic, no gutter and no `column-fill` balancing happens here), **page and
+ * region boxes** (kinds a decision can name and boxes this build does not lay out),
+ * **a fragment's own geometry** (where its content box begins, and how a margin is
+ * truncated at a break), **`break-*` suppression by an ancestor's `break-inside` at a
+ * boundary deeper than that ancestor**, and **the legacy `page-break-*` spellings**,
+ * which are not registered rows (RoboCSSFragment.h says why).
+ */
+#define RoboLayoutFragmentationImplemented 1
 
 #endif /* ROBO_LAYOUT_VERSION_H */

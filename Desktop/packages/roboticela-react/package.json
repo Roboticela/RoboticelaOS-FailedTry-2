@@ -1,0 +1,15 @@
+{
+  "name": "@roboticela/react",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "peerDependencies": {
+    "react": "^18.0.0"
+  },
+  "description": "RoboticelaOS React authoring kit — HTML/CSS export + data-command helpers that execute C via DesktopBridge. Host-only; no guest React."
+}
