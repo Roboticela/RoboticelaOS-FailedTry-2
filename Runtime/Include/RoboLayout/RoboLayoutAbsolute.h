@@ -61,8 +61,8 @@
  * So `left: 10px` with `right: 4px` places the box 10px from the left edge; `right: 4px`
  * alone places its right *edge* 4px from the containing block's right edge; and with
  * neither side declared the box sits at its containing block's origin, which is the
- * *static position* approximation this build states instead of computing (`shrink-to-fit`
- * is below). CSS's own rule -- which side wins depends on the writing mode and the
+ * *static position* approximation this build states instead of computing (the
+ * `shrink-to-fit` seam below is the other half of getting an unconstrained axis right). CSS's own rule -- which side wins depends on the writing mode and the
  * direction, and the box's static position when neither side is declared -- is a later
  * phase's, and this build states one rule so that the phase which replaces it changes one
  * function and one suite.
@@ -83,13 +83,22 @@
  *   (`declaredOverConstrained`) so that a document that wrote it is visible in the record
  *   rather than silently half-honoured.
  *
- *   **`shrink-to-fit` is not implemented.** A box with `width: auto` and only one inset
- *   declared (or none) fills what the insets left rather than shrinking to its contents,
- *   because this build has no intrinsic width to shrink to (`RoboLayoutSizing.h` names
- *   `min-content`, `max-content` and `fit-content` as later work). Every desktop-shell
- *   shape this phase needed writes the side that makes the answer unambiguous; a document
- *   that relies on shrink-to-fit gets a filled box and a stated gap rather than a wrong
- *   one that looks right.
+ *   **`shrink-to-fit` is not applied**, and the reason is a *seam* rather than a missing
+ *   capability. A box with `width: auto` and fewer than two insets does not size to its
+ *   contents: @ref LayoutAbsolutePlacement::availableWidth *is* the used width on every
+ *   horizontal axis (it is `containingBlock.width` less the two present insets, which is
+ *   also exactly what rule 3 above puts in `marginBoxExtent`), and the pass hands that one
+ *   number straight to the box -- so a `width: auto` box fills what the insets left.
+ *   CSS's used width in that case is `clamp(available, min-content, max-content)`, and
+ *   19.1 has since landed the whole of the machinery for it (`LayoutIntrinsicMeasureObject`
+ *   and `LayoutIntrinsicResolveFitContent` in `RoboLayoutIntrinsic.h`), which is why the
+ *   earlier reason this header gave -- "this build has no intrinsic width to shrink to" --
+ *   is no longer true and has been removed rather than left to age. What is missing is the
+ *   *call*: the axis has to be measured before the box is laid out and that one number
+ *   replaced at the one site that has the box's own id. Every desktop-shell shape this
+ *   phase needed writes the side that makes the answer unambiguous; a document that relies
+ *   on shrink-to-fit gets a filled box and this paragraph rather than a wrong one that
+ *   looks right.
  *
  *   **Percentages do not resolve**, for either the insets or the containing block, which is
  *   10.8's rule unchanged: read, recorded `UNRESOLVED` and used as zero.

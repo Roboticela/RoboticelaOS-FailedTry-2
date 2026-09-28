@@ -1,23 +1,31 @@
 /*
- * The build's entry point: render the guest shell once, and hand back both halves of the document.
+ * The build's entry point: render each guest app document, and hand back markup + shared sheet.
  */
 
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 
-import { GuestDesktopShell, desktopStyleSheetOptions } from "../src/guest/GuestDesktopShell";
+import {
+  GuestInputLabApp,
+  GuestOverviewApp,
+  desktopStyleSheetOptions,
+} from "../src/guest/GuestDesktopShell";
 import { buildDesktopModel } from "../src/session/model";
 import { renderDesktopStyleSheet } from "../src/theme/stylesheet";
 
 export function renderDesktopPage() {
   const model = buildDesktopModel();
-  const markup = renderToStaticMarkup(React.createElement(GuestDesktopShell, { model }));
+  const overview = renderToStaticMarkup(React.createElement(GuestOverviewApp));
+  const inputLab = renderToStaticMarkup(React.createElement(GuestInputLabApp));
   const style = renderDesktopStyleSheet(desktopStyleSheetOptions(model));
 
   return {
-    markup,
+    /** Primary markup for DesktopSceneMarkup() — Overview. */
+    markup: overview,
+    overview,
+    inputLab,
     style,
     appearance: model.state.appearance,
-    windows: model.state.windows.length,
+    windows: model.state.windows.filter((w) => w.state !== "closed").length,
   };
 }

@@ -1848,5 +1848,51 @@ answer — which is exactly the kind of "no geometry, for a stated reason" disti
 in two suites grew a `table_layout` row. What was new is that a **vocabulary** grew rather than
 a capability: `RoboLayoutDomainCount` moved in three suites, `RoboLayoutFcKindCount` in two, and
 the CSS display suite's walks, counts and unknown-keyword list all moved — which is the cost of
-a phase that adds ten display values, and the reason `SuiteRoboCssDisplay.c` is part of a
-layout phase's gate.
+a phase that adds ten display values, and the reason `SuiteRoboCssDisplay.c` is part of a   layout phase's gate.
+
+## 25. What the 14.0 suite found, re-verified at 19.5
+
+No new cases: 19.5 is the roadmap's name for 14.0's out-of-flow placement, this time checked
+against the contract it landed with rather than written alongside it. The policy came back clean —
+the three axis rules, the containing block as the **padding** box, the placeholder origin, the two
+doors that need the box's own size, the viewport switch, and the counters are each what
+`RoboLayoutAbsolute.h` and `OutOfFlow.md` say they are. Four things were not.
+
+**1. The same nested-record omission §24 found for `table`, one phase later, still in
+`LayoutBlockStatsEqual`.** The comparison walked every flat counter and the `flex`, `grid` and
+`table` records, and never `absolute`: `LayoutAbsoluteCountersEqual` existed, was exported, and was
+never called. It survived because the suite's only identity assertion was the *positive* one — two
+passes over an unchanged tree compare equal whether or not a field is compared — so the negative
+half had to be written: `layout.absolute.counters_determinism` now moves one absolute counter at a
+time and asserts the two block records differ. The lesson §24 already drew is that a phase adding a
+counters record must add it to the identity in the same change; what this adds is that a *defect*
+of that exact shape can survive a phase that fixed it, because the fix was made in a comparison the
+suite only ever asked the easy question of.
+
+**2. The header and the phase doc gave a reason for `shrink-to-fit` being absent that had stopped
+being true.** Both said "this build has no intrinsic width to shrink to" and pointed at
+`RoboLayoutSizing.h` naming `min-content`/`max-content`/`fit-content` as later work — which 19.1
+had already delivered, in `RoboLayoutIntrinsic.h`, including the one clamp shrink-to-fit is
+(`LayoutIntrinsicResolveFitContent`). The behaviour is still not applied, and the honest reason is
+narrower and more useful: `LayoutAbsolutePlacement::availableWidth` *is* the used width on every
+horizontal axis and the pass hands it straight to the box, so the missing piece is one call at the
+one site that has the box's own id. A non-goal whose stated reason has expired reads as a
+deliberate limitation and is really a stale note; both documents now say which it is.
+
+**3. `OutOfFlow.md` §7 claimed twenty-one cases; the suite registers twenty-three.**
+`block_child_of_positioned` was in neither the map nor any prose. The map is what a reader checks
+the suite against, so a case that exists and is not in it is a case nobody will notice being
+dropped.
+
+**4. The suite's own header comment named a case that has never existed.** Its "the sibling below
+it is the witness" sentence pointed at `layout.absolute.flow_untouched`; the real witness is
+`layout.absolute.block_positioned_wrapper`. A test comment cannot fail, which is exactly why a
+re-verification has to read the comments and the maps and not only the assertions.
+
+Two things this re-verification deliberately did **not** change, because both were already
+correctly scoped and re-reading them was the point: **percentage insets** do not resolve, and
+`OutOfFlow.md` §5 says so in the same words `Layout/Architecture.md` and
+`PercentageResolution.md` use (that is a *documented* absence, not a defect), and the
+**`z-index`/stacking, `sticky`, static position, `box-sizing: border-box`** and out-of-flow
+inline-level absences are each still true as written.
+

@@ -2,48 +2,19 @@
  * The Desktop build's second half: render the shell, validate the result, and write the artifact the
  * runtime loads.
  *
- * ## What the runtime loads
- *
- * ## One quoting style, and why it is single
- *
- * React's static output quotes every attribute with `"`, and the document this build emits quotes
- * every attribute with `'`. The conversion is not cosmetic: the C side reads a class out of the markup
- * by looking for `class='`, which is how the scene suite's drift check and the shell's own element
- * scan agree on what a class *is*. A page that arrived with `class="…"` would lay out correctly and
- * count zero classes — which is exactly the failure this build hit the first time it emitted one, and
- * why the check below is now part of the validation rather than a comment.
- *
  * Three files and one C header:
  *
- *   `Build/Desktop/Ui/desktop.html`   the document the desktop window's content is
- *   `Build/Desktop/Ui/desktop.css`    the generated sheet (tokens → concrete values, one appearance)
+ *   `Build/Desktop/Ui/desktop.html`   Overview document (primary)
+ *   `Build/Desktop/Ui/desktop.css`    the generated sheet
  *   `Build/Desktop/Ui/desktop.js`     the page script `RoboDesktopScript` evaluates after attach
- *   `Runtime/Source/RoboDesktop/Generated/DesktopPage.h`   markup, sheet and script as C string literals
+ *   `Runtime/Source/RoboDesktop/Generated/DesktopPage.h`   markup(s), sheet and script as C literals
  *
- * The header is what the guest actually consumes: `RoboDesktopScene` builds its document from
- * `kDesktopPageMarkup`/`kDesktopPageStyle` and attaches `kDesktopPageScript` through
- * `DesktopScriptCreate`, so the page is compiled into the OS image rather than read
- * from a filesystem that the guest does not have yet. The `.html`/`.css`/`.js` trio beside it is the
- * same document for a reviewer and for the host preview, which is why they are written from one render.
- *
- * `Desktop/dist/` is deliberately **not** used, and this is the one place this project deviates from
- * the phase's example layout: the repository's rule is that `Build/` is generated and `Documentation/`
- * explains it, and a second generated tree under `Desktop/` would be a build output inside a source
- * folder. The build is still `npm run build` from `Desktop/`; only the output path differs.
- *
- * ## Why it validates, and not only writes
- *
- * Every check below is a failure this build can *see* and a reviewer cannot: a class the sheet has no
- * rule for lays out as an unstyled block and still looks like a page (that is the scene suite's drift
- * check, run here first so the build fails before the test does); an inline `style=` attribute is
- * dropped by the cascade, because this build's document bridge carries no inline origin; a
- * `border-radius` or a `transition` is a declaration the engine does not read. A build that emitted any
- * of them would produce an artifact that is silently less than it looks, which is exactly the class of
- * defect the phase's "validate the output" clause is for.
+ * Native chrome owns the desk. Exported markup is **content-only** application bodies (Overview +
+ * Input Lab). Flex longhands are allowed; silent no-ops stay banned.
  */
 
 import { createHash } from "node:crypto";
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { createRequire } from "node:module";
@@ -63,9 +34,10 @@ const unsupportedProperties = [
   "transition",
   "animation",
   "transform",
-  "flex",
   "grid",
   "gap",
+  "row-gap",
+  "column-gap",
   "z-index",
   "overflow-x",
   "overflow-y",
@@ -92,48 +64,43 @@ const require = createRequire(pathToFileURL(bundlePath).href);
 const { renderDesktopPage } = require(bundlePath);
 
 const page = renderDesktopPage();
-const markup = page.markup.replace(/\s+/g, " ").trim().replace(/"/g, "'");
+const normalize = (text) => text.replace(/\s+/g, " ").trim().replace(/"/g, "'");
+const overview = normalize(page.overview);
+const inputLab = normalize(page.inputLab);
+const markup = overview;
 const style = page.style.replace(/\s+/g, " ").trim();
 
-/* The classes the markup names, in order of first appearance, read from the *normalized* markup so
- * there is one representation of it rather than two. */
-const classes = [...new Set([...markup.matchAll(/class='([^']+)'/g)].map((match) => match[1]))];
+const allMarkup = `${overview} ${inputLab}`;
+const classes = [...new Set([...allMarkup.matchAll(/class='([^']+)'/g)].map((match) => match[1]))];
 
 const problems = [];
 
-/* 0 — the one quoting style the C side reads. */
-if (!/class='/.test(markup)) {
-  problems.push("the markup does not use single-quoted class attributes, which is the form the document scan reads");
+if (!/class='/.test(overview) || !/class='/.test(inputLab)) {
+  problems.push("each app markup must use single-quoted class attributes");
 }
 
-/* 1 — every class the markup names has a rule. The same walk the scene suite does, at build time. */
 const missing = classes.filter((name) => !style.includes(`.${name}`));
 if (missing.length) {
   problems.push(`the sheet styles no rule for: ${missing.join(", ")}`);
 }
 
-/* 2 — no class attribute names two classes. The drift check reads the whole attribute as one name, so
- *     `class="a b"` would be looked up as `.a b` and never found; the components nest instead. */
 const multi = classes.filter((name) => name.includes(" "));
 if (multi.length) {
   problems.push(`class attributes naming more than one class: ${multi.join(" | ")}`);
 }
 
-/* 3 — the runtime is a static document: no inline style (dropped), no handler, no script. */
-if (/style="/.test(markup)) {
-  problems.push("the markup carries an inline style attribute, which this build's cascade does not read");
-}
-if (/on[a-z]+=/.test(markup)) {
-  problems.push("the markup carries an event handler attribute; listeners belong in kDesktopPageScript");
-}
-if (/<script/.test(markup)) {
-  problems.push("the markup carries a script element");
-}
-if (/node_modules|\/src\//.test(markup)) {
-  problems.push("the markup references build-only paths");
+for (const doc of [overview, inputLab]) {
+  if (/style="/.test(doc) || /style='/.test(doc)) {
+    problems.push("markup carries an inline style attribute");
+  }
+  if (/on[a-z]+=/.test(doc)) {
+    problems.push("markup carries an event handler attribute; listeners belong in kDesktopPageScript");
+  }
+  if (/<script/.test(doc)) {
+    problems.push("markup carries a script element");
+  }
 }
 
-/* 4 — the sheet writes no property the engine silently drops. */
 for (const property of unsupportedProperties) {
   if (new RegExp(`(^|[;{\\s])${property}\\s*:`, "m").test(style)) {
     problems.push(`the sheet declares ${property}, which this build does not read`);
@@ -148,8 +115,6 @@ if (problems.length) {
   process.exit(1);
 }
 
-/** A C string literal, in chunks: MSVC refuses a single literal over 65535 bytes, and the sheet will
- *  get there. The split avoids a boundary inside an escape, which is the one way chunking corrupts. */
 function cLiteral(text, chunk = 4096) {
   const escaped = text
     .replace(/\\/g, "\\\\")
@@ -181,64 +146,78 @@ const jsOut = join(outDir, "desktop.js");
 const metaOut = join(outDir, "build.json");
 
 /*
- * The page script RoboJS evaluates after `JsDomHtmlAttach`. Kept ES5-shaped (`var`, `function`) to match
- * what the interpreter accepts today. Attribute writes are the mutation RoboHTML allows on a finalized
- * document; construction (`createElement`/`appendChild`) stays gated.
+ * Page script: ES5-shaped for RoboJS. Attribute/class writes are allowed on a finalized document;
+ * construction is gated. Visible updates need DesktopDocumentRefresh after Pump.
  */
 const pageScript = [
   "(function () {",
-  "  var root = document.getElementById(\"desktopRoot\");",
-  "  if (!root) {",
-  "    return;",
+  "  function markReady(root, badgeId) {",
+  "    if (!root) { return; }",
+  "    root.setAttribute(\"data-js-ready\", \"1\");",
+  "    var badge = document.getElementById(badgeId);",
+  "    if (badge) { badge.setAttribute(\"class\", \"jsReady\"); }",
   "  }",
-  "  root.setAttribute(\"data-js-ready\", \"1\");",
-  "  root.addEventListener(\"click\", function (ev) {",
-  "    var node = ev.target;",
-  "    var hops = 0;",
-  "    while (node && hops < 16) {",
-  "      var command = node.getAttribute ? node.getAttribute(\"data-command\") : \"\";",
-  "      if (command) {",
-  "        root.setAttribute(\"data-last-command\", command);",
-  "        break;",
+  "  function onClick(root, statusId) {",
+  "    return function (ev) {",
+  "      var node = ev.target;",
+  "      var hops = 0;",
+  "      while (node && hops < 16) {",
+  "        var command = node.getAttribute ? node.getAttribute(\"data-command\") : \"\";",
+  "        if (command) {",
+  "          root.setAttribute(\"data-last-command\", command);",
+  "          var status = document.getElementById(statusId);",
+  "          if (status) { status.setAttribute(\"class\", \"appStatusActive\"); }",
+  "          if (command === \"lab.primary\") {",
+  "            var btn = document.getElementById(\"labPrimary\");",
+  "            if (btn) { btn.setAttribute(\"class\", \"buttonActive\"); }",
+  "          }",
+  "          break;",
+  "        }",
+  "        node = node.parentNode;",
+  "        hops = hops + 1;",
   "      }",
-  "      var icon = node.getAttribute ? node.getAttribute(\"data-icon\") : \"\";",
-  "      if (icon) {",
-  "        root.setAttribute(\"data-last-icon\", icon);",
-  "        break;",
-  "      }",
-  "      node = node.parentNode;",
-  "      hops = hops + 1;",
-  "    }",
-  "  });",
+  "    };",
+  "  }",
+  "  var overview = document.getElementById(\"overviewRoot\");",
+  "  if (overview) {",
+  "    markReady(overview, \"overviewJsBadge\");",
+  "    overview.addEventListener(\"click\", onClick(overview, \"overviewStatus\"));",
+  "  }",
+  "  var lab = document.getElementById(\"inputLabRoot\");",
+  "  if (lab) {",
+  "    markReady(lab, \"labJsBadge\");",
+  "    lab.addEventListener(\"click\", onClick(lab, \"labStatus\"));",
+  "  }",
   "})();",
   "",
 ].join("\n");
 
-writeFileSync(htmlOut, `<html><body>${markup}</body></html>\n`, "utf8");
+writeFileSync(htmlOut, `<html><body>${overview}</body></html>\n`, "utf8");
+writeFileSync(join(outDir, "inputlab.html"), `<html><body>${inputLab}</body></html>\n`, "utf8");
 writeFileSync(cssOut, `${style}\n`, "utf8");
 writeFileSync(jsOut, pageScript, "utf8");
 
 const header = `/* Generated by Desktop/scripts/export-page.mjs -- do not edit by hand. */
 /*
- * The desktop document's three halves, compiled into the image.
+ * Desktop application documents, compiled into the image.
  *
- * ${markup.length} bytes of markup, ${style.length} bytes of sheet and
- * ${pageScript.length} bytes of page script, rendered from \`Desktop/src\` at
- * build time: the markup is React's static output, the sheet is generated from
- * the design tokens for one appearance (${page.appearance}), and the script is
- * what \`DesktopScriptCreate\` evaluates after \`JsDomHtmlAttach\`.
- * ${page.windows} window${page.windows === 1 ? "" : "s"} and ${classes.length}
- * classes, every one of which the sheet styles -- the export script fails the
- * build otherwise.
+ * Overview ${overview.length} bytes, Input Lab ${inputLab.length} bytes,
+ * sheet ${style.length} bytes, page script ${pageScript.length} bytes.
+ * Appearance: ${page.appearance}. ${page.windows} native window(s) seeded from the model.
+ * ${classes.length} classes, every one styled — the export fails otherwise.
  *
- * Each literal is split into chunks because a single C string literal
- * over 64 KiB is a compiler error rather than a long line.
+ * Native chrome owns the desk; these markups are content-only app bodies.
  */
 #ifndef ROBO_DESKTOP_PAGE_H
 #define ROBO_DESKTOP_PAGE_H
 
+/** Primary document (System Overview) — also what DesktopSceneMarkup() reports. */
 static const char kDesktopPageMarkup[] =
 ${cLiteral(markup)};
+
+/** Input Lab application body. */
+static const char kDesktopDocInputLabMarkup[] =
+${cLiteral(inputLab)};
 
 static const char kDesktopPageStyle[] =
 ${cLiteral(style)};
@@ -261,9 +240,11 @@ writeFileSync(
       windows: page.windows,
       classes: classes.length,
       markupBytes: markup.length,
+      inputLabBytes: inputLab.length,
       styleBytes: style.length,
       scriptBytes: pageScript.length,
       markupHash: digest(markup),
+      inputLabHash: digest(inputLab),
       styleHash: digest(style),
       scriptHash: digest(pageScript),
     },
@@ -275,7 +256,7 @@ writeFileSync(
 
 console.log(
   `desktop page: ${page.appearance}, ${page.windows} window(s), ${classes.length} classes, ` +
-    `${markup.length} + ${style.length} + ${pageScript.length} bytes`
+    `overview ${overview.length} + lab ${inputLab.length} + style ${style.length} + script ${pageScript.length} bytes`
 );
 console.log(`wrote ${headerPath}`);
 console.log(`wrote ${htmlOut}`);

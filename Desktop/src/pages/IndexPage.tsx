@@ -32,14 +32,19 @@ const routes = [
     body: "Keyboard, mouse, and focus telemetry in one focused window.",
   },
   {
-    to: "/cursors",
-    title: "Cursor Lab",
-    body: "Hover all 18 official pack states — SVG preview, .rcur in the guest.",
-  },
-  {
     to: "/combined",
     title: "Combined",
     body: "Everything together — the same desk the guest scene exports.",
+  },
+  {
+    to: "/background",
+    title: "Background Engine",
+    body: "Universal media adapter — video, GIF, SVG, static image. Fit modes, Low-Power, Space visibility.",
+  },
+  {
+    to: "/folder",
+    title: "Folder Icon",
+    body: "Two-panel manila folder — 8 tints, system glyphs, content peeks, badges, interaction states.",
   },
 ];
 

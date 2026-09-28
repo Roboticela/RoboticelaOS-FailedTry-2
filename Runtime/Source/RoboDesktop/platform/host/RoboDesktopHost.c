@@ -89,7 +89,7 @@
 /* The checkpoint's status label. A fixed string rather than a clock, because a launcher that stamped the
  * time into a frame would produce a different picture every run — and this file's whole job is to make one
  * picture checkable. */
-#define HOST_STATUS_TEXT "11.13"
+#define HOST_STATUS_TEXT "Ready"
 
 typedef struct hostReport {
     int checks;
@@ -519,7 +519,7 @@ static int HostWritePng(const GfxSurface *surface, const char *path)
  * Read the frame back and assert what only the whole pipeline could have put there.
  *
  * Every expectation below is a *documented* value rather than a snapshot: the panel's white, the desktop
- * surface's `#EDEDEF`, the window's title band, the page background `#F5F5F7` that only the scene's CSS
+ * surface's `#EDEDEF`, the window's title band, the page background `#FFFFFF` that only the scene's CSS
  * produces, and the one accent `#0E7AFF` twice — the shell's identity mark and the document's button.
  */
 static void HostProbeScene(DesktopScene *scene,
@@ -563,7 +563,7 @@ static void HostProbeScene(DesktopScene *scene,
         DesktopWindowClientBounds(desktop, window, &client) == RoboOk && client.width > 2 &&
         client.height > 2) {
         /* The page's own background, which is the scene's stylesheet and nothing else. */
-        HostProbePixel(surface, client.x + 2, client.y + 2, HostColor(245u, 245u, 247u, 255u),
+        HostProbePixel(surface, client.x + 2, client.y + 2, HostColor(255u, 255u, 255u, 255u),
                          "the document's page background", report);
         HostProbeRegionHasColor(surface, client, theme.identityAccent,
                                     "the document's own accent in the client area", report);

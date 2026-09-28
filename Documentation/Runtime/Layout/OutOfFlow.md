@@ -88,9 +88,16 @@ before the root's call and another after it, because two spellings of one rectan
   shell's own CSS does not use `z-index` to say what is on top.
 * **`sticky`.** In flow, taking no offset, exactly as 10.12 left it: there is no scrollport to
   constrain against.
-* **`shrink-to-fit`.** A box with `width: auto` and fewer than two insets fills what is left,
-  because this build has no intrinsic width to shrink to (`Sizing.md` names `min-content`,
-  `max-content` and `fit-content` as later work).
+* **`shrink-to-fit` is not applied**, and the reason is a seam rather than a missing capability.
+  `LayoutAbsolutePlacement::availableWidth` *is* the used width on every horizontal axis — it is
+  the containing block less the two present insets, which is also exactly what rule 3 puts in
+  `marginBoxExtent` — and the pass hands that one number straight to the box, so a `width: auto`
+  box fills what the insets left. CSS's used width there is
+  `clamp(available, min-content, max-content)`, and **19.1 has since landed the whole of the
+  machinery** (`LayoutIntrinsicMeasureObject`, `LayoutIntrinsicResolveFitContent`); what is
+  missing is the call, at the one site that has the box's own id. The reason this section used
+  to give — "this build has no intrinsic width to shrink to" — stopped being true when 19.1
+  landed and has been replaced rather than left to age.
 * **The static position.** CSS places a box with neither side declared at its *static position*;
   this build states "the containing block's origin" instead, in one sentence and one function.
 * **Percentages**, for either an inset or the containing block: read, recorded unresolved, used as
@@ -114,7 +121,9 @@ before the root's call and another after it, because two spellings of one rectan
 
 ## 7. Test map
 
-Twenty-one cases in `Tests/Layout/SuiteRoboLayoutAbsolute.c`, domain `layout.absolute.*`:
+**Twenty-three** cases in `Tests/Layout/SuiteRoboLayoutAbsolute.c`, domain `layout.absolute.*`
+(the count in this line was twenty-one until 19.5 was re-verified, which is how a case can exist
+and not be in the map):
 
 | Case | Asks |
 |---|---|
@@ -128,15 +137,16 @@ Twenty-one cases in `Tests/Layout/SuiteRoboLayoutAbsolute.c`, domain `layout.abs
 | `content_height` | the margin box less the resolved insets, floored at zero, and the *miss* for an axis the insets did not size |
 | `placement_build` | the whole request from one style, its round trip, and the refusal of an in-flow record |
 | `classification` | the two doors over all five modes, and a NULL record as `static` |
-| `block_positioned_wrapper` | **the phase's central case**: the padding box origin, the box's size, and the sibling after it unmoved |
+| `block_positioned_wrapper` | **the phase's central case**: the padding box origin, the box's size, and the sibling after it unmoved — the case the *suite's own* header comment used to call `layout.absolute.flow_untouched`, a name no case ever had |
 | `containing_block_padding_edge` | the containing block is the *padding* edge, in a space where the content edge is zero |
 | `block_viewport` | no positioned ancestor → the initial containing block, whatever the static ancestors do |
 | `block_stretch` | the wallpaper: two insets on each axis fill the initial containing block |
+| `block_child_of_positioned` | an out-of-flow box *inside* a positioned box that is itself out of flow: the containing block is the inner box's padding box, one level down from the one the viewport case uses |
 | `block_fixed` | the dock: `fixed` ignores a positioned, offset ancestor — and a second pass at another viewport moves it |
 | `static_wrapper_transparent` | a `static` wrapper with padding and a border is *not* the containing block |
 | `nested_containing_blocks` | the **nearest** positioned ancestor wins |
 | `inset_kinds` | a negative length, `right: auto` and `top: 25%` through real computed styles |
-| `counters_determinism` | five counters that describe facts geometry alone cannot separate, plus a hundred-pass allocator balance |
+| `counters_determinism` | the counters that describe facts geometry alone cannot separate, a hundred-pass allocator balance, and **the record's own identity**: two block records one absolute counter apart are not equal, which is the assertion that caught `LayoutBlockStatsEqual` leaving the nested `absolute` record out |
 
 ## 8. What the suite found
 
@@ -153,3 +163,22 @@ Two findings, and both were in the implementation rather than in the expectation
    declined the far side; the policy *is* CSS's — the insets size the axis — and the case was
    rewritten to assert both halves of the rule (over-constrained *with* a definite size, stretched
    *without* one), because those are the two questions a build gets wrong together.
+
+A third followed from re-verifying the phase at 19.5, and it is the reason this section grew:
+
+3. **`LayoutBlockStatsEqual` left the nested `absolute` record out.** The comparison walked every
+   flat counter, `flex`, `grid` and `table`, and skipped `absolute` — the same omission 19.6 caught
+   for `table`, in the same function, one phase later. Nothing in the suite failed, because the only
+   absolute assertion was a *positive* one: two passes over an unchanged tree are equal, and they
+   are, whether or not the field is compared. Two passes that placed *different* out-of-flow boxes —
+   one `fixed` against the viewport and one `absolute` against a wrapper — also compared equal, so
+   the record that exists to separate them could not. `LayoutAbsoluteCountersEqual` already existed
+   and was already correct; it was simply never called. The fix is that call, and
+   `layout.absolute.counters_determinism` now pins it with the negative half (one counter apart is
+   not equal) rather than only the positive one, which is the shape 19.6 gave the same assertion.
+
+Two things were wrong with the *map* rather than the code, and both are worth the paragraph because
+this file is what a reader checks the suite against: §7 claimed twenty-one cases where the suite
+registers twenty-three, and the suite's own header comment named its central witness
+`layout.absolute.flow_untouched`, a case that has never existed (the real witness is
+`block_positioned_wrapper`). A re-verification that only reads the code cannot find either.

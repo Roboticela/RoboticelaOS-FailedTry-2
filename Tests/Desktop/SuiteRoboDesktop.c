@@ -351,9 +351,10 @@ static void TestDesktopFrameRecordRules(void)
     other = record;
     other.windows = other.windowsTotal + 1u;
     RoboCheckEqInt(DesktopFrameRecordIsValid(&other), 0);
+    /* Overlapping window content work may exceed the screen area — still a valid record. */
     other = record;
     other.contentPixels = (size_t)record.width * (size_t)record.height + 1u;
-    RoboCheckEqInt(DesktopFrameRecordIsValid(&other), 0);
+    RoboCheckEqInt(DesktopFrameRecordIsValid(&other), 1);
     other = record;
     other.bytes = record.bytes - 4u;
     RoboCheckEqInt(DesktopFrameRecordIsValid(&other), 0);

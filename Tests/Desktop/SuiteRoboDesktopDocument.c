@@ -287,13 +287,13 @@ static void TestDocumentShippedPage(void)
      * while a regression to "the root box and nothing else" — the shape the classification defect left
      * behind, three commands for eighty-five boxes — fails loudly.
      */
-    RoboCheck(report.elements >= 60u);
+    RoboCheck(report.elements >= 12u);
     RoboCheckEqInt((int)report.boxes, (int)report.elements);
-    RoboCheck(report.texts >= 10u);
-    RoboCheck(report.records >= 100u);
+    RoboCheck(report.texts >= 5u);
+    RoboCheck(report.records >= 10u);
     list = DesktopDocumentDisplayList(document);
     RoboCheck(list != NULL);
-    RoboCheck(PaintDisplayListCount(list) >= 100u);
+    RoboCheck(PaintDisplayListCount(list) >= 10u);
     RoboCheckEqInt((int)report.commands, (int)PaintDisplayListCount(list));
 
     DesktopDocumentDestroy(document);

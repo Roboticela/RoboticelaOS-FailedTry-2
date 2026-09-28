@@ -297,19 +297,16 @@ $script:RoboDisplayMarkers = @(
     # The system face was read from the image and parsed; without it every label below is shapes-not-text.
     "ROBO_QEMU_FACE_OK",
     "ROBO_QEMU_DESKTOP_OK",
-    "ROBO_QEMU_DESKTOP_WINDOW=Welcome",
-    "ROBO_QEMU_DESKTOP_STATUS=1280x800",
+    "ROBO_QEMU_DESKTOP_WINDOW=Input Lab",
+    "ROBO_QEMU_DESKTOP_STATUS=Ready",
     # What the frame says. These are the *same numbers the host launcher prints* for the same scene
-    # (`RoboTest.host.exe --desktop --no-window`: fills=12 labels=4 unshaped=0 windows=1 content_runs=1
-    # content_pixels=652912), which is the point of one scene with two backends: a guest number that drifted
-    # from the host's would mean the two launchers had stopped drawing the same desktop. `unshaped` is 0 or
-    # the text in this checkpoint did not reach the picture.
-    "ROBO_QEMU_DESKTOP_WINDOWS=0x00000001",
-    "ROBO_QEMU_DESKTOP_CONTENT_RUNS=0x00000001",
-    "ROBO_QEMU_DESKTOP_LABELS=0x00000004",
+    # (`RoboTest.host.exe --desktop --no-window`). Update when the authentic multi-window scene changes.
+    "ROBO_QEMU_DESKTOP_WINDOWS=0x00000002",
+    "ROBO_QEMU_DESKTOP_CONTENT_RUNS=0x00000002",
+    "ROBO_QEMU_DESKTOP_LABELS=0x00000005",
     "ROBO_QEMU_DESKTOP_UNSHAPED=0x00000000",
-    "ROBO_QEMU_DESKTOP_FILLS=0x0000000C",
-    "ROBO_QEMU_DESKTOP_PIXELS=0x0009F670",
+    "ROBO_QEMU_DESKTOP_FILLS=0x00000012",
+    "ROBO_QEMU_DESKTOP_PIXELS=0x0007B290",
     # Phase 12.18 §44: a second, off-screen render of the shaping specimen, through the same real chain
     # (HTML → CSS → layout → records → display list → RoboGraphics) with the pack's face. Eight paragraphs,
     # 268 glyphs, and **nine** of them without a glyph -- the Hebrew and Arabic line, which the pack (one

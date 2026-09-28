@@ -495,9 +495,11 @@ int DesktopFrameRecordIsValid(const DesktopFrameRecord *record)
     if (record->windows > record->windowsTotal) {
         return 0;
     }
-    if (record->contentPixels > (size_t)record->width * (size_t)record->height) {
-        return 0;
-    }
+    /*
+     * `contentPixels` is work done across window content surfaces — overlapping windows
+     * can sum past the screen area. That is a cost, not unique coverage, so it is not
+     * compared to `width * height`.
+     */
     if (record->bytes != (size_t)record->width * (size_t)record->height * 4u) {
         return 0;
     }

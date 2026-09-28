@@ -258,11 +258,15 @@ static unsigned decimal(char *out, uint32_t value)
 /** "<width>x<height>", the panel's status label. */
 static void GuestStatusText(uint32_t width, uint32_t height)
 {
-    unsigned at = decimal(gStatus, width);
-
-    gStatus[at++] = 'x';
-    at += decimal(gStatus + at, height);
-    gStatus[at] = '\0';
+    /* Calm product status on the panel — dimensions stay in the framebuffer markers. */
+    (void)width;
+    (void)height;
+    gStatus[0] = 'R';
+    gStatus[1] = 'e';
+    gStatus[2] = 'a';
+    gStatus[3] = 'd';
+    gStatus[4] = 'y';
+    gStatus[5] = '\0';
 }
 
 /* ------------------------------------------------------------------ */
@@ -1502,7 +1506,8 @@ int main(int argc, char **argv)
     GuestBootProgress(9950);
     if (checkpoint) {
         serial("ROBO_QEMU_DESKTOP_OK\n");
-        SerialText("ROBO_QEMU_DESKTOP_WINDOW=", RoboDesktopSceneWindowTitle);
+        SerialText("ROBO_QEMU_DESKTOP_WINDOW=",
+                   DesktopWindowTitle(DesktopSceneDesktop(scene), DesktopSceneWindow(scene)));
         SerialText("ROBO_QEMU_DESKTOP_STATUS=", gStatus);
     }
 

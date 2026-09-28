@@ -2,11 +2,12 @@ import { Navigate, Route, Routes } from "react-router-dom";
 
 import { IndexPage } from "@/pages/IndexPage";
 import {
+  BackgroundPage,
   CombinedPage,
   ControlsPage,
-  CursorLabPage,
   DesktopPage,
   DockPage,
+  FolderPage,
   InputLabPage,
   MenuBarPage,
   WindowPage,
@@ -22,8 +23,9 @@ export function App() {
       <Route path="/dock" element={<DockPage />} />
       <Route path="/menubar" element={<MenuBarPage />} />
       <Route path="/input-lab" element={<InputLabPage />} />
-      <Route path="/cursors" element={<CursorLabPage />} />
-      <Route path="/combined" element={<CombinedPage />} />
+      <Route path="/combined"    element={<CombinedPage />} />
+      <Route path="/background"  element={<BackgroundPage />} />
+      <Route path="/folder"      element={<FolderPage />} />
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   );

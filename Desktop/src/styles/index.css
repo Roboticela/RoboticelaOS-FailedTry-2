@@ -2,11 +2,116 @@
 @tailwind components;
 @tailwind utilities;
 
+/* ═══════════════════════════════════════════════════════════════════════════
+   Universal Background Engine — CSS
+   Fit modes apply uniformly across all media types.  Consumers set the
+   data-fit attribute on .bg-layer; the engine writes it automatically.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+@layer components {
+  /* ── Container ──────────────────────────────────────────────────────────── */
+  .bg-layer {
+    @apply absolute inset-0 overflow-hidden;
+    isolation: isolate;
+  }
+
+  /* ── Common base for every rendered source element ──────────────────────── */
+  .bg-source {
+    @apply absolute inset-0 w-full h-full;
+    display: block;
+  }
+
+  /* ── Static image (CSS background-image path) ───────────────────────────── */
+  .bg-source--image {
+    background-size: cover;
+    background-position: center;
+    background-repeat: no-repeat;
+  }
+
+  /* ── Video (object-fit path) ────────────────────────────────────────────── */
+  .bg-source--video {
+    object-fit: cover;
+    object-position: center;
+  }
+
+  /* ── Canvas-based (GIF / Generative) ───────────────────────────────────── */
+  .bg-source--gif,
+  .bg-source--generative {
+    display: block;
+  }
+
+  /* ── Animated / Static SVG ──────────────────────────────────────────────── */
+  .bg-source--svg-animated {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+  }
+
+  /* ── Fit Mode overrides — applied via [data-fit] on the container ─────── */
+
+  /* fill: scale to cover, crop edges */
+  .bg-layer[data-fit="fill"] .bg-source--image {
+    background-size: cover;
+    background-position: center;
+    background-repeat: no-repeat;
+  }
+  .bg-layer[data-fit="fill"] .bg-source--video {
+    object-fit: cover;
+    object-position: center;
+  }
+
+  /* fit: scale to contain, letterbox with --bg-primary */
+  .bg-layer[data-fit="fit"] .bg-source--image {
+    background-size: contain;
+    background-position: center;
+    background-repeat: no-repeat;
+    background-color: var(--bg-primary, #000);
+  }
+  .bg-layer[data-fit="fit"] .bg-source--video {
+    object-fit: contain;
+    object-position: center;
+  }
+
+  /* stretch: distort to fill 100%×100% */
+  .bg-layer[data-fit="stretch"] .bg-source--image {
+    background-size: 100% 100%;
+    background-position: 0 0;
+    background-repeat: no-repeat;
+  }
+  .bg-layer[data-fit="stretch"] .bg-source--video {
+    object-fit: fill;
+    object-position: center;
+  }
+
+  /* center: original size, centered, no repeat */
+  .bg-layer[data-fit="center"] .bg-source--image {
+    background-size: auto;
+    background-position: center;
+    background-repeat: no-repeat;
+  }
+  .bg-layer[data-fit="center"] .bg-source--video {
+    object-fit: none;
+    object-position: center;
+  }
+
+  /* tile: original size, tiled in both axes */
+  .bg-layer[data-fit="tile"] .bg-source--image {
+    background-size: auto;
+    background-position: 0 0;
+    background-repeat: repeat;
+  }
+  /* video/canvas don't tile natively — canvas adapters handle it in JS */
+}
+
 @layer base {
   html,
   body,
   #root {
     min-height: 100%;
+    /* Prevent the dock / desktop from ever causing page scroll */
+    overflow: hidden;
+    height: 100%;
   }
 
   body {
@@ -16,9 +121,28 @@
   }
 }
 
+/* ── Dock animations (ported from desktopref) ──────────────────────────── */
+@keyframes bounceOnce {
+  0%   { transform: translateY(0); }
+  40%  { transform: translateY(-8px); }
+  70%  { transform: translateY(0); }
+  100% { transform: translateY(0); }
+}
+.animate-bounceOnce {
+  animation: bounceOnce 0.22s ease-out;
+}
+
+@keyframes fadeSlide {
+  0%   { opacity: 0; transform: translateY(5px); }
+  100% { opacity: 1; transform: translateY(0); }
+}
+.animate-fadeSlide {
+  animation: fadeSlide 0.25s ease-out forwards;
+}
+
 @layer components {
   .lab-shell {
-    @apply min-h-screen bg-surface-secondary text-ink;
+    @apply h-screen overflow-hidden bg-surface-secondary text-ink;
   }
 
   .lab-card {

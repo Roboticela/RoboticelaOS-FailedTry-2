@@ -46,22 +46,26 @@
 
 #include "Generated/DesktopPage.h"
 
-#define SCENE_MARKUP kDesktopPageMarkup
 #define SCENE_STYLE kDesktopPageStyle
 #define SCENE_SCRIPT kDesktopPageScript
 
+/** One application window the scene owns. */
+typedef struct SceneApp {
+    DesktopWindowId window;
+    DesktopDocument *document;
+    DesktopScript *script;
+    const char *markup;
+    const char *title;
+} SceneApp;
+
 struct DesktopScene {
     Desktop *desktop;
-    DesktopDocument *document;
-    /** The page's RoboJS runtime (Phase 16), owned here; destroyed before the document. */
-    DesktopScript *script;
-    DesktopWindowId window;
+    SceneApp apps[RoboDesktopSceneAppCount];
+    size_t appCount;
+    /** Index of the focused / primary app for DesktopSceneWindow / DesktopSceneDocument. */
+    size_t primary;
     /**
      * The shell's input system (Phase 13.66--13.77), owned here.
-     *
-     * Owned rather than borrowed because a scene *is* the thing that drives the shell: a launcher that
-     * created the system itself would be publishing the same join the module already publishes, and two
-     * launchers of one scene are the reason this file exists at all.
      */
     DesktopInput *input;
     /** Borrowed: the caller's face, kept only so a rebuilt document is built with the same one. */
@@ -109,7 +113,7 @@ static size_t SceneLength(const char *text)
 
 const char *DesktopSceneMarkup(void)
 {
-    return SCENE_MARKUP;
+    return kDesktopPageMarkup;
 }
 
 const char *DesktopSceneStyle(void)
@@ -119,7 +123,7 @@ const char *DesktopSceneStyle(void)
 
 size_t DesktopSceneMarkupLength(void)
 {
-    return SceneLength(SCENE_MARKUP);
+    return SceneLength(kDesktopPageMarkup);
 }
 
 void DesktopSceneConfigInit(DesktopSceneConfig *config)
@@ -161,33 +165,26 @@ void DesktopSceneStepInit(DesktopSceneStep *step)
 /* ------------------------------------------------------------------ */
 
 /**
- * Build the document the scene's window shows, at the client size the *shell* computed.
- *
- * The client rectangle is asked for rather than derived, and that is the same rule the desktop's own suite
- * follows: a document built for a size the shell did not compute would be composited at one size and laid
- * out for another, which is the defect this call exists to make unexpressible.
- *
- * The old document is released **before** the new contents are attached, because a window borrows a display
- * list: attaching the new list while the old document still owned nothing would be fine, but releasing the
- * old one *after* attaching a new list from it is the order that would leave a window pointing at freed
- * memory.
+ * Build one application document into @p app, at the client size the shell computed for its window.
  */
-static Result SceneBuildDocument(DesktopScene *scene, DesktopDiag *diag)
+static Result SceneBuildAppDocument(DesktopScene *scene, SceneApp *app, DesktopDiag *diag)
 {
     DesktopDocumentConfig config;
     DesktopDocument *document = NULL;
     GfxRect client;
     Result result;
 
-    if (DesktopWindowClientBounds(scene->desktop, scene->window, &client) != RoboOk) {
+    if (app->window == RoboDesktopWindowIdNone || !app->markup) {
+        return RoboOk;
+    }
+    if (DesktopWindowClientBounds(scene->desktop, app->window, &client) != RoboOk) {
         return RoboNotFound;
     }
     if (client.width <= 0 || client.height <= 0) {
-        /* A window grown to nothing shows nothing; that is not a document that failed to build. */
         return RoboOk;
     }
     DesktopDocumentConfigInit(&config);
-    config.html = SCENE_MARKUP;
+    config.html = app->markup;
     config.css = SCENE_STYLE;
     config.width = client.width;
     config.height = client.height;
@@ -198,11 +195,10 @@ static Result SceneBuildDocument(DesktopScene *scene, DesktopDiag *diag)
     if (result != RoboOk) {
         return result;
     }
-    /* Script first: RoboJS must detach before the HTML document it borrowed is destroyed. */
-    DesktopScriptDestroy(scene->script);
-    scene->script = NULL;
-    DesktopDocumentDestroy(scene->document);
-    scene->document = document;
+    DesktopScriptDestroy(app->script);
+    app->script = NULL;
+    DesktopDocumentDestroy(app->document);
+    app->document = document;
 
     {
         DesktopScript *script = NULL;
@@ -212,61 +208,120 @@ static Result SceneBuildDocument(DesktopScene *scene, DesktopDiag *diag)
         if (result != RoboOk) {
             return result;
         }
-        scene->script = script;
+        app->script = script;
+        /* Pick up class changes the page script made at evaluate (e.g. jsReady). */
+        if (DesktopDocumentRefresh(document, diag) != RoboOk) {
+            LogDebug("robo_desktop: document refresh after script attach declined");
+        }
     }
-    /*
-     * The window's contents are rasterised with **the face the document was measured with** rather than
-     * with the scene's own (Phase 12.3, §13): `DesktopDocumentFace` returns the face the layout pass
-     * actually read metrics from, so a resolver that chose a different face than the caller expected
-     * cannot produce a run whose width was computed from one face and drawn with another. It is the same
-     * object the caller passed when there is no resolver.
-     */
-    result = DesktopWindowSetContent(scene->desktop, scene->window,
-                                            DesktopDocumentDisplayList(document),
-                                            DesktopDocumentFace(document), diag);
+
+    result = DesktopWindowSetContent(scene->desktop, app->window,
+                                     DesktopDocumentDisplayList(document),
+                                     DesktopDocumentFace(document), diag);
     if (result != RoboOk) {
         return result;
     }
 
-    /*
-     * Tell the input system what this window's contents are (Phase 13.68/13.70): the document's own layout
-     * tree, so a press in the client area resolves to the **node** under it through `PaintHitTest` rather
-     * than to the window. Re-registered on every rebuild, because a rebuild is a new tree and the old one
-     * is about to be freed.
-     */
     if (scene->input) {
         DesktopInputContent content;
 
         DesktopInputContentInit(&content);
-        content.window = scene->window;
+        content.window = app->window;
         content.tree = DesktopDocumentTree(document);
         (void)DesktopInputSetContent(scene->input, &content, diag);
     }
     return RoboOk;
 }
 
+/** Build every live application document. */
+static Result SceneBuildAllDocuments(DesktopScene *scene, DesktopDiag *diag)
+{
+    size_t index;
+    Result result;
+
+    for (index = 0u; index < scene->appCount; index++) {
+        result = SceneBuildAppDocument(scene, &scene->apps[index], diag);
+        if (result != RoboOk) {
+            return result;
+        }
+    }
+    return RoboOk;
+}
+
 /**
- * The window's outer rectangle: the work area less a margin on every side.
- *
- * Not the whole work area, and not the screen: a window that filled the screen would hide the panel's
- * relationship to the surface behind it, which is one of the three depth levels the theme is arranged
- * around, and a checkpoint that hid the thing it demonstrates would be a checkpoint nobody could read. A
- * screen too small for the margin degrades to the work area itself rather than to a negative rectangle.
+ * Refresh documents after a page-script mutation so attribute/class changes become pixels.
  */
-static void SceneWindowBounds(const Desktop *desktop, int32_t *outWidth, int32_t *outHeight)
+static void SceneRefreshAfterScript(DesktopScene *scene, DesktopDiag *diag)
+{
+    size_t index;
+
+    for (index = 0u; index < scene->appCount; index++) {
+        SceneApp *app = &scene->apps[index];
+
+        if (!app->document || app->window == RoboDesktopWindowIdNone) {
+            continue;
+        }
+        if (DesktopDocumentRefresh(app->document, diag) != RoboOk) {
+            continue;
+        }
+        (void)DesktopWindowSetContent(scene->desktop, app->window,
+                                      DesktopDocumentDisplayList(app->document),
+                                      DesktopDocumentFace(app->document), diag);
+        if (scene->input) {
+            DesktopInputContent content;
+
+            DesktopInputContentInit(&content);
+            content.window = app->window;
+            content.tree = DesktopDocumentTree(app->document);
+            (void)DesktopInputSetContent(scene->input, &content, diag);
+        }
+    }
+    scene->needsPaint = 1;
+    scene->needsCursorPaint = 0;
+}
+
+/**
+ * Place the two product windows inside the work area — Overview left, Input Lab raised and offset.
+ */
+static void ScenePlaceWindow(const Desktop *desktop,
+                             int32_t offsetX,
+                             int32_t offsetY,
+                             int32_t width,
+                             int32_t height,
+                             DesktopWindowDesc *desc)
 {
     GfxRect work = DesktopWorkArea(desktop);
-    int32_t width = work.width - RoboDesktopSceneMargin * 2;
-    int32_t height = work.height - RoboDesktopSceneMargin * 2;
+    int32_t maxW = work.width - RoboDesktopSceneMargin;
+    int32_t maxH = work.height - RoboDesktopSceneMargin;
 
-    if (width < 1) {
-        width = work.width;
+    if (maxW < 160) {
+        maxW = work.width > 0 ? work.width : 320;
     }
-    if (height < 1) {
-        height = work.height;
+    if (maxH < 120) {
+        maxH = work.height > 0 ? work.height : 240;
     }
-    *outWidth = width;
-    *outHeight = height;
+    if (width > maxW) {
+        width = maxW;
+    }
+    if (height > maxH) {
+        height = maxH;
+    }
+    if (width < 160) {
+        width = maxW < 160 ? maxW : 160;
+    }
+    if (height < 120) {
+        height = maxH < 120 ? maxH : 120;
+    }
+    desc->x = work.x + RoboDesktopSceneMargin + offsetX;
+    desc->y = work.y + RoboDesktopSceneMargin + offsetY;
+    if (desc->x + width > work.x + work.width) {
+        desc->x = work.x + (work.width > width ? work.width - width : 0);
+    }
+    if (desc->y + height > work.y + work.height) {
+        desc->y = work.y + (work.height > height ? work.height - height : 0);
+    }
+    desc->width = width;
+    desc->height = height;
 }
 
 static Result SceneOnKeyDown(void *userdata, const InputEvent *event, InputEventContext *context);
@@ -280,9 +335,8 @@ Result DesktopSceneOpen(const DesktopSceneConfig *config,
     DesktopScene *scene;
     int32_t width;
     int32_t height;
-    int32_t windowWidth;
-    int32_t windowHeight;
     Result result;
+    size_t index;
 
     if (!config || !out) {
         return RoboInvalidArgument;
@@ -297,9 +351,15 @@ Result DesktopSceneOpen(const DesktopSceneConfig *config,
         return RoboOutOfMemory;
     }
     scene->desktop = NULL;
-    scene->document = NULL;
-    scene->script = NULL;
-    scene->window = RoboDesktopWindowIdNone;
+    scene->appCount = 0u;
+    scene->primary = 1u; /* Input Lab is focused, matching the session model. */
+    for (index = 0u; index < RoboDesktopSceneAppCount; index++) {
+        scene->apps[index].window = RoboDesktopWindowIdNone;
+        scene->apps[index].document = NULL;
+        scene->apps[index].script = NULL;
+        scene->apps[index].markup = NULL;
+        scene->apps[index].title = NULL;
+    }
     scene->input = NULL;
     scene->face = config->face;
     scene->typography = config->typography;
@@ -315,7 +375,7 @@ Result DesktopSceneOpen(const DesktopSceneConfig *config,
     shellConfig.typography = config->typography;
     shellConfig.RoboCreateWindow = config->RoboCreateWindow ? 1 : 0;
     shellConfig.windowTitle = config->windowTitle;
-    shellConfig.statusText = config->statusText;
+    shellConfig.statusText = config->statusText ? config->statusText : "Ready";
     shellConfig.showCursor = scene->showCursor;
     if (config->identityText) {
         shellConfig.identityText = config->identityText;
@@ -330,27 +390,32 @@ Result DesktopSceneOpen(const DesktopSceneConfig *config,
         return result;
     }
 
-    SceneWindowBounds(scene->desktop, &windowWidth, &windowHeight);
+    /* Overview */
+    scene->apps[0].markup = kDesktopPageMarkup;
+    scene->apps[0].title = RoboDesktopSceneWindowTitle;
     DesktopWindowDescInit(&desc);
-    desc.title = RoboDesktopSceneWindowTitle;
-    /* Negative origin: the shell places the window (a third down the work area, centred horizontally),
-     * which is what keeps the checkpoint's composition the shell's business rather than this file's. */
-    desc.x = -1;
-    desc.y = -1;
-    desc.width = windowWidth;
-    desc.height = windowHeight;
-
-    result = DesktopWindowAdd(scene->desktop, &desc, &scene->window, diag);
+    desc.title = scene->apps[0].title;
+    ScenePlaceWindow(scene->desktop, 0, 0, 420, 520, &desc);
+    result = DesktopWindowAdd(scene->desktop, &desc, &scene->apps[0].window, diag);
     if (result != RoboOk) {
         DesktopSceneClose(scene);
         return result;
     }
+    scene->appCount = 1u;
 
-    /*
-     * The input system (Phase 13.66--13.77), built **after** the window exists because its route geometry
-     * and the shell's window identity both come from that window, and before the first document because the
-     * document's tree is what a client-area press is resolved against.
-     */
+    /* Input Lab */
+    scene->apps[1].markup = kDesktopDocInputLabMarkup;
+    scene->apps[1].title = RoboDesktopSceneInputLabTitle;
+    DesktopWindowDescInit(&desc);
+    desc.title = scene->apps[1].title;
+    ScenePlaceWindow(scene->desktop, 96, 48, 560, 560, &desc);
+    result = DesktopWindowAdd(scene->desktop, &desc, &scene->apps[1].window, diag);
+    if (result != RoboOk) {
+        DesktopSceneClose(scene);
+        return result;
+    }
+    scene->appCount = 2u;
+
     {
         DesktopInputConfig inputConfig;
         InputListener listener;
@@ -365,11 +430,10 @@ Result DesktopSceneOpen(const DesktopSceneConfig *config,
             return result;
         }
 
-        /* The scene's own listener, on the window it will be handed events for. */
         InputDiagReset(&idiag);
         InputTargetInit(&listenerTarget);
-        if (InputTargetSetWindow(&listenerTarget, (WindowId)scene->window, RoboInputSpaceScreen,
-                                 &idiag) == RoboOk) {
+        if (InputTargetSetWindow(&listenerTarget, (WindowId)scene->apps[scene->primary].window,
+                                 RoboInputSpaceScreen, &idiag) == RoboOk) {
             MemSet(&listener, 0, sizeof(listener));
             listener.target = listenerTarget;
             listener.phase = RoboInputPhaseTarget;
@@ -381,12 +445,12 @@ Result DesktopSceneOpen(const DesktopSceneConfig *config,
         }
     }
 
-    result = SceneBuildDocument(scene, diag);
+    result = SceneBuildAllDocuments(scene, diag);
     if (result != RoboOk) {
         DesktopSceneClose(scene);
         return result;
     }
-    (void)DesktopWindowFocus(scene->desktop, scene->window);
+    (void)DesktopWindowFocus(scene->desktop, scene->apps[scene->primary].window);
 
     *out = scene;
     return RoboOk;
@@ -394,18 +458,21 @@ Result DesktopSceneOpen(const DesktopSceneConfig *config,
 
 void DesktopSceneClose(DesktopScene *scene)
 {
+    size_t index;
+
     if (!scene) {
         return;
     }
-    /* Reverse of the borrowing order: the input system names the shell's windows (so it goes first), the
-     * script detaches from the document before the document is freed, the document's list is borrowed by
-     * the window (so the window goes before the document), and the shell owned neither. */
     DesktopInputDestroy(scene->input);
     scene->input = NULL;
-    DesktopScriptDestroy(scene->script);
-    scene->script = NULL;
-    DesktopDocumentDestroy(scene->document);
-    scene->document = NULL;
+    for (index = 0u; index < scene->appCount; index++) {
+        DesktopScriptDestroy(scene->apps[index].script);
+        scene->apps[index].script = NULL;
+        DesktopDocumentDestroy(scene->apps[index].document);
+        scene->apps[index].document = NULL;
+        scene->apps[index].window = RoboDesktopWindowIdNone;
+    }
+    scene->appCount = 0u;
     DesktopDestroy(scene->desktop);
     scene->desktop = NULL;
     RoboFree(scene);
@@ -423,12 +490,18 @@ Desktop *DesktopSceneDesktop(DesktopScene *scene)
 
 DesktopWindowId DesktopSceneWindow(const DesktopScene *scene)
 {
-    return scene ? scene->window : RoboDesktopWindowIdNone;
+    if (!scene || scene->appCount == 0u || scene->primary >= scene->appCount) {
+        return RoboDesktopWindowIdNone;
+    }
+    return scene->apps[scene->primary].window;
 }
 
 const DesktopDocument *DesktopSceneDocument(const DesktopScene *scene)
 {
-    return scene ? scene->document : NULL;
+    if (!scene || scene->appCount == 0u || scene->primary >= scene->appCount) {
+        return NULL;
+    }
+    return scene->apps[scene->primary].document;
 }
 
 void DesktopSceneInvalidate(DesktopScene *scene)
@@ -553,6 +626,8 @@ static void SceneStepInput(DesktopScene *scene,
                              DesktopDiag *diag)
 {
     DesktopInputStep inputStep;
+    SceneApp *primary;
+    size_t index;
 
     if (!scene->input) {
         return;
@@ -562,20 +637,37 @@ static void SceneStepInput(DesktopScene *scene,
     step->events += inputStep.windowEvents;
     step->pointerActions += inputStep.actions;
 
-    if (inputStep.documentClick && scene->script && scene->document) {
-        (void)DesktopScriptPostClick(scene->script,
-                                     DesktopDocumentTree(scene->document),
-                                     inputStep.documentClickNode,
-                                     inputStep.documentClickX,
-                                     inputStep.documentClickY,
-                                     diag);
-    }
-    if (scene->script) {
-        (void)DesktopScriptPump(scene->script, 16u, diag);
+    primary = (scene->primary < scene->appCount) ? &scene->apps[scene->primary] : NULL;
+
+    /* Prefer the focused window's script; fall back to any app that owns the click target. */
+    if (inputStep.documentClick) {
+        SceneApp *clicked = NULL;
+
+        for (index = 0u; index < scene->appCount; index++) {
+            if (scene->apps[index].window == DesktopWindowFocused(scene->desktop)) {
+                clicked = &scene->apps[index];
+                scene->primary = index;
+                break;
+            }
+        }
+        if (!clicked) {
+            clicked = primary;
+        }
+        if (clicked && clicked->script && clicked->document) {
+            (void)DesktopScriptPostClick(clicked->script,
+                                         DesktopDocumentTree(clicked->document),
+                                         inputStep.documentClickNode,
+                                         inputStep.documentClickX,
+                                         inputStep.documentClickY,
+                                         diag);
+            (void)DesktopScriptPump(clicked->script, 16u, diag);
+            SceneRefreshAfterScript(scene, diag);
+        }
+    } else if (primary && primary->script) {
+        (void)DesktopScriptPump(primary->script, 16u, diag);
     }
 
     if (inputStep.closeRequested) {
-        /* The shell's own window is closing: the checkpoint is over, whatever the app window is doing. */
         scene->finished = 1;
         step->closeRequested = 1;
     }
@@ -595,27 +687,46 @@ static void SceneStepInput(DesktopScene *scene,
     }
 }
 
-/** The application window's close button, honoured: the shell's window goes and the checkpoint is over. */
+/** Retire application windows that asked to close; finish when none remain. */
 static void SceneRetireClosedWindow(DesktopScene *scene, DesktopSceneStep *step)
 {
-    DesktopWindowState state = RoboDesktopWindowOpen;
+    size_t index;
+    size_t live = 0u;
 
-    if (scene->window == RoboDesktopWindowIdNone) {
+    for (index = 0u; index < scene->appCount; index++) {
+        SceneApp *app = &scene->apps[index];
+        DesktopWindowState state = RoboDesktopWindowOpen;
+
+        if (app->window == RoboDesktopWindowIdNone) {
+            continue;
+        }
+        if (GetDesktopWindowState(scene->desktop, app->window, &state) != RoboOk ||
+            state != RoboDesktopWindowClosing) {
+            live++;
+            continue;
+        }
+        DesktopScriptDestroy(app->script);
+        app->script = NULL;
+        DesktopDocumentDestroy(app->document);
+        app->document = NULL;
+        (void)DesktopWindowDestroy(scene->desktop, app->window);
+        app->window = RoboDesktopWindowIdNone;
+        scene->needsPaint = 1;
+    }
+    if (live == 0u) {
+        scene->finished = 1;
+        step->closeRequested = 1;
         return;
     }
-    if (GetDesktopWindowState(scene->desktop, scene->window, &state) != RoboOk ||
-        state != RoboDesktopWindowClosing) {
-        return;
+    if (scene->apps[scene->primary].window == RoboDesktopWindowIdNone) {
+        for (index = 0u; index < scene->appCount; index++) {
+            if (scene->apps[index].window != RoboDesktopWindowIdNone) {
+                scene->primary = index;
+                (void)DesktopWindowFocus(scene->desktop, scene->apps[index].window);
+                break;
+            }
+        }
     }
-    DesktopScriptDestroy(scene->script);
-    scene->script = NULL;
-    DesktopDocumentDestroy(scene->document);
-    scene->document = NULL;
-    (void)DesktopWindowDestroy(scene->desktop, scene->window);
-    scene->window = RoboDesktopWindowIdNone;
-    scene->finished = 1;
-    scene->needsPaint = 1;
-    step->closeRequested = 1;
 }
 
 Result GetDesktopSceneStep(DesktopScene *scene,
@@ -655,8 +766,7 @@ Result GetDesktopSceneStep(DesktopScene *scene,
             scene->needsCursorPaint = 0;
             /* A document is laid out for a viewport: a resized client area gets a rebuilt picture, not a
              * stretched one. */
-            if (scene->window != RoboDesktopWindowIdNone &&
-                SceneBuildDocument(scene, diag) == RoboOk) {
+            if (SceneBuildAllDocuments(scene, diag) == RoboOk) {
                 step.rebuilt = 1;
             }
         }

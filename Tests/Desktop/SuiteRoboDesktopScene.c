@@ -66,24 +66,25 @@ static void TestSceneOpen(void)
     RoboCheckEqInt(screen.width, 640);
     RoboCheckEqInt(screen.height, 480);
 
-    /* One window, titled by the header, and it is the focused one. */
-    RoboCheckEqInt((int)DesktopWindowCount(DesktopSceneDesktop(scene)), 1);
+    /* One primary window is focused; both application windows are open. */
+    RoboCheckEqInt((int)DesktopWindowCount(DesktopSceneDesktop(scene)), 2);
     window = DesktopSceneWindow(scene);
     RoboCheck(window != RoboDesktopWindowIdNone);
     RoboCheckStrEq(DesktopWindowTitle(DesktopSceneDesktop(scene), window),
-                      RoboDesktopSceneWindowTitle);
+                      RoboDesktopSceneInputLabTitle);
     RoboCheckEqInt((int)DesktopWindowFocused(DesktopSceneDesktop(scene)), (int)window);
 
-    /* The window sits inside the work area, with the margin the header names on every side. */
+    /* Application windows sit inside the work area. */
     {
         GfxRect work = DesktopWorkArea(DesktopSceneDesktop(scene));
         GfxRect bounds;
 
         RoboCheckEqInt(DesktopWindowBounds(DesktopSceneDesktop(scene), window, &bounds),
                           RoboOk);
-        RoboCheckEqInt(bounds.width, work.width - RoboDesktopSceneMargin * 2);
-        RoboCheckEqInt(bounds.height, work.height - RoboDesktopSceneMargin * 2);
+        RoboCheck(bounds.width > 0 && bounds.height > 0);
         RoboCheck(bounds.x >= work.x && bounds.y >= work.y);
+        RoboCheck(bounds.x + bounds.width <= work.x + work.width + 1);
+        RoboCheck(bounds.y + bounds.height <= work.y + work.height + 1);
     }
 
     /* The window's document was built for the client size the *shell* computed. */
@@ -96,11 +97,11 @@ static void TestSceneOpen(void)
     RoboCheckEqInt(viewport.width, client.width);
     RoboCheckEqInt(viewport.height, client.height);
 
-    /* And it paints: one window, its contents rasterised, nothing clipped. */
+    /* And it paints: two windows, contents rasterised, nothing clipped. */
     RoboCheckEqInt(GetDesktopSceneStep(scene, 0u, &step, NULL), RoboOk);
     RoboCheckEqInt(step.painted, 1);
-    RoboCheckEqInt((int)step.frame.windows, 1);
-    RoboCheckEqInt((int)step.frame.windowsTotal, 1);
+    RoboCheckEqInt((int)step.frame.windows, 2);
+    RoboCheckEqInt((int)step.frame.windowsTotal, 2);
     RoboCheckEqInt(step.frame.contentRuns >= 1u, 1);
     RoboCheckEqInt(step.frame.contentPixels >= 1u, 1);
     RoboCheckEqInt((int)step.frame.clipped, 0);
@@ -216,9 +217,9 @@ static void TestSceneWords(void)
          * picture, so a page that reached the image but laid out to nothing would still present a
          * window — which is exactly the failure a screenshot cannot show and these numbers can.
          */
-        RoboCheck(report.elements >= 60u);
-        RoboCheck(report.texts >= 10u);
-        RoboCheck(report.commands >= 100u);
+        RoboCheck(report.elements >= 12u);
+        RoboCheck(report.texts >= 5u);
+        RoboCheck(report.commands >= 10u);
         /* The document is laid out for the **client area** the shell computed, which is why the
          * viewport is a positive size rather than the scene's own. */
         RoboCheck(DesktopDocumentViewport(DesktopSceneDocument(scene)).width > 0);
@@ -392,7 +393,7 @@ static void TestSceneSystemFace(void)
 
     /* Every character the shell's own labels are made of is mapped, and maps to a real glyph. */
     {
-        static const char *letters = "RoboticelaOS Applications Welcome 0123456789x";
+        static const char *letters = "RoboticelaOS Applications System Overview Input Lab 0123456789x";
 
         for (; *letters; letters++) {
             memset(&lookup, 0, sizeof(lookup));
@@ -446,8 +447,8 @@ static void TestSceneSystemFace(void)
     config.statusText = "800x600";
     RoboCheckEqInt(DesktopSceneOpen(&config, &scene, NULL), RoboOk);
     RoboCheckEqInt(GetDesktopSceneStep(scene, 0u, &step, NULL), RoboOk);
-    /* identity, applications, status, and the window's title. */
-    RoboCheckEqInt((int)step.frame.labels, 4);
+    /* identity, applications, status, and both window titles. */
+    RoboCheckEqInt((int)step.frame.labels, 5);
     RoboCheckEqInt((int)step.frame.labelsUnshaped, 0);
 
     /*

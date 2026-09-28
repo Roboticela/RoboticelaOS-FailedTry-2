@@ -89,6 +89,8 @@ export interface DockItem {
   focused: boolean;
   iconClass?: string;
   tint?: string;
+  /** URL to the app icon image (optional; Dock falls back to first-letter tile). */
+  iconUrl?: string;
 }
 
 export interface DesktopIcon {

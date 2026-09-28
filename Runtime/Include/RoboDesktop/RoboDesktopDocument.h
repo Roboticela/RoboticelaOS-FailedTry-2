@@ -192,6 +192,17 @@ Result DesktopDocumentBuild(const DesktopDocumentConfig *config,
                                           DesktopDocument **out,
                                           DesktopDiag *diag);
 
+/**
+ * Re-run cascade → layout → paint over the **live** HTML document after a page script mutated
+ * attributes or classes (Phase 16).
+ *
+ * Keeps the DOM and stylesheets; rebuilds the layout tree and display list. The previous display
+ * list pointer is invalidated — callers must re-attach via `DesktopWindowSetContent`.
+ *
+ * @return RoboOk; RoboInvalidArgument for NULL or a non-live document; a stage failure otherwise.
+ */
+Result DesktopDocumentRefresh(DesktopDocument *document, DesktopDiag *diag);
+
 /** Destroy @p document: the display list, the records, the tree, the bridge, the styles and the DOM, in
  *  that order. Safe on NULL. */
 void DesktopDocumentDestroy(DesktopDocument *document);

@@ -21,13 +21,17 @@
  *   the **pass**: a box taken out of flow, placed against the right containing block
  *   (a positioned ancestor's padding box, or the viewport), *not* taking room in flow and
  *   *not* growing its parent. The sibling below it is the witness:
- *   `layout.absolute.flow_untouched` fails a build that placed the box correctly and left
- *   its space reserved, which is the most plausible way to get this phase half right;
+ *   `layout.absolute.block_positioned_wrapper` fails a build that placed the box correctly
+ *   and left its space reserved, which is the most plausible way to get this phase half
+ *   right. (This comment named that witness `layout.absolute.flow_untouched` until Phase
+ *   19.5 was re-verified -- a name no case has ever had, which is exactly the sort of drift
+ *   a re-verification is for; §7 of `OutOfFlow.md` is the map of the names that do exist.)
  *
- *   the **counters**, because five of them describe facts that look identical in geometry:
+ *   the **counters**, because several of them describe facts that look identical in geometry:
  *   a box sized by two insets and one that happens to be that wide, an axis anchored by its
  *   far side and one with no inset at all, a `fixed` box and an `absolute` box with no
- *   positioned ancestor.
+ *   positioned ancestor -- and because the record is part of the block record's own
+ *   *identity*, which is the assertion that caught it being left out of the comparison.
  *
  * The scripts here are *computed styles*, built through the computed-value makers rather
  * than as hand-written structs, for the reason 10.8's, 10.9's, 10.10's, 10.11's and 10.12's
@@ -1484,6 +1488,41 @@ static void TestAbsoluteCountersAndDeterminism(void)
     RoboCheckEqInt((int)first.block.absolute.sidesAuto, 0);
     RoboCheckEqInt((int)first.block.absolute.sidesUnresolved, 0);
     RoboCheckEqInt(LayoutBlockStatsEqual(&first.block, &second.block), 1);
+
+    /*
+     * And the **negative half**, which is the assertion the positive one cannot make: the
+     * absolute record is part of the block record's own identity, so two records that placed
+     * different out-of-flow boxes are not equal. This is the shape 19.6 pinned its `table`
+     * record with, and it is here because the comparison was the one nested record
+     * `LayoutBlockStatsEqual` left out -- a build that dropped it again agrees with every
+     * number this case asserts above and fails only here.
+     */
+    {
+        LayoutBlockStats left;
+        LayoutBlockStats right;
+
+        LayoutBlockStatsInit(&left);
+        right = left;
+        RoboCheckEqInt(LayoutBlockStatsEqual(&left, &right), 1);
+        RoboCheckEqInt(LayoutAbsoluteCountersEqual(&left.absolute, &right.absolute), 1);
+        /* One counter apart is a difference, and the seven are read field by field: a
+         * `viewportAnchored` count is what a pass that reached the wrong containing block
+         * changes, and a `boxesOutOfFlow` count is what one that walked the wrong subtree
+         * changes. */
+        right.absolute.viewportAnchored = 1u;
+        RoboCheckEqInt(LayoutAbsoluteCountersEqual(&left.absolute, &right.absolute), 0);
+        RoboCheckEqInt(LayoutBlockStatsEqual(&left, &right), 0);
+        right = left;
+        right.absolute.boxesOutOfFlow = 1u;
+        RoboCheckEqInt(LayoutBlockStatsEqual(&left, &right), 0);
+        right = left;
+        right.absolute.axesAnchoredFar = 1u;
+        RoboCheckEqInt(LayoutBlockStatsEqual(&left, &right), 0);
+        /* And the record is still the zero it was: none of the copies above was a reference. */
+        RoboCheckEqInt(left.absolute.boxesOutOfFlow, 0u);
+        RoboCheckEqInt(left.absolute.viewportAnchored, 0u);
+        RoboCheckEqInt(left.absolute.axesAnchoredFar, 0u);
+    }
 
     /* And the allocator balance: this phase adds no arena, no cache and no per-pass state,
      * so a pass allocates nothing that outlives it -- and one that leaked a placement

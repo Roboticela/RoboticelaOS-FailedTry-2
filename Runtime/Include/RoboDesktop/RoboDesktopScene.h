@@ -60,18 +60,24 @@
 extern "C" {
 #endif
 
-/** An open scene: a shell, one window, and that window's document. */
+/** An open scene: a shell, application windows, and each window's document. */
 typedef struct DesktopScene DesktopScene;
 
-/** What the scene's window is titled. */
-#define RoboDesktopSceneWindowTitle "Welcome"
+/** Title of the primary (Overview) window. */
+#define RoboDesktopSceneWindowTitle "System Overview"
 
-/** Space the scene leaves between its window and the work area's edges, in pixels. */
-#define RoboDesktopSceneMargin 80
+/** Title of the Input Lab window. */
+#define RoboDesktopSceneInputLabTitle "Input Lab"
+
+/** Space the scene leaves between its windows and the work area's edges, in pixels. */
+#define RoboDesktopSceneMargin 48
 
 /** The scene's screen size when a caller does not choose one: the panel's own design size. */
 #define RoboDesktopSceneDefaultWidth 1280
 #define RoboDesktopSceneDefaultHeight 800
+
+/** How many application windows the checkpoint opens. */
+#define RoboDesktopSceneAppCount 2u
 
 /** What a caller hands an open scene. */
 typedef struct DesktopSceneConfig {

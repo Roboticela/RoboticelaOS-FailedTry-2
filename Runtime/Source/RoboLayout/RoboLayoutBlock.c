@@ -1283,6 +1283,16 @@ int LayoutBlockStatsEqual(const LayoutBlockStats *a,
            a->offsetsDeclined == b->offsetsDeclined &&
            a->offsetsUnresolved == b->offsetsUnresolved &&
            a->boxesShifted == b->boxesShifted &&
+           /*
+            * Phase 14.0's record, and the door that says so. It was the one nested counter
+            * record this comparison left out, and the omission was silent for the same
+            * reason 19.6's `table` one was: two passes that placed *different* out-of-flow
+            * boxes -- one `fixed` against the viewport and one `absolute` against a wrapper,
+            * say -- report as equal, so the record that exists to separate them cannot. The
+            * nested record's own `LayoutAbsoluteCountersEqual` is the comparison; writing the
+            * seven fields out again here would be a second definition of the same identity.
+            */
+           LayoutAbsoluteCountersEqual(&a->absolute, &b->absolute) &&
            a->overflowClipped == b->overflowClipped &&
            a->overflowing == b->overflowing &&
            a->overflowUnresolved == b->overflowUnresolved &&

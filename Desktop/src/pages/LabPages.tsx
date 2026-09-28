@@ -1,9 +1,16 @@
 import { Link } from "react-router-dom";
-import { useState, type ReactNode } from "react";
+import type { ReactNode } from "react";
+import { useMemo, useState } from "react";
 
 import { InteractiveDesktop, InteractiveWindow } from "@/components/interactive/Shell";
-import { CURSOR_LAB_ITEMS, cursorCssValue } from "@/cursors/cursorLab";
+import { Dock } from "@/components/interactive/Dock";
 import { useDesktopSession } from "@/session/useDesktopSession";
+import { BackgroundLayer } from "@/background/BackgroundLayer";
+import { VideoSource } from "@/background/adapters/VideoSource";
+import defaultBg from "@/assets/DefaultBackground.mp4";
+import { FolderIcon } from "@/components/folder/FolderIcon";
+import type { FolderColor, SystemFolderKind, FolderIconProps } from "@/components/folder/FolderIcon";
+
 
 function LabChrome({ title, children }: { title: string; children: ReactNode }) {
   return (
@@ -119,25 +126,16 @@ export function DockPage() {
   const session = useDesktopSession();
   return (
     <LabChrome title="Dock">
-      <div className="relative flex h-[calc(100vh-2.5rem)] items-end justify-center bg-[#B8C4D4] pb-16">
-        <p className="absolute top-10 text-ink-secondary">Click a tile to launch or focus.</p>
-        <div className="fixed bottom-8 left-1/2 z-50 flex -translate-x-1/2 items-end gap-2 rounded-2xl border border-black/10 bg-white/70 px-3 py-2 shadow-dock backdrop-blur-xl">
-          {session.state.dock.map((item) => (
-            <button
-              key={item.id}
-              type="button"
-              className="group flex w-14 flex-col items-center"
-              onClick={() => session.launch(item.id)}
-            >
-              <span
-                className="h-10 w-10 rounded-xl border border-black/10 shadow-sm transition group-hover:-translate-y-2 group-hover:scale-110"
-                style={{ background: item.tint }}
-              />
-              <span className="mt-1 text-[10px] text-ink">{item.name}</span>
-            </button>
-          ))}
-        </div>
-        <p className="absolute bottom-28 text-sm text-ink">{session.status}</p>
+      <div className="relative h-[calc(100vh-2.5rem)] overflow-hidden bg-[#1C1C1E]">
+        <p className="absolute top-10 left-1/2 -translate-x-1/2 text-sm text-white/50 pointer-events-none">
+          Hover icons to magnify · Click to launch
+        </p>
+        <Dock session={session} />
+        {session.status !== "Ready — click, type, drag" && (
+          <p className="absolute bottom-20 left-1/2 -translate-x-1/2 text-xs text-white/50 font-mono">
+            {session.status}
+          </p>
+        )}
       </div>
     </LabChrome>
   );
@@ -186,48 +184,145 @@ export function MenuBarPage() {
   );
 }
 
-export function CursorLabPage() {
-  const [active, setActive] = useState<string | null>(null);
-  const categories = ["navigation", "resize", "editing", "status"] as const;
+
+export function BackgroundPage() {
+  const source = useMemo(() => new VideoSource(defaultBg), []);
+  return (
+    <div className="relative h-screen w-screen overflow-hidden bg-black">
+      <BackgroundLayer source={source} fitMode="fill" visible lowPower={false} />
+    </div>
+  );
+}
+
+// ── Folder Icon Lab ───────────────────────────────────────────────────────────
+
+const FOLDER_COLORS: FolderColor[] = [
+  "blue", "gray", "green", "purple", "red", "yellow", "orange", "pink",
+];
+
+const SYSTEM_FOLDERS: { kind: SystemFolderKind; label: string }[] = [
+  { kind: "home",         label: "Home" },
+  { kind: "documents",    label: "Documents" },
+  { kind: "downloads",    label: "Downloads" },
+  { kind: "desktop",      label: "Desktop" },
+  { kind: "applications", label: "Applications" },
+];
+
+function FolderRow({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <div className="mb-8">
+      <p className="mb-3 text-[11px] font-semibold uppercase tracking-widest text-white/40">{label}</p>
+      <div className="flex flex-wrap gap-6 items-end">{children}</div>
+    </div>
+  );
+}
+
+function FolderTile({ label, ...props }: FolderIconProps & { label?: string }) {
+  return (
+    <div className="flex flex-col items-center gap-1.5">
+      <FolderIcon {...props} size={96} />
+      {label && <p className="text-[11px] text-white/55 text-center max-w-[88px] leading-tight">{label}</p>}
+    </div>
+  );
+}
+
+export function FolderPage() {
+  const [darkMode, setDarkMode] = useState(false);
+  const [activeState, setActiveState] = useState<FolderIconProps["state"]>("rest");
 
   return (
-    <LabChrome title="Cursor Lab">
-      <div className="mx-auto max-w-4xl px-6 py-10">
-        <h1 className="text-3xl font-semibold tracking-tight text-ink">Cursor Lab</h1>
-        <p className="mt-2 max-w-2xl text-[17px] text-ink-secondary">
-          Hover each tile to preview the official RoboticelaOS cursor pack (SVG data URIs). The guest
-          shell paints the same shapes from <code className="text-[14px]">roboticela.rcur</code>.
-        </p>
-        <p className="mt-2 text-[13px] text-ink-tertiary">
-          Active: {active ?? "—"} · Formats: SVG + .rcur · Logical 16 pt × device scale
-        </p>
-        {categories.map((category) => (
-          <section key={category} className="mt-10">
-            <h2 className="text-[13px] font-medium uppercase tracking-[0.06em] text-ink-secondary">
-              {category}
-            </h2>
-            <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4">
-              {CURSOR_LAB_ITEMS.filter((item) => item.category === category).map((item) => (
-                <div
-                  key={item.id}
-                  className="flex min-h-[120px] flex-col justify-between rounded-xl bg-[#F5F5F7] p-4 transition hover:bg-[#EDEDEF]"
-                  style={{ cursor: cursorCssValue(item) }}
-                  onMouseEnter={() => setActive(`${item.id} · ${item.stateName}`)}
-                  onMouseLeave={() => setActive(null)}
-                >
-                  <div
-                    className="h-8 w-8"
-                    dangerouslySetInnerHTML={{ __html: item.svg }}
-                  />
-                  <div>
-                    <div className="text-[15px] font-semibold text-ink">{item.title}</div>
-                    <div className="mt-0.5 font-mono text-[11px] text-ink-tertiary">{item.stateName}</div>
-                  </div>
-                </div>
-              ))}
+    <LabChrome title="Folder Icon">
+      <div className={`min-h-[calc(100vh-2.5rem)] overflow-y-auto p-8 ${
+        darkMode ? "bg-[#1c1c1e]" : "bg-[#2c2c2e]"
+      }`}>
+        {/* Controls */}
+        <div className="mb-8 flex flex-wrap gap-3">
+          <button
+            type="button"
+            onClick={() => setDarkMode(d => !d)}
+            className={`rounded-xl px-4 py-2 text-[12px] font-semibold transition ${
+              darkMode
+                ? "bg-white/15 text-white ring-1 ring-white/30"
+                : "bg-white/8 text-white/70 hover:bg-white/15"
+            }`}
+          >
+            {darkMode ? "● Dark Mode" : "◯ Light Mode"}
+          </button>
+          {(["rest", "selected", "open", "drag-over"] as const).map(s => (
+            <button
+              key={s}
+              type="button"
+              onClick={() => setActiveState(s)}
+              className={`rounded-xl px-4 py-2 text-[12px] font-semibold transition capitalize ${
+                activeState === s
+                  ? "bg-white/20 text-white ring-1 ring-white/30"
+                  : "bg-white/8 text-white/50 hover:bg-white/15"
+              }`}
+            >
+              {s}
+            </button>
+          ))}
+        </div>
+
+        {/* Tint Colours */}
+        <FolderRow label="Tint Colours — empty">
+          {FOLDER_COLORS.map(c => (
+            <FolderTile key={c} color={c} darkMode={darkMode} state={activeState} label={c} />
+          ))}
+        </FolderRow>
+
+        {/* System Folders */}
+        <FolderRow label="System Folders — fixed glyphs">
+          {SYSTEM_FOLDERS.map(({ kind, label }) => (
+            <FolderTile key={kind} color="blue" system={kind} darkMode={darkMode} state={activeState} label={label} />
+          ))}
+        </FolderRow>
+
+        {/* Content Peeks */}
+        <FolderRow label="Content Peeks — 1 / 2 / 3 items">
+          <FolderTile color="blue" darkMode={darkMode} state={activeState} label="1 file"
+            peeks={[{ accentColor: "#0A84FF" }]} />
+          <FolderTile color="green" darkMode={darkMode} state={activeState} label="2 files"
+            peeks={[{ accentColor: "#32D74B" }, { accentColor: "#FF9F0A" }]} />
+          <FolderTile color="purple" darkMode={darkMode} state={activeState} label="3 files"
+            peeks={[
+              { accentColor: "#BF5AF2" },
+              { accentColor: "#0A84FF" },
+              { accentColor: "#FF375F" },
+            ]} />
+          <FolderTile color="orange" darkMode={darkMode} state={activeState} label="Sub-folders"
+            peeks={[
+              { isFolder: true, accentColor: "#FF9F0A" },
+              { isFolder: true, accentColor: "#5AC8FA" },
+              { isFolder: true, accentColor: "#BF5AF2" },
+            ]} />
+        </FolderRow>
+
+        {/* Badges */}
+        <FolderRow label="Badges">
+          <FolderTile color="blue" darkMode={darkMode} state={activeState} label="Shared"
+            badges={["shared"]} peeks={[{ accentColor: "#0A84FF" }]} />
+          <FolderTile color="blue" darkMode={darkMode} state={activeState} label="iCloud"
+            badges={["icloud"]} peeks={[{ accentColor: "#32D74B" }]} />
+          <FolderTile color="gray" darkMode={darkMode} state={activeState} label="Locked"
+            badges={["locked"]} />
+          <FolderTile color="blue" darkMode={darkMode} state={activeState} label="Alias"
+            badges={["alias"]} peeks={[{ accentColor: "#FF9F0A" }]} />
+          <FolderTile color="blue" darkMode={darkMode} state={activeState} label="Shared + Locked"
+            badges={["shared", "locked"]} peeks={[{ accentColor: "#BF5AF2" }]} />
+        </FolderRow>
+
+        {/* Size Scale */}
+        <FolderRow label="Size Scale — 256 / 128 / 96 / 64 / 48 / 32 / 16">
+          {[256, 128, 96, 64, 48, 32, 16].map(s => (
+            <div key={s} className="flex flex-col items-center gap-1">
+              <FolderIcon color="blue" darkMode={darkMode} state={activeState}
+                peeks={[{ accentColor: "#0A84FF" }, { accentColor: "#FF9F0A" }]}
+                size={s} />
+              <p className="text-[10px] text-white/40">{s}px</p>
             </div>
-          </section>
-        ))}
+          ))}
+        </FolderRow>
       </div>
     </LabChrome>
   );

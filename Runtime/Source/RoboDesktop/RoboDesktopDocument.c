@@ -506,6 +506,138 @@ Result DesktopDocumentBuild(const DesktopDocumentConfig *config,
     return RoboOk;
 }
 
+Result DesktopDocumentRefresh(DesktopDocument *document, DesktopDiag *diag)
+{
+    LayoutBuildOptions options;
+    LayoutBuildReport buildReport;
+    LayoutContext *context = NULL;
+    PaintContext *paint = NULL;
+    PaintDisplayListBuilder *builder = NULL;
+    PaintDiag paintDiag;
+    LayoutDiag layoutDiag;
+    Result status;
+
+    if (!document || !document->live) {
+        return RoboDesktopDiag(diag, RoboDesktopDomainDocument, RoboInvalidArgument,
+                               "a live document is required to refresh");
+    }
+
+    /* Tear down the picture and the tree; keep the DOM, styles, and face. */
+    if (document->display) {
+        PaintDisplayListDestroy(document->display);
+        document->display = NULL;
+    }
+    if (document->records) {
+        PaintListDestroy(document->records);
+        document->records = NULL;
+    }
+    if (document->tree) {
+        LayoutTreeDestroy(document->tree);
+        document->tree = NULL;
+    }
+
+    LayoutDiagReset(&layoutDiag);
+    status = LayoutDomRefresh(document->dom, &layoutDiag);
+    if (status == RoboOk) {
+        status = LayoutDomStyleSource(document->dom, &document->source, &layoutDiag);
+    }
+    if (status != RoboOk) {
+        return RoboDesktopDiag(
+            diag, RoboDesktopDomainDocument, status,
+            layoutDiag.message ? layoutDiag.message : "the layout bridge could not refresh");
+    }
+
+    status = LayoutTreeCreate(&document->tree, &layoutDiag);
+    if (status == RoboOk) {
+        LayoutBuildOptionsInit(&options);
+        options.styles = &document->source;
+        status = LayoutTreeBuildFromDocument(document->tree, document->html, &options, &buildReport,
+                                             &layoutDiag);
+    }
+    if (status == RoboOk) {
+        status = LayoutContextCreate(&context, &layoutDiag);
+    }
+    if (status == RoboOk) {
+        LayoutSize viewport;
+
+        viewport.width = document->viewport.width;
+        viewport.height = document->viewport.height;
+        status = LayoutContextSetViewport(context, viewport, &layoutDiag);
+    }
+    if (status == RoboOk && document->face) {
+        LayoutTextMetrics metrics;
+
+        status = LayoutTextFontAttach(&document->font, document->face);
+        if (status == RoboOk && document->fontProvider) {
+            LayoutFontProvider provider = DesktopFontProviderLayout(document->fontProvider);
+
+            LayoutTextFontSetProvider(&document->font, &provider);
+        }
+        if (status == RoboOk) {
+            metrics = LayoutTextFontMetrics(&document->font);
+            status = LayoutContextSetTextMetrics(context, &metrics);
+        }
+    }
+    if (status == RoboOk) {
+        status = LayoutContextRun(context, document->tree, &layoutDiag);
+    }
+    if (context) {
+        LayoutContextDestroy(context);
+        context = NULL;
+    }
+    if (status != RoboOk) {
+        return RoboDesktopDiag(
+            diag, RoboDesktopDomainDocument, status,
+            layoutDiag.message ? layoutDiag.message : "the document could not be re-laid out");
+    }
+    document->report.elements = LayoutDomElementCount(document->dom);
+    document->report.boxes = buildReport.boxesCreated;
+    document->report.texts = buildReport.textsCreated;
+
+    PaintDiagReset(&paintDiag);
+    status = PaintListCreate(&document->records, &paintDiag);
+    if (status == RoboOk) {
+        status = PaintContextCreate(&paint, &paintDiag);
+    }
+    if (status == RoboOk) {
+        PaintContextSetTextFace(paint, document->face);
+        status = PaintContextRun(paint, document->tree, document->records, &paintDiag);
+    }
+    if (paint) {
+        PaintContextDestroy(paint);
+        paint = NULL;
+    }
+    if (status == RoboOk) {
+        status = PaintDisplayListCreate(&document->display, &paintDiag);
+    }
+    if (status == RoboOk) {
+        status = PaintDisplayListBuilderCreate(&builder, &paintDiag);
+    }
+    if (status == RoboOk) {
+        status = PaintDisplayListBuilderBuild(builder, document->records, document->display, NULL,
+                                              &paintDiag);
+    }
+    if (builder) {
+        PaintDisplayListBuilderDestroy(builder);
+        builder = NULL;
+    }
+    if (status != RoboOk) {
+        return RoboDesktopDiag(
+            diag, RoboDesktopDomainDocument, status,
+            paintDiag.message ? paintDiag.message : "the document could not be re-painted");
+    }
+    document->report.records = PaintListCount(document->records);
+    document->report.commands = PaintDisplayListCount(document->display);
+    document->report.fontFamiliesResolved = DesktopFontProviderResolved(document->fontProvider);
+    document->report.fontFamiliesUnresolved =
+        DesktopFontProviderUnresolved(document->fontProvider);
+
+    LogDebug("robo_desktop: document refreshed %dx%d (commands=%llu)",
+             (int)document->viewport.width, (int)document->viewport.height,
+             (unsigned long long)document->report.commands);
+    return RoboOk;
+}
+
 int DesktopDocumentIsLive(const DesktopDocument *document)
 {
     return (document && document->live) ? 1 : 0;
