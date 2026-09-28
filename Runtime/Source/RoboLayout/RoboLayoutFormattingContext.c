@@ -47,6 +47,8 @@ const char *LayoutFcKindName(LayoutFcKind kind)
         return "flex";
     case RoboLayoutFcGrid:
         return "grid";
+    case RoboLayoutFcTable:
+        return "table";
     default:
         return "unknown";
     }
@@ -106,7 +108,20 @@ int LayoutFcDisplayIsBlockContainer(CssDisplay display)
      * rather than a third comparison. */
     if (outer == RoboCssDisplayOuterBlock &&
         MakeCssDisplayInner(display) != RoboCssDisplayInnerFlex &&
-        MakeCssDisplayInner(display) != RoboCssDisplayInnerGrid) {
+        MakeCssDisplayInner(display) != RoboCssDisplayInnerGrid &&
+        MakeCssDisplayInner(display) != RoboCssDisplayInnerTable) {
+        return 1;
+    }
+    /*
+     * Phase 19.6: a table **cell** and a table **caption** are block containers, and
+     * they are the first boxes this build has whose **outer** display is neither block
+     * nor inline -- an internal table box is placed by the table that owns it. CSS 2.1
+     * §9.4.1 lists both among the boxes that establish a new block formatting context,
+     * which is why the question is asked of the boundary predicate rather than of the
+     * outer column: a row or a column is internal too, and neither one establishes
+     * anything.
+     */
+    if (CssDisplayIsTableBoundary(display)) {
         return 1;
     }
     /* An atomic inline's *inner* box is one. It is a real box in CSS and not one
@@ -128,11 +143,13 @@ int LayoutFcDisplayCanEstablish(CssDisplay display)
     }
     /* An inner display of flow-root is a new block formatting context by
      * definition -- which is what makes `inline-block` establish one without this
-     * function naming it. An inner display of flex is a new **flex** context (19.3)
-     * and one of grid a new **grid** context (19.4) by the same definition. */
+     * function naming it. An inner display of flex is a new **flex** context (19.3),
+     * one of grid a new **grid** context (19.4) and one of table a new **table**
+     * context (19.6) by the same definition. */
     if (MakeCssDisplayInner(display) == RoboCssDisplayInnerFlowRoot ||
         MakeCssDisplayInner(display) == RoboCssDisplayInnerFlex ||
-        MakeCssDisplayInner(display) == RoboCssDisplayInnerGrid) {
+        MakeCssDisplayInner(display) == RoboCssDisplayInnerGrid ||
+        MakeCssDisplayInner(display) == RoboCssDisplayInnerTable) {
         return 1;
     }
     return LayoutFcDisplayIsBlockContainer(display);
@@ -182,6 +199,16 @@ LayoutFcKind LayoutFcEstablishes(CssDisplay display,
         return RoboLayoutFcGrid;
     }
     /*
+     * Phase 19.6: an inner display of `table` establishes a **table** formatting
+     * context. The same shape as the flex and grid branches above and for the same
+     * reason -- the inner value *is* the context -- and it is asked before the
+     * out-of-flow and transparency questions because those are about a box's *children*,
+     * while this is about what the box does with them.
+     */
+    if (MakeCssDisplayInner(display) == RoboCssDisplayInnerTable) {
+        return RoboLayoutFcTable;
+    }
+    /*
      * Phase 14.0: an out-of-flow block container establishes a block context of its own, before the
      * transparency question below is asked. CSS 2.1 §9.4.1 lists "absolutely positioned elements"
      * among the boxes that establish a new block formatting context, and the reason the order
@@ -192,6 +219,16 @@ LayoutFcKind LayoutFcEstablishes(CssDisplay display,
      */
     if (isOutOfFlow && LayoutFcDisplayIsBlockContainer(display)) {
         return RoboLayoutFcBlock;
+    }
+    if (CssDisplayIsTableInternal(display)) {
+        /*
+         * Phase 19.6: an internal table box establishes nothing. A **row**, a **row
+         * group**, a **column**, a **column group** and a table's **columns** are placed
+         * by the table that owns them -- and a table's **cell** and **caption** never
+         * reach this line because they take the `flow-root` branch above, which is CSS
+         * 2.1's own list of the two internal boxes that establish a context.
+         */
+        return RoboLayoutFcNone;
     }
     if (!LayoutFcDisplayIsBlockContainer(display)) {
         /* An inline box establishes nothing: it is a participant in its parent's

@@ -229,7 +229,19 @@ typedef enum layoutBlockVerdict {
     /** Inline-level, or in an inline context. 10.4 owns it. */
     LAYOUT_BLOCK_INLINE_LEVEL = 1,
     /** Block-level but not in a block-direction context. Impossible; reported. */
-    LAYOUT_BLOCK_CONTRADICTION = 2
+    LAYOUT_BLOCK_CONTRADICTION = 2,
+    /**
+     * An **internal table box** (a row, a row group, a cell, a column or a caption)
+     * reached a context that is not the table it belongs to (Phase 19.6).
+     *
+     * CSS 2.1 §17.2.1 wraps such a box in the anonymous table, row group and row it
+     * would need; this build makes no boxes, so the honest answer is the one the grid
+     * pass gives an anonymous grid item -- count it, leave it UNRESOLVED, and say so.
+     * It is a *fourth* reason rather than `INLINE_LEVEL` because the two are different
+     * facts: an inline box is a participant of a line, and this box's own outer display
+     * is neither block nor inline, so no flow in this build was ever going to place it.
+     */
+    LAYOUT_BLOCK_TABLE_INTERNAL = 3
 } LayoutBlockVerdict;
 
 static LayoutBlockVerdict LayoutBlockVerdictFor(const LayoutTree *tree,
@@ -238,6 +250,16 @@ static LayoutBlockVerdict LayoutBlockVerdictFor(const LayoutTree *tree,
     LayoutFormattingContext context;
     int inBlockFlow = 0;
 
+    if (CssDisplayIsTableInternal(object->display)) {
+        /*
+         * Asked first, because it is not a question about *levels* at all: an
+         * internal table box has no block or inline outer display, and a table
+         * container's own pass never calls this function -- it reads its children
+         * itself (RoboLayoutTable.c), so a box that reaches here is one whose table
+         * is missing from the tree.
+         */
+        return LAYOUT_BLOCK_TABLE_INTERNAL;
+    }
     if (!CssDisplayIsBlockLevel(object->display)) {
         return LAYOUT_BLOCK_INLINE_LEVEL;
     }
@@ -336,6 +358,19 @@ static Result LayoutBlockChildren(LayoutWalk *walk,
                                               hasPercentHeightBase,
                                               percentHeightBase, outExtent);
             }
+            /*
+             * Phase 19.6: a **table** container's contents are rows, cells and a
+             * caption, and the table pass places every one of them itself -- its own
+             * fixup, its own two-axis algorithm. The declared height is handed over
+             * for the third time and for the third reason: it is what a cell's
+             * percentage block size resolves against and what a row may grow into, and
+             * it is known here, before the container's own height is resolved.
+             */
+            if (owned.kind == RoboLayoutFcTable) {
+                return LayoutTableWalkContents(walk, object->id, contentWidth,
+                                               hasPercentHeightBase,
+                                               percentHeightBase, outExtent);
+            }
         }
     }
 
@@ -400,6 +435,18 @@ static Result LayoutBlockChildren(LayoutWalk *walk,
              * measurement — is what keeps `unreached` a statement about *structure*
              * and not a bucket of things nobody got round to.
              */
+            walk->block->inlineLevelSkipped++;
+            break;
+        case LAYOUT_BLOCK_TABLE_INTERNAL:
+            /*
+             * Counted in both buckets on purpose, and the two say different things:
+             * `table.itemsSkipped` is the table record's own answer to "a box my pass
+             * could not place, and for a stated reason", and `inlineLevelSkipped` is
+             * the one the block record's identity names for "an object with no
+             * geometry, for a stated reason" -- which is what keeps `unreached` a
+             * difference that closes over this direction too.
+             */
+            walk->block->table.itemsSkipped++;
             walk->block->inlineLevelSkipped++;
             break;
         case LAYOUT_BLOCK_CONTRADICTION:
@@ -1242,6 +1289,13 @@ int LayoutBlockStatsEqual(const LayoutBlockStats *a,
            a->emptyContainers == b->emptyContainers &&
            LayoutFlexCountersEqual(&a->flex, &b->flex) &&
            LayoutGridCountersEqual(&a->grid, &b->grid) &&
+           /*
+            * Phase 19.6: the table record is part of this one, and its own equality is the
+            * door that says so -- a nested record left out of this comparison would make two
+            * passes that placed different tables report as one, which is exactly the drift
+            * the record's own `LayoutTableCountersEqual` exists to prevent.
+            */
+           LayoutTableCountersEqual(&a->table, &b->table) &&
            a->depthMax == b->depthMax;
 }
 

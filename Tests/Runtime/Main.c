@@ -307,6 +307,7 @@ void TestRegisterLayoutSizing(void);
 void TestRegisterLayoutIntrinsic(void);
 void TestRegisterLayoutFlex(void);
 void TestRegisterLayoutGrid(void);
+void TestRegisterLayoutTable(void);
 void TestRegisterLayoutMargin(void);
 void TestRegisterLayoutPadding(void);
 void TestRegisterLayoutBorder(void);
@@ -720,6 +721,7 @@ int main(int argc, char **argv)
     TestRegisterLayoutIntrinsic();
     TestRegisterLayoutFlex();
     TestRegisterLayoutGrid();
+    TestRegisterLayoutTable();
     TestRegisterLayoutMargin();
     TestRegisterLayoutPadding();
     TestRegisterLayoutBorder();

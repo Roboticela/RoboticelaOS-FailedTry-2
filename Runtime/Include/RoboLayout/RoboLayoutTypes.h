@@ -139,11 +139,14 @@ typedef enum LayoutDiagnosticDomain {
     /** Flex layout: the container, the items, the lines, the two axes (19.3). */
     RoboLayoutDomainFlex = 24,
     /** Grid layout: the tracks, the areas, the placement, the two axes (19.4). */
-    RoboLayoutDomainGrid = 25
+    RoboLayoutDomainGrid = 25,
+    /** Phase 19.6: the table pass. A fifth way to lay contents out, and the failures
+     *  the table algorithm reports are its own. */
+    RoboLayoutDomainTable = 26
 } LayoutDiagnosticDomain;
 
 /** Number of defined diagnostic domains. */
-#define RoboLayoutDomainCount 26u
+#define RoboLayoutDomainCount 27u
 
 /** Non-zero if @p domain is a defined diagnostic domain enumerator. */
 int LayoutDiagnosticDomainIsKnown(LayoutDiagnosticDomain domain);

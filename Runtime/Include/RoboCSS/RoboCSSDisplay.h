@@ -23,10 +23,13 @@
  * in 9.11, and it is what makes the *next* display value an added row: 19.3 added
  * `flex` (an outer `block` with an inner `flex`) and `inline-flex` (an outer
  * `inline` with the same inner) as two rows and no function changed; 19.4 added
- * `grid` and `inline-grid` as the same pair once more; and `contents` will be a
- * value that generates no box and is therefore not `none`. This build supports the
- * eight values it implements and rejects every other identifier, including the
- * ones this table is deliberately shaped to accept later.
+ * `grid` and `inline-grid` as the same pair once more; 19.6 added the **table
+ * family**, which is the first group of rows that needed a new **outer** kind as
+ * well (`internal`, for a box the table's own pass places rather than one that
+ * participates in block or inline flow); and `contents` will be a value that
+ * generates no box and is therefore not `none`. This build supports the eighteen
+ * values it implements and rejects every other identifier, including the ones this
+ * table is deliberately shaped to accept later.
  *
  * The inner column is not decoration, and it is why `inline-block` is not a
  * synonym for `inline` with a flag: an atomic inline-level box *is* an inline
@@ -103,11 +106,39 @@ typedef enum CssDisplay {
     /** `grid`: block-level, contents placed into tracks (Phase 19.4). */
     RoboCssDisplayGrid = 6,
     /** `inline-grid`: inline-level atomic, contents placed into tracks (19.4). */
-    RoboCssDisplayInlineGrid = 7
+    RoboCssDisplayInlineGrid = 7,
+    /** `table`: block-level, contents placed into rows and columns (Phase 19.6). */
+    RoboCssDisplayTable = 8,
+    /** `inline-table`: inline-level atomic, contents placed into rows and columns
+     *  (19.6). The box participates in its parent's inline context as one atomic
+     *  unit; its own contents are a table. */
+    RoboCssDisplayInlineTable = 9,
+    /** `table-row-group`: an **internal** table box holding rows (19.6). */
+    RoboCssDisplayTableRowGroup = 10,
+    /** `table-header-group`: an internal table box holding a table's header rows
+     *  (19.6). It is a row group that a later phase may repeat across pages; this
+     *  phase places its rows in document order, like any other group. */
+    RoboCssDisplayTableHeaderGroup = 11,
+    /** `table-footer-group`: an internal table box holding a table's footer rows
+     *  (19.6). */
+    RoboCssDisplayTableFooterGroup = 12,
+    /** `table-row`: an internal table box whose children are cells (19.6). */
+    RoboCssDisplayTableRow = 13,
+    /** `table-cell`: an internal table box that holds one grid slot's contents and
+     *  establishes a formatting context of its own (19.6). */
+    RoboCssDisplayTableCell = 14,
+    /** `table-column`: an internal table box that contributes a column's declared
+     *  width and generates no geometry of its own (19.6). */
+    RoboCssDisplayTableColumn = 15,
+    /** `table-column-group`: an internal table box holding columns (19.6). */
+    RoboCssDisplayTableColumnGroup = 16,
+    /** `table-caption`: an internal table box placed on the table's block-start or
+     *  block-end edge, and a formatting context of its own (19.6). */
+    RoboCssDisplayTableCaption = 17
 } CssDisplay;
 
 /** Number of defined display values. */
-#define RoboCssDisplayCount 8u
+#define RoboCssDisplayCount 18u
 
 /**
  * What kind of box a display value generates, or that it generates none.
@@ -123,11 +154,24 @@ typedef enum CssDisplayOuter {
     /** A block-level box. */
     RoboCssDisplayOuterBlock = 1,
     /** An inline-level box. */
-    RoboCssDisplayOuterInline = 2
+    RoboCssDisplayOuterInline = 2,
+    /**
+     * An **internal** table box (19.6): a box that generates a box and holds
+     * contents, but that neither block nor inline flow places -- the **table**'s own
+     * context does, and the box is a row, a row group, a cell, a column, a column
+     * group or a caption.
+     *
+     * It is a third kind rather than a modifier on the other two because the
+     * question a pass asks first is "which flow places this box", and an internal
+     * table box's answer is neither of them. A build that called a cell
+     * block-level would place a table's cells down the page as a column of blocks,
+     * which is the whole of what a table is not.
+     */
+    RoboCssDisplayOuterInternal = 3
 } CssDisplayOuter;
 
 /** Number of defined outer displays. */
-#define RoboCssDisplayOuterCount 3u
+#define RoboCssDisplayOuterCount 4u
 
 /**
  * What lays out a display value's contents.
@@ -148,13 +192,16 @@ typedef enum CssDisplayInner {
     RoboCssDisplayInnerFlex = 3,
     /** A new **grid** formatting context of its own (Phase 19.4): the box is a grid
      *  container and its in-flow children are grid items. */
-    RoboCssDisplayInnerGrid = 4
+    RoboCssDisplayInnerGrid = 4,
+    /** A new **table** formatting context of its own (Phase 19.6): the box is a
+     *  table container and it places its contents into rows and columns. */
+    RoboCssDisplayInnerTable = 5
 } CssDisplayInner;
 
 /** Number of defined inner displays. */
-#define RoboCssDisplayInnerCount 5u
+#define RoboCssDisplayInnerCount 6u
 
-/** Non-zero when @p display is one of the six. NONE is defined. */
+/** Non-zero when @p display is one of the eighteen. NONE is defined. */
 int CssDisplayIsKnown(CssDisplay display);
 
 /** Human-readable name ("none", "inline-block"); never NULL, "" for unknown. */
@@ -222,8 +269,13 @@ Result CssDisplayWrite(CssDisplay display,
                                      size_t *outLength,
                                      CssDiag *diag);
 
-/** Capacity @ref CssDisplayWrite needs for any value in the vocabulary. */
-#define RoboCssDisplayTextMax 16u
+/** Capacity @ref CssDisplayWrite needs for any value in the vocabulary.
+ *
+ * Nineteen + the NUL, which is `table-column-group` -- the longest keyword in the set as
+ * of 19.6 and the reason the bound is not 16 any more. A value that cannot be written
+ * into this buffer is a value a caller cannot print, so the constant is checked against
+ * every row by the suite rather than left to a comment. */
+#define RoboCssDisplayTextMax 24u
 
 /* ------------------------------------------------------------------ */
 /* Classification                                                      */
@@ -267,6 +319,81 @@ int CssDisplayIsInlineLevel(CssDisplay display);
  * flow — which is exactly the question @ref CssDisplayInner answers.
  */
 int CssDisplayIsInlineBlock(CssDisplay display);
+
+/**
+ * Whether @p display is an **atomic inline**: inline-level, and with an inner that is
+ * not plain flow (19.6).
+ *
+ * The generalisation `CssDisplayIsInlineBlock` always pointed at: `inline-block`,
+ * `inline-flex`, `inline-grid` and `inline-table` are the same *shape* of box — an
+ * inline-level box that is one indivisible unit on its line because it lays its own
+ * contents out — and the five pairwise predicates the module used to answer that
+ * question with were five places for one answer to drift.
+ *
+ * It is deliberately **not** folded into `CssDisplayIsInlineBlock`: that name means
+ * `inline-block` (CSS's own historical spelling for the plain-flow case), and a caller
+ * that wants *that* value should be able to ask for it.
+ */
+int CssDisplayIsAtomicInline(CssDisplay display);
+
+/**
+ * Whether @p display establishes a **table** formatting context (19.6): `table` and
+ * `inline-table`.
+ *
+ * The four display values before this one each established a context of their own, and
+ * this is the pair that does it for a table: the box places its in-flow children into
+ * rows and columns rather than stacking them or placing them on a line, and its
+ * *internal* descendants are the rows, cells, columns and caption that make that up.
+ */
+int CssDisplayIsTableRoot(CssDisplay display);
+
+/**
+ * Whether @p display is one of the eight **internal** table boxes (19.6): a row group of
+ * either kind, a row, a cell, a column, a column group or a caption.
+ *
+ * The question a pass asks before anything else about such a box, and the reason the
+ * outer column needed a third kind: an internal table box is placed by the *table* it
+ * belongs to, so neither block nor inline flow may claim it.
+ */
+int CssDisplayIsTableInternal(CssDisplay display);
+
+/**
+ * Whether @p display is a row or a row group (19.6).
+ *
+ * The two values that make up a table's block axis, and the pair a caption is *not*: a
+ * row group is a box that holds rows and a row is a box that holds cells, so a pass that
+ * walks a table's block axis walks exactly these.
+ */
+int CssDisplayIsTableRowLike(CssDisplay display);
+
+/**
+ * Whether @p display is a column or a column group (19.6).
+ *
+ * A column contributes a **declared width** and generates no geometry: CSS has no
+ * column box on the page, which is why this predicate exists apart from
+ * `CssDisplayIsTableInternal` — a pass reads a column's declarations and places
+ * nothing.
+ */
+int CssDisplayIsTableColumnLike(CssDisplay display);
+
+/** Whether @p display is exactly `table-cell` (19.6). */
+int CssDisplayIsTableCell(CssDisplay display);
+
+/** Whether @p display is exactly `table-caption` (19.6). */
+int CssDisplayIsTableCaption(CssDisplay display);
+
+/**
+ * Whether @p display is an internal table box that establishes a formatting context of
+ * its own (19.6): a **cell** or a **caption**.
+ *
+ * CSS 2.1 §9.4.1 lists table cells and captions among the boxes that establish a new
+ * block formatting context, and the distinction is load-bearing twice over: a cell's
+ * children are laid out *inside* the cell at the width the columns gave it, and a
+ * caption's are laid out inside the caption. Every other internal table box — a row, a
+ * row group, a column — establishes nothing, because the table's own pass places what
+ * is inside it.
+ */
+int CssDisplayIsTableBoundary(CssDisplay display);
 
 /** @p display's outer display, or OUTER_NONE for an unknown enumerator. */
 CssDisplayOuter MakeCssDisplayOuter(CssDisplay display);

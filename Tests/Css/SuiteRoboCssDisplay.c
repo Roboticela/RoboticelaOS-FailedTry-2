@@ -45,12 +45,15 @@ static void TestDisplayVocabulary(void)
 {
     static const char *const keywords[] = {
         "none", "block", "inline", "inline-block", "flex", "inline-flex",
-        "grid", "inline-grid" };
+        "grid", "inline-grid",
+        "table", "inline-table", "table-row-group", "table-header-group",
+        "table-footer-group", "table-row", "table-cell", "table-column",
+        "table-column-group", "table-caption" };
     size_t index;
 
     CssFixture();
-    RoboCheckEqInt((int)RoboCssDisplayCount, 8);
-    RoboCheckEqInt((int)CssDisplayCount(), 8);
+    RoboCheckEqInt((int)RoboCssDisplayCount, 18);
+    RoboCheckEqInt((int)CssDisplayCount(), 18);
     for (index = 0u; index < sizeof(keywords) / sizeof(keywords[0]); index++) {
         CssDisplay display = (CssDisplay)index;
 
@@ -100,13 +103,36 @@ static void TestDisplayOuterInner(void)
         {RoboCssDisplayGrid, RoboCssDisplayOuterBlock,
          RoboCssDisplayInnerGrid, "block", "grid"},
         {RoboCssDisplayInlineGrid, RoboCssDisplayOuterInline,
-         RoboCssDisplayInnerGrid, "inline", "grid"}
+         RoboCssDisplayInnerGrid, "inline", "grid"},
+        /* 19.6's ten: one inner (`table`) over the two outer kinds that can hold a
+         * box in flow, and the eight internal rows, of which the cell and the caption
+         * are the two that take a formatting context of their own. */
+        {RoboCssDisplayTable, RoboCssDisplayOuterBlock,
+         RoboCssDisplayInnerTable, "block", "table"},
+        {RoboCssDisplayInlineTable, RoboCssDisplayOuterInline,
+         RoboCssDisplayInnerTable, "inline", "table"},
+        {RoboCssDisplayTableRowGroup, RoboCssDisplayOuterInternal,
+         RoboCssDisplayInnerFlow, "internal", "flow"},
+        {RoboCssDisplayTableHeaderGroup, RoboCssDisplayOuterInternal,
+         RoboCssDisplayInnerFlow, "internal", "flow"},
+        {RoboCssDisplayTableFooterGroup, RoboCssDisplayOuterInternal,
+         RoboCssDisplayInnerFlow, "internal", "flow"},
+        {RoboCssDisplayTableRow, RoboCssDisplayOuterInternal,
+         RoboCssDisplayInnerFlow, "internal", "flow"},
+        {RoboCssDisplayTableCell, RoboCssDisplayOuterInternal,
+         RoboCssDisplayInnerFlowRoot, "internal", "flow-root"},
+        {RoboCssDisplayTableColumn, RoboCssDisplayOuterInternal,
+         RoboCssDisplayInnerFlow, "internal", "flow"},
+        {RoboCssDisplayTableColumnGroup, RoboCssDisplayOuterInternal,
+         RoboCssDisplayInnerFlow, "internal", "flow"},
+        {RoboCssDisplayTableCaption, RoboCssDisplayOuterInternal,
+         RoboCssDisplayInnerFlowRoot, "internal", "flow-root"}
     };
     size_t index;
 
     CssFixture();
-    RoboCheckEqInt((int)RoboCssDisplayOuterCount, 3);
-    RoboCheckEqInt((int)RoboCssDisplayInnerCount, 5);
+    RoboCheckEqInt((int)RoboCssDisplayOuterCount, 4);
+    RoboCheckEqInt((int)RoboCssDisplayInnerCount, 6);
     for (index = 0u; index < sizeof(expected) / sizeof(expected[0]); index++) {
         RoboCheckEqInt(MakeCssDisplayOuter(expected[index].display),
                           (int)expected[index].outer);
@@ -159,11 +185,25 @@ static void TestDisplayClassification(void)
         {RoboCssDisplayFlex, 1, 0, 1, 0, 0},
         {RoboCssDisplayInlineFlex, 1, 0, 0, 1, 0},
         {RoboCssDisplayGrid, 1, 0, 1, 0, 0},
-        {RoboCssDisplayInlineGrid, 1, 0, 0, 1, 0}
+        {RoboCssDisplayInlineGrid, 1, 0, 0, 1, 0},
+        /* 19.6's ten. An internal table box is **neither** block- nor inline-level:
+         * the table's own pass places it, which is the whole reason the outer column
+         * needed a third kind. */
+        {RoboCssDisplayTable, 1, 0, 1, 0, 0},
+        {RoboCssDisplayInlineTable, 1, 0, 0, 1, 0},
+        {RoboCssDisplayTableRowGroup, 1, 0, 0, 0, 0},
+        {RoboCssDisplayTableHeaderGroup, 1, 0, 0, 0, 0},
+        {RoboCssDisplayTableFooterGroup, 1, 0, 0, 0, 0},
+        {RoboCssDisplayTableRow, 1, 0, 0, 0, 0},
+        {RoboCssDisplayTableCell, 1, 0, 0, 0, 0},
+        {RoboCssDisplayTableColumn, 1, 0, 0, 0, 0},
+        {RoboCssDisplayTableColumnGroup, 1, 0, 0, 0, 0},
+        {RoboCssDisplayTableCaption, 1, 0, 0, 0, 0}
     };
     size_t index;
     int boxless = 0;
     int atomic = 0;
+    int internal = 0;
 
     CssFixture();
     for (index = 0u; index < sizeof(expected) / sizeof(expected[0]); index++) {
@@ -179,10 +219,47 @@ static void TestDisplayClassification(void)
         RoboCheckEqInt(CssDisplayIsInlineBlock(display),
                           expected[index].inlineBlock);
 
-        /* The invariants, asserted per value rather than once over the table. */
+        /* The invariants, asserted per value rather than once over the table. Three
+         * kinds of outer display since 19.6, so "exactly one of them" is a three-way
+         * sum: every box-generating value is block-level, inline-level or internal, and
+         * no value is two of them. */
         RoboCheckEqInt(CssDisplayIsBlockLevel(display) +
-                              CssDisplayIsInlineLevel(display),
+                              CssDisplayIsInlineLevel(display) +
+                              CssDisplayIsTableInternal(display),
                           expected[index].generatesBox);
+        if (CssDisplayIsTableInternal(display)) {
+            internal++;
+            /* An internal box is placed by the table, so it generates no geometry of
+             * its own in a flow and is neither block- nor inline-level. */
+            RoboCheckEqInt(CssDisplayIsBlockLevel(display), 0);
+            RoboCheckEqInt(CssDisplayIsInlineLevel(display), 0);
+            RoboCheckEqInt(CssDisplayIsInlineBlock(display), 0);
+        }
+        /* The table family's own cross-checks, per value: a table root establishes a
+         * table; only a cell or a caption takes a formatting context of its own; and a
+         * column is never anything a pass places. */
+        RoboCheckEqInt(CssDisplayIsTableRoot(display),
+                       display == RoboCssDisplayTable ||
+                           display == RoboCssDisplayInlineTable);
+        RoboCheckEqInt(CssDisplayIsTableBoundary(display),
+                       display == RoboCssDisplayTableCell ||
+                           display == RoboCssDisplayTableCaption);
+        if (CssDisplayIsTableBoundary(display)) {
+            RoboCheckEqInt(MakeCssDisplayInner(display),
+                              (int)RoboCssDisplayInnerFlowRoot);
+        }
+        if (CssDisplayIsTableBoundary(display)) {
+            RoboCheckEqInt(CssDisplayIsTableInternal(display), 1);
+        }
+        if (CssDisplayIsAtomicInline(display)) {
+            /* The generalisation, cross-checked against the narrow door: every value
+             * that is atomic by the wide rule is inline-level. */
+            RoboCheckEqInt(CssDisplayIsInlineLevel(display), 1);
+            if (CssDisplayIsInlineBlock(display)) {
+                RoboCheckEqInt(MakeCssDisplayInner(display),
+                                  (int)RoboCssDisplayInnerFlowRoot);
+            }
+        }
         if (CssDisplayIsInlineBlock(display)) {
             RoboCheckEqInt(CssDisplayIsInlineLevel(display), 1);
         }
@@ -196,11 +273,16 @@ static void TestDisplayClassification(void)
             atomic++;
         }
     }
-    /* Exactly one value generates no box, and exactly one is atomic. A row added
-     * without one of those facts being reconsidered moves these counts and fails
-     * here rather than in a layout pass. */
+    /* Exactly one value generates no box, exactly one is `inline-block`, and eight
+     * are internal table boxes. A row added without one of those facts being
+     * reconsidered moves these counts and fails here rather than in a layout pass. */
     RoboCheckEqInt(boxless, 1);
     RoboCheckEqInt(atomic, 1);
+    RoboCheckEqInt(internal, 8);
+    RoboCheckEqInt(CssDisplayIsAtomicInline((CssDisplay)99), 0);
+    RoboCheckEqInt(CssDisplayIsTableRoot((CssDisplay)99), 0);
+    RoboCheckEqInt(CssDisplayIsTableInternal((CssDisplay)99), 0);
+    RoboCheckEqInt(CssDisplayIsTableBoundary((CssDisplay)99), 0);
     /* An unknown enumerator answers "no" to every question rather than the first
      * row's answers. */
     RoboCheckEqInt(CssDisplayGeneratesBox((CssDisplay)99), 0);
@@ -244,7 +326,11 @@ static void TestDisplayParsing(void)
         {"None", RoboCssDisplayNone}
     };
     static const char *const unknown[] = {
-        "bogus", "table", "contents", "inline_block", "grids",
+        /* `table` used to be on this list, and 19.6 is the phase that took it off:
+         * a keyword the vocabulary spells is a value, and the two the table is
+         * deliberately shaped to accept later (`contents`, and the multi-keyword
+         * form) are the ones that stay unknown. */
+        "bogus", "contents", "inline_block", "grids", "table-rowsp",
         "block;", "inlineblock", "blockflow", ""
     };
     size_t index;
@@ -461,7 +547,10 @@ static void TestDisplayComputedInvalid(void)
                        "not a display value");
     CssComputeEquals(RoboCssPropertyComputationDisplay, "d: grids",
                        "not a display value");
-    CssComputeEquals(RoboCssPropertyComputationDisplay, "d: table",
+    /* `table` was on this list until 19.6 gave the keyword a row; what is left on it
+     * are the identifiers the vocabulary still refuses, `contents` chief among them
+     * because the table is deliberately shaped to accept it later. */
+    CssComputeEquals(RoboCssPropertyComputationDisplay, "d: table-rowsp",
                        "not a display value");
     CssComputeEquals(RoboCssPropertyComputationDisplay, "d: contents",
                        "not a display value");

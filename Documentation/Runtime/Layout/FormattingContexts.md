@@ -100,7 +100,7 @@ module's notion of transparency.
 
 ---
 
-## 3. The kinds, and why there is no seventh
+## 3. The kinds, and why there is no eighth
 
 ```text
 NONE     no context. Not a value a live box has: it is the absence, and what a
@@ -112,6 +112,9 @@ BLOCK    participants are laid out in the block direction, one after another.
 INLINE   participants are laid out in the inline direction, along a line.
 FLEX     participants are flex items, laid out along a main axis (19.3).
 GRID     participants are grid items, placed into tracks (19.4).
+TABLE    participants are a table's rows, cells and captions, placed into rows and
+         columns (19.6). An **internal** table box establishes nothing: the table
+         that owns it places it.
 ```
 
 The phase shipped four kinds and named the reason there was no fifth. **19.3 is the
@@ -120,21 +123,26 @@ added as a row (`display: flex`/`inline-flex`) *and* the algorithm that honours 
 (`RoboLayoutFlex.c`, the third formatting context the build lays out). **19.4 is the
 sixth**, arriving the same way a second time: `GRID` is a row (`display: grid` /
 `inline-grid`) plus the algorithm that honours it (`RoboLayoutGrid.c`, the fourth
-formatting context the build lays out). `table`, `ruby` and `multicol` are still
-deliberately **not** enumerators, for the original reason: an enumerator with no row
-behind it is a name the module can spell and cannot honour. They join as rows when
-their contexts exist, exactly as `flex` and then `grid` did.
+formatting context the build lays out). **19.6 is the seventh**, arriving the same
+way a third time: `TABLE` is a pair of rows (`display: table`/`inline-table`) plus the
+algorithm that honours them (`RoboLayoutTable.c`, the fifth formatting context the
+build lays out) — and it is the first kind whose display values came with a second
+question attached, because the eight **internal** table boxes are neither block- nor
+inline-level and yet establish nothing (`TableLayout.md` §2). `ruby` and `multicol`
+are still deliberately **not** enumerators, for the original reason: an enumerator
+with no row behind it is a name the module can spell and cannot honour. They join as
+rows when their contexts exist, exactly as `flex`, then `grid` and then `table` did.
 
-`RoboLayoutFcKindCount` is `6` since 19.4, and it counts `NONE`. A later phase
+`RoboLayoutFcKindCount` is `7` since 19.6, and it counts `NONE`. A later phase
 that adds a kind widens an array and adds a row; nothing else in the module needs
 to move.
 
 ### 3.1 `ROOT` is a block container, in the module's own opinion
 
 `LayoutFcKindIsBlockContainer(kind)` answers `1` for `ROOT` and `BLOCK`,
-`0` for `INLINE`, `FLEX` and `GRID` (a flex or grid container is not a block container —
-that is exactly the distinction the display's inner column carries, §4) and for an
-undefined enumerator. It exists as a predicate rather
+`0` for `INLINE`, `FLEX`, `GRID` and `TABLE` (a flex, grid or table container is not a
+block container — that is exactly the distinction the display's inner column carries, §4)
+and for an undefined enumerator. It exists as a predicate rather
 than as a comparison a caller writes, because the two later passes ask it *first*:
 
 ```text
@@ -163,7 +171,9 @@ LayoutFcKind LayoutFcEstablishes(CssDisplay display,
                                                 int is_grid_item);
 ```
 
-Six inputs as of 19.4, because the rules are stated in terms of six facts: what the
+Six inputs as of 19.4 (19.6 added no input: a table container's context is a fact about its own
+display, and an internal box's is the absence), because the rules are stated in terms of six
+facts: what the
 box's **computed** display is, whether it has a block-level child, whether it is the
 root, whether it is **out of flow** (14.0: an `absolute`/`fixed`/`sticky` box, or
 `sticky`, which is still in flow), whether it is a **flex item** (19.3: it
@@ -178,6 +188,9 @@ participates in a grid context). The complete table:
 | `inline` | inline / flow | **yes** | — | — | — | — | `ROOT` |
 | `flex` / `inline-flex` | — / flex | no | — | — | — | — | `FLEX` |
 | `grid` / `inline-grid` | — / grid | no | — | — | — | — | `GRID` |
+| `table` / `inline-table` | — / table | no | — | — | — | — | `TABLE` — 19.6 |
+| `table-cell` / `table-caption` | internal / flow-root | no | — | — | — | — | `BLOCK` — 19.6 |
+| `table-row`, `table-row-group`, `-header-group`, `-footer-group`, `table-column`, `-column-group` | internal / flow | no | — | — | — | — | `NONE` — 19.6: the table places it |
 | `block` | block / flow | no | no | **yes** | — | — | `BLOCK` — 14.0 |
 | `block` | block / flow | no | yes | no | **yes** | any | `BLOCK` — 19.3 |
 | `block` | block / flow | no | yes | no | any | **yes** | `BLOCK` — 19.4 |
@@ -216,6 +229,16 @@ formatting context, and the reason is structural — a transparent item's block-
 child would reach the *flex* context through the parent chain, and a block-level box
 participating in a flex context is the contradiction the block pass reports. So an
 item with a block-level child establishes `BLOCK` rather than `NONE`.
+
+**A table container establishes `TABLE`, and its contents establish nothing** (19.6), and here
+the two halves are stated in two places for a reason. `table`/`inline-table` carry an inner of
+`TABLE`, so the container is a row like the flex and grid pairs. The eight **internal** values
+are the first boxes in this build whose outer display is neither block nor inline: a **cell**
+and a **caption** carry an inner of `flow-root` and therefore take the first rule of all (they
+establish `BLOCK`), while a **row**, a **row group**, a **column** and a **column group**
+establish `NONE` — the table that owns them places them, and the classifier says so by asking
+`CssDisplayIsTableInternal` after the `flow-root` question rather than before it. That order is
+the whole reason a cell is a block container and a row is not (`TableLayout.md` §2).
 
 ### 4.1 Two predicates that are not the classifier
 

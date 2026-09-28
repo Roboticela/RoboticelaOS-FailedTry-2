@@ -440,6 +440,30 @@ typedef struct LayoutCapabilities {
      * and no vertical writing mode. See `RoboLayoutGridLayoutImplemented`.
      */
     int gridLayout;
+    /**
+     * Laying a **table** formatting context out (19.6).
+     *
+     * **1** since 19.6. A table container (`display: table` / `inline-table`)
+     * establishes the `FcTable` formatting context -- the **fifth** this build lays
+     * out -- and its pass reads CSS 2.1's anonymous-box fixup rather than generating
+     * it: a cell directly inside a table is placed as an anonymous row, a row group
+     * contributes its rows, a column box contributes a declared width and no
+     * geometry, and a caption is placed on the table's block-start or block-end edge.
+     * The columns are sized by the used `table-layout` algorithm (`auto` from the
+     * cells' min/max content contributions then the container's width distributed
+     * over the columns that can still grow, `fixed` from the declared widths with the
+     * rest shared equally), a cell wider than its column is counted rather than
+     * clamped, a cell's contents are laid out in a context of their own at its
+     * column's width, a row is as tall as its tallest cell, `border-collapse` zeroes
+     * the gutters and `border-spacing` supplies them when they are separate.
+     *
+     * **Not** "tables are finished": no `colspan`/`rowspan` (HTML attributes, not
+     * CSS properties, and this module reads no attribute), no collapsing-border
+     * arithmetic, no `vertical-align` on a cell, no anonymous **cell** generation, no
+     * `direction: rtl` column mirroring (19.10), no writing mode (19.9) and no
+     * replaced elements. See `RoboLayoutTableLayoutImplemented`.
+     */
+    int tableLayout;
     /** Painting a box. **0**: Phase 11. */
     int painting;
 } LayoutCapabilities;

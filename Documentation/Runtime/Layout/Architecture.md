@@ -828,7 +828,8 @@ The discipline RoboHTML and RoboCSS use, unchanged: a call returns a plain
 domain and a message. There is no global mutable error state, so a failure in one
 thread cannot overwrite the description of another.
 
-`RoboLayoutDomainCount` is 11, and `layout.module.diagnostic_domains` walks the
+`RoboLayoutDomainCount` is 27 — one domain per phase that can fail — and
+`layout.module.diagnostic_domains` walks the
 enum walking the registry against it — so a domain added later without a name is a
 visible omission rather than a silent gap.
 
@@ -836,7 +837,7 @@ visible omission rather than a silent gap.
 
 ## 13. The capability model
 
-`LayoutCapabilities` is twenty-six `int` fields in declaration order, and one
+`LayoutCapabilities` is twenty-nine `int` fields in declaration order, and one
 of them is deliberately 0:
 
 | Field | this build | Filled by |
@@ -868,6 +869,7 @@ of them is deliberately 0:
 | `percentage_resolution` | 1 | 19.2 |
 | `flex_layout` | 1 | 19.3 |
 | `grid_layout` | 1 | 19.4 |
+| `table_layout` | 1 | 19.6 |
 | `painting` | **0** | Phase 11 |
 
 The table is in declaration order rather than in the order fields landed, so the
@@ -880,11 +882,12 @@ through the metrics seam rather than a character count — and that an `INTRINSI
 dimension resolves from that measurement with `RoboLayoutDimensionSourceIntrinsic`.
 It does **not** say intrinsic height as a function of width (that is line breaking),
 replaced-element intrinsic dimensions (an image-loading seam that is 17.5's),
-or table intrinsic sizing (19.6, which consumes these two numbers). 19.3's flex pass *is* a
+or table intrinsic height. 19.3's flex pass *is* a
 consumer and is built — an item with no `flex-basis` and no definite main size takes its
-measured content size as its flex base (`FlexLayout.md`) — and so is 19.4's grid pass, where a
+measured content size as its flex base (`FlexLayout.md`) — and so are 19.4's grid pass, where a
 `min-content`/`max-content`/`auto` track takes a floor and a ceiling from its items
-(`GridLayout.md`). A build with the sizing record and no measurement of what is inside it
+(`GridLayout.md`), and 19.6's table pass, which sizes each **column** from its widest cell's
+min-content floor and max-content ceiling (`TableLayout.md`). A build with the sizing record and no measurement of what is inside it
 would have satisfied every field above it, which is why the field exists
 (`IntrinsicSizing.md`).
 
@@ -1010,7 +1013,7 @@ rather than unfinished:
 | damage, invalidation | a later goal | an invalidation that withdraws geometry rather than keeping a stale conclusion |
 | painting anything | Phase 11 | `painting` capability = 0 |
 | reading a property other than `display`, a declared `width`/`height`, the four margins, the four paddings, the twelve border longhands, `position` with its four insets, `overflow-x`/`overflow-y` with the `overflow` shorthand, and 18.3's flex longhands (`flex-direction`, `flex-wrap`, `flex-grow`, `flex-shrink`, `flex-basis`, `order`, `justify-content`, `align-items`, `align-self`, `align-content`) | a later goal | the borrowed style is there; the read is the later goal's, and since 10.8 through 10.13 (and 19.3 for the flex family) a read goes through the sizing, margin, padding, border, position, overflow or flex layer rather than into a result record |
-| ~~**flex** layout~~ **done in 19.3**, ~~**grid** layout~~ **done in 19.4**; **table** layout beyond them | 19.6 | a box whose inner display is `flex` establishes a `RoboLayoutFcFlex` context and has its in-flow children placed by the flex pass (`FlexLayout.md`), and one whose inner display is `grid` establishes a `RoboLayoutFcGrid` context placed by the grid pass (`GridLayout.md`); the table display types are still refused by 9.12's vocabulary |
+| ~~**flex** layout~~ **done in 19.3**, ~~**grid** layout~~ **done in 19.4**, ~~**table** layout~~ **done in 19.6**; still absent: `colspan`/`rowspan`, collapsing-border arithmetic, anonymous cell generation, `vertical-align` on a cell, RTL column mirroring and vertical writing modes | a later goal each | a box whose inner display is `flex` establishes a `RoboLayoutFcFlex` context and has its in-flow children placed by the flex pass (`FlexLayout.md`), one whose inner display is `grid` establishes a `RoboLayoutFcGrid` context placed by the grid pass (`GridLayout.md`), and one whose inner display is `table` establishes a `RoboLayoutFcTable` context placed by the table pass (`TableLayout.md`) — with the ten table display values now part of 9.12's vocabulary and the eight **internal** ones the first boxes this build has that neither block nor inline flow places |
 
 Three of these are worth a sentence more.
 

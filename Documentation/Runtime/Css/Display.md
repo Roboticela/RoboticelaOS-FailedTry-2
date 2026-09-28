@@ -31,7 +31,7 @@ CSS text
 
 | Goal | What it delivers |
 |---|---|
-| 9.12.1 the vocabulary | The values as a closed set, each spelled by exactly one keyword (six since 19.3) |
+| 9.12.1 the vocabulary | The values as a closed set, each spelled by exactly one keyword (eighteen since 19.6) |
 | 9.12.2 outer and inner | The two halves of a display value, as CSS Display 3 names them, in the same rows |
 | 9.12.3 the shape | `DISPLAY` — a value shape that accepts one identifier and refuses the rest |
 | 9.12.4 classification | `generates_box`, `is_none`, `is_block_level`, `is_inline_level`, `is_inline_block` |
@@ -47,13 +47,26 @@ typedef enum CssDisplay {
     RoboCssDisplayInline = 2,
     RoboCssDisplayInlineBlock = 3,
     RoboCssDisplayFlex = 4,
-    RoboCssDisplayInlineFlex = 5
+    RoboCssDisplayInlineFlex = 5,
+    RoboCssDisplayGrid = 6,
+    RoboCssDisplayInlineGrid = 7,
+    RoboCssDisplayTable = 8,
+    RoboCssDisplayInlineTable = 9,
+    RoboCssDisplayTableRowGroup = 10,
+    RoboCssDisplayTableHeaderGroup = 11,
+    RoboCssDisplayTableFooterGroup = 12,
+    RoboCssDisplayTableRow = 13,
+    RoboCssDisplayTableCell = 14,
+    RoboCssDisplayTableColumn = 15,
+    RoboCssDisplayTableColumnGroup = 16,
+    RoboCssDisplayTableCaption = 17
 } CssDisplay;
 ```
 
 A closed set, and the enumerator values are **append-only**: a stored enumerator is a
-contract, so `flex` and `inline-flex` joined as 4 and 5 (Phase 19.3) rather than
-reshuffling what a previous phase wrote down. `RoboCssDisplayCount` is **6** since 19.3.
+contract, so `flex` and `inline-flex` joined as 4 and 5 (Phase 19.3), the grid pair as 6
+and 7 (19.4) and the ten table values as 8 through 17 (19.6) rather than reshuffling what
+a previous phase wrote down. `RoboCssDisplayCount` is **18** since 19.6.
 
 The vocabulary is *closed* — and that is the phase's decision, not an unfinished list.
 An unknown identifier is a mistake with a diagnostic:
@@ -83,6 +96,12 @@ A display value is three facts, and they are the three CSS Display 3 names for t
 | `inline-block` | `INLINE` | `FLOW_ROOT` | inline-level, contents in a formatting context of its own |
 | `flex` | `BLOCK` | `FLEX` | block-level, contents are flex items (19.3) |
 | `inline-flex` | `INLINE` | `FLEX` | inline-level atomic, contents are flex items (19.3) |
+| `grid` | `BLOCK` | `GRID` | block-level, contents are placed into tracks (19.4) |
+| `inline-grid` | `INLINE` | `GRID` | inline-level atomic, contents are placed into tracks (19.4) |
+| `table` | `BLOCK` | `TABLE` | block-level, contents are placed into rows and columns (19.6) |
+| `inline-table` | `INLINE` | `TABLE` | inline-level atomic, contents are placed into rows and columns (19.6) |
+| `table-row-group` … `table-column-group` | `INTERNAL` | `FLOW` | placed by the table that owns it, which neither block nor inline flow is (19.6) |
+| `table-cell`, `table-caption` | `INTERNAL` | `FLOW_ROOT` | the two internal boxes that establish a formatting context of their own (19.6) |
 
 The inner column is not decoration, and `inline-block` is the row that earns it. CSS
 defines `inline-block` as `inline flow-root`, and this table says the same thing: an
@@ -99,14 +118,16 @@ int CssDisplayIsInlineBlock(CssDisplay display)
 ```
 
 The two columns in one row are where the *next* values arrive. `flex` and
-`inline-flex` were 19.3's (`FlexLayout.md`); the rest are still unclaimed:
+`inline-flex` were 19.3's (`FlexLayout.md`), the grid pair 19.4's (`GridLayout.md`) and
+the ten table values 19.6's (`TableLayout.md`), each arriving as **rows** — and 19.6 is
+the first of them to need a new **outer** kind as well, because an internal table box is
+placed by neither block nor inline flow:
 
 | Future value | outer | inner |
 |---|---|---|
-| `grid`, `table` | `BLOCK` | a new inner this build would define |
-| `inline-grid`, `inline-table` | `INLINE` | likewise |
 | `flow-root` | `BLOCK` | `FLOW_ROOT` |
 | `contents` | `NONE` — and **not** the value `none` | `NONE` |
+| `ruby` and the multi-column value | a new outer each, and a new inner each |
 
 `contents` is why the two classification questions are two functions. It generates no box,
 like `none`, and its children are still generated and still laid out in the place it
@@ -118,9 +139,11 @@ int CssDisplayGeneratesBox(CssDisplay display);   /* asked of the outer column *
 int CssDisplayIsNone(CssDisplay display);         /* asked of the value */
 ```
 
-They agree for all six values today. The suite asserts that they agree *and* that
+They agree for all eighteen values today. The suite asserts that they agree *and* that
 exactly one value generates no box, so the day they diverge is the day a row was added
-and the counts move.
+and the counts move. A third kind of outer display arrived with the table family
+(`RoboCssDisplayOuterInternal`), so "exactly one of the three" is now the sum the suite
+asserts per value rather than a two-way choice.
 
 ## 3. Reading an identifier
 
@@ -294,9 +317,11 @@ int CssDisplayIsInlineBlock(CssDisplay display);
 ```
 
 Every one is asked of the table. There is no layout algorithm behind any of them, and the
-suite asserts the invariants that keep the table honest as rows are added: block-level and
-inline-level are mutually exclusive and together account for exactly the values that
-generate a box; a boxless value has no inner display; an atomic value is inline-level.
+suite asserts the invariants that keep the table honest as rows are added: block-level,
+inline-level and internal are mutually exclusive and together account for exactly the values
+that generate a box; a boxless value has no inner display; an atomic value is inline-level;
+an internal table box is neither block- nor inline-level; and a cell or a caption is the only
+internal box whose inner display is `flow-root`.
 
 An unknown enumerator answers `NONE`/0 to every one of them rather than the first row's
 answers, which is the same rule the unit vocabulary follows.
@@ -306,7 +331,9 @@ answers, which is the same rule the unit vocabulary follows.
 The module owns **nothing**. The vocabulary is `static const`; every accessor borrows it;
 `CssDisplayWrite` writes into the caller's buffer and refuses rather than
 truncating, reporting the length it needed so a caller can size from the refusal.
-`RoboCssDisplayTextMax` is 16 and `inline-block` is 12.
+`RoboCssDisplayTextMax` is 24 and `table-column-group` — nineteen characters — is what
+set it: the bound has to fit the longest keyword in the set plus a NUL, and the suite
+checks it against every row rather than leaving it to a comment.
 
 A computed DISPLAY value owns no bytes at all — it is an enumerator in a record whose
 only owned members are `text` and `preserved`, and the kind says which are live. That
@@ -321,9 +348,10 @@ Deliberately absent, and each is a boundary rather than an unfinished edge:
   leaves a tree. `display: none` is the *absence of a box*, recorded, not an action.
 - **The multi-keyword syntax.** Refused, with the outer/inner columns as the extension
   point.
-- **`grid`, `table`, `list-item`, `contents`, `flow-root`.** Rows this build has not
-  added — `flex` and `inline-flex` were 19.3's and are now values. `contents` will also
-  be the first value where "generates a box" and "is `none`" differ.
+- **`list-item`, `contents`, `flow-root`, `ruby`, the multi-column value.** Rows this
+  build has not added — `flex`/`inline-flex` were 19.3's, the grid pair 19.4's and the ten
+  table values 19.6's, and all of them are values now. `contents` will also be the first
+  value where "generates a box" and "is `none`" differ.
 - **User-agent styles.** A `div` is not block, because that is a stylesheet and this is a
   vocabulary.
 - **`display` on pseudo-elements, in `@media`, or as an animation target.** None of those

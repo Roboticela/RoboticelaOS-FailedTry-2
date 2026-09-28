@@ -206,6 +206,15 @@ Result LayoutGetCapabilities(LayoutCapabilities *out)
      * vertical writing mode.
      */
     out->gridLayout = RoboLayoutGridLayoutImplemented;
+    /*
+     * And `tableLayout`, the field 19.6 added. **Not** "tables are finished": a
+     * table box generates the anonymous boxes the author did not write, sizes its
+     * columns by the used `table-layout` algorithm, distributes a spanning cell's
+     * deficit, resolves a collapsed border and lays its caption and rows out -- but
+     * no row split across a fragmentation break, no RTL column mirroring, no
+     * writing mode and no collapse resolution between two tables.
+     */
+    out->tableLayout = RoboLayoutTableLayoutImplemented;
     out->painting = 0;
     return RoboOk;
 }

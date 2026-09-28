@@ -37,7 +37,7 @@
  * because every box would then be a barrier and Phase 10.9 could not implement
  * margin collapsing at all.
  *
- * The kinds, and why there is no seventh
+ * The kinds, and why there is no eighth
  *
  *   NONE    no context. Not a value a live box has; it is the absence, and it is
  *           what a cleared record and an unclassified tree read as.
@@ -48,15 +48,20 @@
  *   INLINE  participants are laid out in the inline direction, along a line.
  *   FLEX    participants are flex items, laid out along a main axis (Phase 19.3).
  *   GRID    participants are grid items, placed into tracks on two axes (19.4).
+ *   TABLE   participants are a table's rows, cells and captions, placed into rows
+ *           and columns (19.6). An **internal** table box (`table-row`,
+ *           `table-cell`, ...) establishes nothing: the table that owns it places
+ *           it, which is why `CssDisplayOuter` needed a third kind for it.
  *
- * TABLE, RUBY and MULTICOLUMN are deliberately **not** enumerators yet, for
+ * RUBY and MULTICOLUMN are deliberately **not** enumerators yet, for
  * the reason Phase 9.12 refused to ship `display: flex`: an enumerator with no row
  * behind it is a name the module can spell and cannot honour, and a caller that
  * asked for it would get a kind no algorithm produces. 19.3 is the demonstration
  * that the rule is followed rather than just stated: `FLEX` arrived as a row *and*
  * the algorithm that honours it (`RoboLayoutFlex.c`) in the same change; 19.4 did
- * the same for `GRID` and `RoboLayoutGrid.c`. The rest join as rows when their
- * contexts exist, exactly as `display` values do.
+ * the same for `GRID` and `RoboLayoutGrid.c`, and 19.6 for `TABLE` and
+ * `RoboLayoutTable.c`. The rest join as rows when their contexts exist, exactly as
+ * `display` values do.
  *
  * Every participant kind now has a step of its own in `LayoutFcMarkParticipant`,
  * and the reason is not bookkeeping: a flex item and a grid item both need the
@@ -77,13 +82,20 @@
  *   the root box establishes ROOT, whatever it computes to;
  *
  *   a box whose inner display is `flow-root` establishes BLOCK, one whose inner
- *   display is `flex` establishes FLEX and one whose inner display is `grid`
- *   establishes GRID — because that is what those inner values *are*. In this build
+ *   display is `flex` establishes FLEX, one whose inner display is `grid`
+ *   establishes GRID and one whose inner display is `table` establishes TABLE —
+ *   because that is what those inner values *are*. In this build
  *   the first is `inline-block`, whose inner display 9.12 records as `flow-root`
- *   precisely so that this phase would not have to special-case it; the second and
- *   third are the pairs 19.3 and 19.4 added (`display: flex`/`inline-flex` and
- *   `display: grid`/`inline-grid` each share an inner, so one branch answers for
- *   each pair). A future `flow-root` row arrives here for free;
+ *   precisely so that this phase would not have to special-case it; the second,
+ *   third and fourth are the pairs 19.3, 19.4 and 19.6 added (`display:
+ *   flex`/`inline-flex`, `display: grid`/`inline-grid` and `display:
+ *   table`/`inline-table` each share an inner, so one branch answers for each
+ *   pair); and **an internal table box** is asked next, because its answer is the
+ *   absence: a row, a row group, a column or a column group is placed by the table
+ *   that owns it, while a **cell** and a **caption** never reach that question —
+ *   their inner is `flow-root`, so they take the first branch and establish BLOCK,
+ *   which is CSS 2.1 §9.4.1's own list of the two internal boxes that do. A future
+ *   `flow-root` row arrives here for free;
  *
  *   a box that is **out of flow** establishes a block context of its own (14.0,
  *   where the containing-block rules live), asked before the transparency rule;
@@ -191,11 +203,17 @@ typedef enum LayoutFcKind {
     /** Participants are **grid items**, placed by Phase 19.4's grid algorithm into
      *  tracks on two axes. Established by a box whose inner display is `grid`
      *  (`display: grid` or `display: inline-grid`). */
-    RoboLayoutFcGrid = 5
+    RoboLayoutFcGrid = 5,
+    /** Participants are a table's **rows, cells and captions**, placed by Phase
+     *  19.6's table algorithm into rows and columns. Established by a box whose
+     *  inner display is `table` (`display: table` or `display: inline-table`);
+     *  an **internal** table box (`table-row`, `table-cell`, ...) establishes
+     *  nothing, because the table that owns it places it. */
+    RoboLayoutFcTable = 6
 } LayoutFcKind;
 
 /** Number of defined context kinds. NONE is one of them. */
-#define RoboLayoutFcKindCount 6u
+#define RoboLayoutFcKindCount 7u
 
 /** Non-zero when @p kind is a defined kind. NONE is defined. */
 int LayoutFcKindIsKnown(LayoutFcKind kind);
@@ -318,7 +336,8 @@ int LayoutFormattingContextEqual(const LayoutFormattingContext *a,
  * context` — the failure `layout.absolute.block_child_of_positioned` and the desktop's own compiled
  * page both now cover.
  *
- * @return RoboLayoutFcRoot, RoboLayoutFcBlock, RoboLayoutFcInline, or
+ * @return RoboLayoutFcRoot, RoboLayoutFcBlock, RoboLayoutFcInline,
+ *         RoboLayoutFcFlex, RoboLayoutFcGrid, RoboLayoutFcTable, or
  *         RoboLayoutFcNone when the box establishes nothing — including for a
  *         display that generates no box at all, which cannot have a context
  *         because it cannot have contents.

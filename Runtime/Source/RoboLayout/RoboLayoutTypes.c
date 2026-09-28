@@ -103,6 +103,8 @@ const char *LayoutDiagnosticDomainName(LayoutDiagnosticDomain domain)
         return "flex";
     case RoboLayoutDomainGrid:
         return "grid";
+    case RoboLayoutDomainTable:
+        return "table";
     default:
         return "unknown";
     }

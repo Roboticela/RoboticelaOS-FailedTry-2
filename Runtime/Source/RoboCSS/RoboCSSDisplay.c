@@ -5,14 +5,17 @@
  *
  *   row        one value, its keyword, its outer display and its inner display
  *
- * Eight rows today: the four 9.12 shipped, the flex pair (19.3) and the grid pair
- * (19.4). Each pair is exactly the extension the table was shaped for -- a
- * block-level value and an atomic inline one sharing one inner -- and no function
- * below changed to add either. A later `contents` is a row with an outer of NONE
- * that is *not* the value `none`. Adding a row requires touching no function below,
- * which is the entire justification for the table: every question in this module
- * used to be a place a spelling could be compared wrongly, and there is now exactly
- * one place a spelling appears.
+ * Eighteen rows today: the four 9.12 shipped, the flex pair (19.3), the grid pair
+ * (19.4) and the ten-value table family (19.6). The first three groups are one
+ * *shape* of extension -- a block-level value and an atomic inline one sharing one
+ * inner -- and no function below changed to add any of them. The table family adds
+ * the eight **internal** rows, which is the first extension to need a new outer kind
+ * rather than just two more rows of the same two; `CssDisplayIsTableInternal` and
+ * the inner column carry what separates them. A later `contents` is a row with an
+ * outer of NONE that is *not* the value `none`. Adding a row requires touching no
+ * function below, which is the entire justification for the table: every question in
+ * this module used to be a place a spelling could be compared wrongly, and there is
+ * now exactly one place a spelling appears.
  *
  * The keywords are lowercase and hyphenated because that is how CSS writes them
  * and how `CssDisplayWrite` must print them; matching is ASCII
@@ -65,7 +68,41 @@ static const DisplayRow displayVocabulary[] = {
     { RoboCssDisplayGrid,        "grid",         RoboCssDisplayOuterBlock,
       RoboCssDisplayInnerGrid },
     { RoboCssDisplayInlineGrid,  "inline-grid",  RoboCssDisplayOuterInline,
-      RoboCssDisplayInnerGrid }
+      RoboCssDisplayInnerGrid },
+    /*
+     * Phase 19.6 adds the table family, and it is the first group of rows that varies
+     * the **outer** column: `table` and `inline-table` are the block-level and atomic
+     * inline spellings of one inner (`table`), exactly as the flex and grid pairs are,
+     * and the eight internal values are the boxes *inside* such a container -- a row
+     * group of either kind, a row, a cell, a column, a column group and a caption.
+     *
+     * Their outer is INTERNAL rather than BLOCK: an internal table box generates a box
+     * and holds contents, and it is placed by the table's own context, so a pass that
+     * asked "is this block-level" and got `yes` would stack a table's cells down the
+     * page. A cell and a caption take an inner of FLOW-ROOT and the rest take FLOW,
+     * which is CSS 2.1 §9.4.1's own list of the two internal boxes that establish a
+     * formatting context.
+     */
+    { RoboCssDisplayTable,           "table",              RoboCssDisplayOuterBlock,
+      RoboCssDisplayInnerTable },
+    { RoboCssDisplayInlineTable,     "inline-table",       RoboCssDisplayOuterInline,
+      RoboCssDisplayInnerTable },
+    { RoboCssDisplayTableRowGroup,   "table-row-group",    RoboCssDisplayOuterInternal,
+      RoboCssDisplayInnerFlow },
+    { RoboCssDisplayTableHeaderGroup, "table-header-group", RoboCssDisplayOuterInternal,
+      RoboCssDisplayInnerFlow },
+    { RoboCssDisplayTableFooterGroup, "table-footer-group", RoboCssDisplayOuterInternal,
+      RoboCssDisplayInnerFlow },
+    { RoboCssDisplayTableRow,        "table-row",          RoboCssDisplayOuterInternal,
+      RoboCssDisplayInnerFlow },
+    { RoboCssDisplayTableCell,       "table-cell",         RoboCssDisplayOuterInternal,
+      RoboCssDisplayInnerFlowRoot },
+    { RoboCssDisplayTableColumn,     "table-column",       RoboCssDisplayOuterInternal,
+      RoboCssDisplayInnerFlow },
+    { RoboCssDisplayTableColumnGroup, "table-column-group", RoboCssDisplayOuterInternal,
+      RoboCssDisplayInnerFlow },
+    { RoboCssDisplayTableCaption,    "table-caption",      RoboCssDisplayOuterInternal,
+      RoboCssDisplayInnerFlowRoot }
 };
 
 #define DISPLAY_VOCABULARY_COUNT \
@@ -232,6 +269,60 @@ int CssDisplayIsInlineBlock(CssDisplay display)
            MakeCssDisplayInner(display) == RoboCssDisplayInnerFlowRoot;
 }
 
+int CssDisplayIsAtomicInline(CssDisplay display)
+{
+    /* The generalisation of the rule above: inline-level, and its inner is not plain
+     * flow. `inline-block` (`inline flow-root`), `inline-flex`, `inline-grid` and
+     * `inline-table` all answer 1, and `inline` itself answers 0 because sharing the
+     * parent's line is exactly what makes it *not* one unit. */
+    if (MakeCssDisplayOuter(display) != RoboCssDisplayOuterInline) {
+        return 0;
+    }
+    return MakeCssDisplayInner(display) != RoboCssDisplayInnerFlow;
+}
+
+int CssDisplayIsTableRoot(CssDisplay display)
+{
+    return MakeCssDisplayInner(display) == RoboCssDisplayInnerTable;
+}
+
+int CssDisplayIsTableInternal(CssDisplay display)
+{
+    return MakeCssDisplayOuter(display) == RoboCssDisplayOuterInternal;
+}
+
+int CssDisplayIsTableRowLike(CssDisplay display)
+{
+    return display == RoboCssDisplayTableRow ||
+           display == RoboCssDisplayTableRowGroup ||
+           display == RoboCssDisplayTableHeaderGroup ||
+           display == RoboCssDisplayTableFooterGroup;
+}
+
+int CssDisplayIsTableColumnLike(CssDisplay display)
+{
+    return display == RoboCssDisplayTableColumn ||
+           display == RoboCssDisplayTableColumnGroup;
+}
+
+int CssDisplayIsTableCell(CssDisplay display)
+{
+    return display == RoboCssDisplayTableCell;
+}
+
+int CssDisplayIsTableCaption(CssDisplay display)
+{
+    return display == RoboCssDisplayTableCaption;
+}
+
+int CssDisplayIsTableBoundary(CssDisplay display)
+{
+    /* The two rows whose inner column is FLOW-ROOT. Asked by value rather than by the
+     * inner column, so that a later internal value with a context of its own is a
+     * decision made here rather than a fact inherited from a column. */
+    return CssDisplayIsTableCell(display) || CssDisplayIsTableCaption(display);
+}
+
 const char *CssDisplayOuterName(CssDisplayOuter outer)
 {
     switch (outer) {
@@ -241,6 +332,8 @@ const char *CssDisplayOuterName(CssDisplayOuter outer)
         return "block";
     case RoboCssDisplayOuterInline:
         return "inline";
+    case RoboCssDisplayOuterInternal:
+        return "internal";
     default:
         return "unknown";
     }
@@ -259,6 +352,8 @@ const char *CssDisplayInnerName(CssDisplayInner inner)
         return "flex";
     case RoboCssDisplayInnerGrid:
         return "grid";
+    case RoboCssDisplayInnerTable:
+        return "table";
     default:
         return "unknown";
     }

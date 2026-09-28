@@ -558,11 +558,11 @@ static void TestPositioningKindVocabulary(void)
     RoboCheckStrEq(LayoutInsetKindName((LayoutInsetKind)5), "unknown");
     RoboCheck(LayoutInsetKindName((LayoutInsetKind)77) != NULL);
 
-    /* And the domain this phase added, spelled and counted: 26 since 19.1, 19.3 and 19.4
-     * appended theirs, with `position` the nineteenth -- the first domain in this module
+    /* And the domain this phase added, spelled and counted: 27 since 19.1, 19.3, 19.4 and
+     * 19.6 appended theirs, with `position` the nineteenth -- the first domain in this module
      * about *where* rather than about *how big*, and no longer the last since 10.13, 10.14,
-     * 19.1, 19.3 and 19.4 followed it. */
-    RoboCheckEqInt((int)RoboLayoutDomainCount, 26);
+     * 19.1, 19.3, 19.4 and 19.6 followed it. */
+    RoboCheckEqInt((int)RoboLayoutDomainCount, 27);
     RoboCheckStrEq(LayoutDiagnosticDomainName(RoboLayoutDomainPosition),
                       "position");
     RoboCheckEqInt((int)RoboLayoutDomainOverflow,

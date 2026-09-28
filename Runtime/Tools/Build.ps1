@@ -523,6 +523,7 @@ $ProdSrcs = @(
     (Join-Path $SourceDir "RoboLayout\RoboLayoutIntrinsic.c"),
     (Join-Path $SourceDir "RoboLayout\RoboLayoutFlex.c"),
     (Join-Path $SourceDir "RoboLayout\RoboLayoutGrid.c"),
+    (Join-Path $SourceDir "RoboLayout\RoboLayoutTable.c"),
     (Join-Path $SourceDir "RoboLayout\RoboLayoutMargin.c"),
     (Join-Path $SourceDir "RoboLayout\RoboLayoutPadding.c"),
     (Join-Path $SourceDir "RoboLayout\RoboLayoutBorder.c"),
@@ -1041,6 +1042,10 @@ $SuiteSrcs = @(
     (Join-Path $TestsRoot "Layout\SuiteRoboLayoutIntrinsic.c"),
     (Join-Path $TestsRoot "Layout\SuiteRoboLayoutFlex.c"),
     (Join-Path $TestsRoot "Layout\SuiteRoboLayoutGrid.c"),
+    # The table suite (19.6): the fifth formatting context, the two axes a table
+    # resolves from its contents, the fixup that reads rather than generates the
+    # anonymous boxes, and the borders/gutters/caption edges a table box owns.
+    (Join-Path $TestsRoot "Layout\SuiteRoboLayoutTable.c"),
     (Join-Path $TestsRoot "Layout\SuiteRoboLayoutMargin.c"),
     (Join-Path $TestsRoot "Layout\SuiteRoboLayoutPadding.c"),
     (Join-Path $TestsRoot "Layout\SuiteRoboLayoutBorder.c"),

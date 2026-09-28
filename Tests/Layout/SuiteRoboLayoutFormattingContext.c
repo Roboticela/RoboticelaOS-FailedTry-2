@@ -126,13 +126,18 @@ static void TestFcKinds(void)
 
     LayoutFixture();
 
-    RoboCheckEqInt((int)RoboLayoutFcKindCount, 6);
+    RoboCheckEqInt((int)RoboLayoutFcKindCount, 7);
     RoboCheckEqInt((int)RoboLayoutFcNone, 0);
     RoboCheckEqInt((int)RoboLayoutFcRoot, 1);
     RoboCheckEqInt((int)RoboLayoutFcBlock, 2);
     RoboCheckEqInt((int)RoboLayoutFcInline, 3);
     RoboCheckEqInt((int)RoboLayoutFcFlex, 4);
     RoboCheckEqInt((int)RoboLayoutFcGrid, 5);
+    /* 19.6's, and it is the sixth *laying-out* kind: a table resolves its two axes
+     * from its contents rather than from declarations, which is why it is a context of
+     * its own rather than a mode of the block one. */
+    RoboCheckEqInt((int)RoboLayoutFcTable, 6);
+    RoboCheckEqInt((int)RoboLayoutFcTable, (int)RoboLayoutFcKindCount - 1);
 
     RoboCheckEqInt(LayoutFcKindIsKnown(RoboLayoutFcNone), 1);
     RoboCheckEqInt(LayoutFcKindIsKnown(RoboLayoutFcRoot), 1);
@@ -140,8 +145,10 @@ static void TestFcKinds(void)
     RoboCheckEqInt(LayoutFcKindIsKnown(RoboLayoutFcInline), 1);
     RoboCheckEqInt(LayoutFcKindIsKnown(RoboLayoutFcFlex), 1);
     RoboCheckEqInt(LayoutFcKindIsKnown(RoboLayoutFcGrid), 1);
+    RoboCheckEqInt(LayoutFcKindIsKnown(RoboLayoutFcTable), 1);
     RoboCheckEqInt(LayoutFcKindIsKnown((LayoutFcKind)5), 1);
-    RoboCheckEqInt(LayoutFcKindIsKnown((LayoutFcKind)6), 0);
+    RoboCheckEqInt(LayoutFcKindIsKnown((LayoutFcKind)6), 1);
+    RoboCheckEqInt(LayoutFcKindIsKnown((LayoutFcKind)7), 0);
     RoboCheckEqInt(LayoutFcKindIsKnown((LayoutFcKind)99), 0);
 
     /* Walked in enumerator order: a row whose table entry had drifted would still
@@ -170,6 +177,7 @@ static void TestFcKinds(void)
     RoboCheckStrEq(LayoutFcKindName(RoboLayoutFcInline), "inline");
     RoboCheckStrEq(LayoutFcKindName(RoboLayoutFcFlex), "flex");
     RoboCheckStrEq(LayoutFcKindName(RoboLayoutFcGrid), "grid");
+    RoboCheckStrEq(LayoutFcKindName(RoboLayoutFcTable), "table");
     RoboCheckStrEq(LayoutFcKindName((LayoutFcKind)40), "unknown");
     RoboCheck(LayoutFcKindName((LayoutFcKind)40) != NULL);
 
@@ -298,7 +306,23 @@ static void TestFcClassifyDisplay(void)
         /* And the grid pair repeats it once more (19.4): both can establish (a grid
          * context) and neither is a block container. */
         { RoboCssDisplayGrid, 1, 0 },
-        { RoboCssDisplayInlineGrid, 1, 0 }
+        { RoboCssDisplayInlineGrid, 1, 0 },
+        /* 19.6's ten, and they are the first rows whose **outer** display is neither
+         * block nor inline. A table root can establish (a table context) and is not a
+         * block container; a cell and a caption are block containers *and* establish
+         * one, exactly as `inline-block` does; and a row, a row group, a column and a
+         * column group answer no to both, because the table that owns them places
+         * them. */
+        { RoboCssDisplayTable, 1, 0 },
+        { RoboCssDisplayInlineTable, 1, 0 },
+        { RoboCssDisplayTableCell, 1, 1 },
+        { RoboCssDisplayTableCaption, 1, 1 },
+        { RoboCssDisplayTableRowGroup, 0, 0 },
+        { RoboCssDisplayTableHeaderGroup, 0, 0 },
+        { RoboCssDisplayTableFooterGroup, 0, 0 },
+        { RoboCssDisplayTableRow, 0, 0 },
+        { RoboCssDisplayTableColumn, 0, 0 },
+        { RoboCssDisplayTableColumnGroup, 0, 0 }
     };
     size_t index;
 

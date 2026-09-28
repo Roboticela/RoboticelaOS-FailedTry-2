@@ -1,6 +1,6 @@
-# RoboLayout Test Organisation (through Phase 10.15)
+# RoboLayout Test Organisation (through Phase 19.6)
 
-Twenty-seven suites, 453 tests, one framework. Each phase adds no test runner, no reporter
+Twenty-eight suites, 471 tests, one framework. Each phase adds no test runner, no reporter
 and no assertion vocabulary: everything here goes through
 `runtime/Tests/Framework` (`RoboCheck*` and `TestRegister`), the same as
 every other subsystem.
@@ -55,6 +55,7 @@ phase that made it.
 | `SuiteRoboLayoutIntrinsic.c` | `layout.intrinsic.*` | 16 | are min-content and max-content measured through the metrics seam rather than a byte count, do a box's children combine the way CSS says, and does an intrinsic dimension resolve from the answer? |
 | `SuiteRoboLayoutFlex.c` | `layout.flex.*` | 24 | does `display: flex` establish a flex context, and does the pass lay its in-flow children out along a main axis with `flex-basis`/grow/shrink, the automatic minimum, wrapping, `auto` margins, baseline alignment, RTL and `order`? |
 | `SuiteRoboLayoutGrid.c` | `layout.grid.*` | 24 | does `display: grid` establish a grid context, and does the pass size its two track lists from declarations and contents, create and size implicit tracks, place and span its items by the longhands and the auto-placement cursor (dense included), align them in their areas, and reverse the columns under `direction: rtl`? |
+| `SuiteRoboLayoutTable.c` | `layout.table.*` | 18 | does `display: table` establish a table context, and does the pass read CSS 2.1's fixup rather than generating it — sizing its columns by the used `table-layout` algorithm, taking a row's height from its tallest cell, placing a caption on the block-start or block-end edge, using `border-spacing` as the gutters and zeroing them under `border-collapse: collapse` — with a cell that is a direct child of the table placed as an anonymous row and a column box given a declared width and no geometry? |
 
 ### 10.1 — the module surface (`layout.module.*`)
 
@@ -1807,3 +1808,45 @@ suites grew a row. The one non-obvious edit was in `RoboLayoutAbsolute.c`: its
 `LayoutInset` compound literals used positional initialization, and the new
 `percentage` field made them `-Wmissing-field-initializers` errors — resolved by using
 the `LayoutInsetResolved` maker, which is the door the struct's own comment points at.
+
+## 24. What the 19.6 suite found
+
+Eighteen new cases (`layout.table.*`) over the fifth formatting context, the ten display
+values the phase made real, and the third `CssDisplayOuter` kind the eight internal ones
+needed.
+
+**1. A nested counters record was left out of the identity, and the record's own equality
+found it.** `LayoutBlockStatsEqual` compared the flex and the grid records field by field and
+did not mention `table` — so two block records that laid out different tables compared equal.
+`layout.table.capability` asserts the pair, which is the only place in the module where the
+comparison is a *claim* rather than an implementation detail: the phase that adds a record
+must add it to the identity in the same change.
+
+**2. `LayoutFcDisplayCanEstablish` answered 0 for `display: table`.** The predicate lists the
+inner values that *are* a context — `flow-root`, `flex`, `grid` — and the table inner was not
+added to that list when the branch that answers `TABLE` was. The two doors are asked by
+different callers ("could this ever establish?" versus "which kind does it establish?"), so the
+formatting-context suite's ten new rows are what caught the disagreement: `table` and
+`inline-table` answer `can_establish` 1 *and* `is_a_block_container` 0, which no other pair of
+rows in that table does.
+
+**3. A container whose only child is a table-internal box establishes an `INLINE` context.**
+An internal table box is neither block- nor inline-level, so a block container holding one and
+nothing else has no **block-level** child at all and takes the last rule of the classifier —
+inline content. The first draft of `layout.table.internal_outside_table` put a lone
+`table-cell` in a block `body` and asserted the block pass's `LAYOUT_BLOCK_TABLE_INTERNAL`
+count; it read 0, because 10.4's pass is the one that saw the cell and 10.4 counts it as a
+declined block-level box. The case now states both facts: the box beside a block-level sibling
+is the one the *block* pass declines, and the lone box is a different document with a different
+answer — which is exactly the kind of "no geometry, for a stated reason" distinction the
+`unreached` identity exists to keep visible.
+
+**4. The version pin is four places, and this time the counts were the interesting half.** As
+§21 and §22 predicted, raising the module to `0.22.0` reddened `layout.module.version`,
+`layout.module.allocator_balance`, `layout.conformance.statement` and
+`layout.conformance.capabilities`'s implemented count (28 of 29 now), and the capability table
+in two suites grew a `table_layout` row. What was new is that a **vocabulary** grew rather than
+a capability: `RoboLayoutDomainCount` moved in three suites, `RoboLayoutFcKindCount` in two, and
+the CSS display suite's walks, counts and unknown-keyword list all moved — which is the cost of
+a phase that adds ten display values, and the reason `SuiteRoboCssDisplay.c` is part of a
+layout phase's gate.

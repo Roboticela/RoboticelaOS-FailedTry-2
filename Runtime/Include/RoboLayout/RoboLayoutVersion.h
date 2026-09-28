@@ -340,9 +340,9 @@
 #define ROBO_LAYOUT_VERSION_H
 
 #define RoboLayoutVersionMajor 0
-#define RoboLayoutVersionMinor 21
+#define RoboLayoutVersionMinor 22
 #define RoboLayoutVersionPatch 0
-#define RoboLayoutVersionString "0.21.0"
+#define RoboLayoutVersionString "0.22.0"
 
 /** 1 once the Phase 10 surface is frozen (not yet — see header comment). */
 #define RoboLayoutApiFrozen 0
@@ -886,5 +886,49 @@
  * is finished".
  */
 #define RoboLayoutGridLayoutImplemented 1
+
+/**
+ * 1 once this build lays a **table** formatting context out (19.6).
+ *
+ * A compiler constant rather than a runtime decision, read by the two doors that must not disagree --
+ * `LayoutGetCapabilities().tableLayout` and the suite that asserts both -- exactly as the other
+ * `RoboLayout*Implemented` macros are.
+ *
+ * What it claims, exactly: the table family's `display` values (`table`, `inline-table`,
+ * `table-row-group`, `table-header-group`, `table-footer-group`, `table-row`, `table-cell`,
+ * `table-column`, `table-column-group`, `table-caption`) are real display values and each
+ * table container establishes `RoboLayoutFcTable` -- the **fifth** formatting context 19.6
+ * added; a cell that is a direct child of a table is placed as an **anonymous row** (CSS
+ * 2.1 17.2.1's fixup, which this build *reads* rather than generating, because it makes no
+ * boxes); a row group contributes its rows; a column or column group contributes a declared
+ * width and generates no geometry; a caption is placed on the table's block-start or
+ * block-end edge per `caption-side`; the columns are sized by the used `table-layout`
+ * algorithm -- `auto` from each column's widest cell's min-content floor and max-content
+ * ceiling, then the container's width distributed over the columns whose ceiling can still
+ * grow, `fixed` from the first row's and the column boxes' declared widths with what is
+ * left shared equally; a cell's own declared `width`/`height` wins over its column's and a
+ * cell wider than its column is **counted** (`overflowingCells`) rather than clamped; a
+ * cell's contents are laid out in a formatting context of its own at the width its column
+ * gave it; a row's height is its tallest cell's, raised further by the row's own declared
+ * height; `border-collapse` zeroes the gutters (`border-spacing` does not apply to a
+ * collapsing table) and `border-collapse: separate` uses the one or two lengths of
+ * `border-spacing` as the gutters; and an empty cell is counted (`cellsEmpty`).
+ *
+ * What it does **not** claim, each a feature a later goal or a later value owns: no
+ * **`colspan`/`rowspan`** (HTML *attributes*, not CSS properties, so no computed value
+ * carries them and this module reads no attribute -- every cell occupies exactly one
+ * slot); no **collapsing-border arithmetic** (one border where two adjoin, and the rules
+ * that pick which -- `border-collapse: collapse` is read, counted and made to zero the
+ * gutters, and each cell's border stays its own); no `direction: rtl` mirroring of the
+ * column order (19.10); no `vertical-align` on a cell (its contents sit at its block-start
+ * edge); no `visibility: collapse`, no `caption-side: inline-start`/`inline-end` (placed as
+ * the block-start edge) and no **anonymous cell** generation (a child that is neither a
+ * table-internal box nor a caption is counted, exactly as the grid pass counts the
+ * anonymous grid item it does not build); no `display: table-cell` **outside** a table
+ * being wrapped in the anonymous table CSS would generate; no replaced elements or
+ * `aspect-ratio`; and no vertical writing mode. `table-layout` would be claiming those if
+ * it were named for "tables are finished".
+ */
+#define RoboLayoutTableLayoutImplemented 1
 
 #endif /* ROBO_LAYOUT_VERSION_H */

@@ -134,6 +134,7 @@
 #include "RoboLayout/RoboLayoutGeometry.h"
 #include "RoboLayout/RoboLayoutGrid.h"
 #include "RoboLayout/RoboLayoutInline.h"
+#include "RoboLayout/RoboLayoutTable.h"
 #include "RoboLayout/RoboLayoutTree.h"
 
 #ifdef __cplusplus
@@ -348,6 +349,13 @@ typedef struct LayoutBlockStats {
      * single total can express.
      */
     LayoutGridCounters grid;
+    /**
+     * The **table** work this pass did (Phase 19.6), nested for the reason `flex` and
+     * `grid` are: the counters belong to the phase that produced them and are read
+     * together, so they live in `RoboLayoutTable.h` beside the doors that define them. A
+     * table's cells are its contribution to `blocksPlaced`, exactly as a grid's items are.
+     */
+    LayoutTableCounters table;
     /** Deepest box placed. */
     uint32_t depthMax;
 } LayoutBlockStats;

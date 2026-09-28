@@ -80,6 +80,7 @@ static const struct {
     { "percentage_resolution", 1 },
     { "flex_layout", 1 },
     { "grid_layout", 1 },
+    { "table_layout", 1 },
     { "painting", 0 }
 };
 
@@ -107,11 +108,11 @@ static void TestConformanceCapabilities(void)
             implemented++;
         }
     }
-    /* Twenty-seven of twenty-eight. Asserted as a count as well as field by field, so a build
+    /* Twenty-eight of twenty-nine. Asserted as a count as well as field by field, so a build
      * that turned one on and one off at the same time -- which field-by-field would
      * still catch, but a reader would have to diff to see -- is visible at a
-     * glance. The twenty-eighth is `painting`, and it is the only one that is 0. */
-    RoboCheckEqInt(implemented, 27u);
+     * glance. The twenty-ninth is `painting`, and it is the only one that is 0. */
+    RoboCheckEqInt(implemented, 28u);
 
     /*
      * The four that matter are the direction pair, the field that names both, and
@@ -1114,7 +1115,7 @@ static void TestConformanceStatement(void)
      * the build claiming it does not.
      */
     RoboCheckEqInt(LayoutGeometryIsImplemented(), 1);
-    RoboCheckStrEq(LayoutVersionString(), "0.21.0");
+    RoboCheckStrEq(LayoutVersionString(), "0.22.0");
     RoboCheckEqInt(RoboLayoutApiFrozen, 0);
 
     /*
@@ -1144,15 +1145,19 @@ static void TestConformanceStatement(void)
      * three and not merely observed to have three members. */
     RoboCheckEqInt(LayoutObjectKindIsKnown((LayoutObjectKind)3), 0);
 
-    /* And the vocabulary 10.2 added instead: four kinds of context plus the
+    /* And the vocabulary 10.2 added instead: five kinds of context plus the
      * absence, of which ROOT is one and only one per tree, and 19.3's FLEX is the
-     * third laying-out kind. */
-    RoboCheckEqInt((int)RoboLayoutFcKindCount, 6);
+     * third laying-out kind, 19.4's GRID the fourth and 19.6's TABLE the fifth. */
+    RoboCheckEqInt((int)RoboLayoutFcKindCount, 7);
     RoboCheckEqInt(LayoutFcKindIsBlockContainer(RoboLayoutFcRoot), 1);
     RoboCheckEqInt(LayoutFcKindIsBlockContainer(RoboLayoutFcInline), 0);
     RoboCheckEqInt(LayoutFcKindIsBlockContainer(RoboLayoutFcFlex), 0);
+    RoboCheckEqInt(LayoutFcKindIsBlockContainer(RoboLayoutFcGrid), 0);
+    RoboCheckEqInt(LayoutFcKindIsBlockContainer(RoboLayoutFcTable), 0);
     RoboCheckStrEq(LayoutFcKindName(RoboLayoutFcBlock), "block");
     RoboCheckStrEq(LayoutFcKindName(RoboLayoutFcFlex), "flex");
+    RoboCheckStrEq(LayoutFcKindName(RoboLayoutFcGrid), "grid");
+    RoboCheckStrEq(LayoutFcKindName(RoboLayoutFcTable), "table");
 }
 
 /* ------------------------------------------------------------------ */

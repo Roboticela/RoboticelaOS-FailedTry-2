@@ -202,6 +202,34 @@ Result LayoutGridWalkContents(LayoutWalk *walk,
                                           GfxPixelY definiteHeight,
                                           GfxPixelY *outExtent);
 
+/**
+ * Lay out @p owner's contents as a **table** formatting context and report the extent
+ * they reached (Phase 19.6). Defined by RoboLayoutTable.c; called by the block pass for
+ * every box whose owned context is `RoboLayoutFcTable`.
+ *
+ * The four arguments are the ones the flex and grid walks take, and the third and fourth
+ * are used the same way: @p contentWidth is the table's content-box inline size, which the
+ * columns are distributed over, and @p hasDefiniteHeight / @p definiteHeight are its
+ * content-box block size when its declarations determined one, which is what a cell's
+ * percentage block size resolves against.
+ *
+ * Every box the table places -- the caption, each row group, each row and each cell --
+ * writes its own result, box-model records and overflow verdict through this pass, so the
+ * caller does not place them again: it counts the container and takes @p outExtent as the
+ * container's content extent, which is the rows' band plus the caption when there is one.
+ *
+ * The walk applies the fixup itself rather than expecting a well-formed table: a cell
+ * directly inside the container is placed as an anonymous **row**, and a row group
+ * contributes its rows in document order. An internal table box with no table above it is
+ * counted and left UNRESOLVED by `LayoutBlockVerdictFor`, so it never arrives here.
+ */
+Result LayoutTableWalkContents(LayoutWalk *walk,
+                                          LayoutNodeId owner,
+                                          int32_t contentWidth,
+                                          int hasDefiniteHeight,
+                                          GfxPixelY definiteHeight,
+                                          GfxPixelY *outExtent);
+
 /*
  * The one style read every direction makes.
  *

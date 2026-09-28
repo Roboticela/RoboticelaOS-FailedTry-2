@@ -75,21 +75,23 @@ word an author typed.
 length grammar with a *pair* above it rather than a closed set of spellings, so the
 declaration is registered as a carried declaration (`PRESERVED`) exactly as the
 grid track templates are. That is a named boundary, not a gap: the phase that reads
-it is table layout (19.6), and until then the cascade and the computed style are
-still correct — the author's declaration survives intact with its inheritance and
-its initial value.
+it is table layout (19.6), which reads the preserved components directly rather than
+asking this module to type a pair (§7). Until it landed the cascade and the computed
+style were still correct — the author's declaration survives intact with its
+inheritance and its initial value.
 
 ## 4. Non-goals
 
 - **No table layout.** No column is measured, no width is distributed, no border
   is collapsed into another, and no `visibility: collapse` row is removed from the
   layout. A value here says *what rule* a table layout pass follows; where the
-  cells land belongs to the phase that has a box (19.6).
+  cells land belongs to the phase that has a box, and that phase is 19.6 (§7).
 - **No internal table display types.** `display: table`, `table-row`, `table-cell`
-  and their relatives are **not** rows in this build's display vocabulary. An
-  internal table box is a layout fact of its own, and introducing it is table
-  layout's job; this phase is named for the properties and not for the boxes they
-  describe.
+  and their relatives are **not** rows in this phase's display vocabulary. An
+  internal table box is a layout fact of its own, and introducing it was table
+  layout's job: 19.6 added the ten values, the third `CssDisplayOuter` kind and the
+  `table` inner (§7). This phase is named for the properties and not for the boxes
+  they describe.
 - **No `border-spacing` pair grammar**, as §3.
 - **No `vertical-align`.** A cell's vertical alignment is the shared alignment
   property every box has, and it belongs to the CSS-text goal (18.15) rather than
@@ -124,3 +126,22 @@ name rather than leaves to be discovered.
   domain;
 - determinism: the same declaration computes to the same value twice, and two
   logical caption sides are different values.
+
+## 7. The layout half (Phase 19.6)
+
+Nothing above changes to lay a table out, and the properties this phase typed are
+read exactly where they were said to be read. 19.6 (`Documentation/Runtime/Layout/
+TableLayout.md`) added the **ten display values** — `table`, `inline-table`,
+`table-row-group`, `table-header-group`, `table-footer-group`, `table-row`,
+`table-cell`, `table-column`, `table-column-group` and `table-caption` — as rows of
+9.12's vocabulary, a **third outer kind** (`RoboCssDisplayOuterInternal`) because an
+internal table box is placed by neither block nor inline flow, and a **sixth inner**
+(`RoboCssDisplayInnerTable`) for the pair that establishes the context. It reads
+`table-layout`, `border-collapse` and `caption-side` as the computed values 18.5
+types, and reads `border-spacing` as the preserved pair §3 describes — one length for
+both gutters or two, in CSS's own order — so this module types no pair and the
+carried declaration arrives byte for byte.
+
+The one thing that moved rather than joined is `RoboCssDisplayTextMax`: 16 was the
+longest keyword's length plus a NUL, and `table-column-group` is nineteen characters,
+so the bound is **24** and the display suite checks it against every row.

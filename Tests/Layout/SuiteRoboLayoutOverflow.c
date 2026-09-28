@@ -548,10 +548,10 @@ static void TestOverflowKindVocabulary(void)
     RoboCheckStrEq(LayoutOverflowKindName((LayoutOverflowKind)3), "unknown");
     RoboCheck(LayoutOverflowKindName((LayoutOverflowKind)77) != NULL);
 
-    /* And the domain this phase added, spelled and counted: 26 since 19.1, 19.3 and 19.4
-     * appended theirs, with `overflow` the twentieth -- the first domain in this module
+    /* And the domain this phase added, spelled and counted: 27 since 19.1, 19.3, 19.4 and
+     * 19.6 appended theirs, with `overflow` the twentieth -- the first domain in this module
      * about what happens when the box was the wrong size. */
-    RoboCheckEqInt((int)RoboLayoutDomainCount, 26);
+    RoboCheckEqInt((int)RoboLayoutDomainCount, 27);
     RoboCheckStrEq(LayoutDiagnosticDomainName(RoboLayoutDomainOverflow),
                       "overflow");
     RoboCheckEqInt((int)RoboLayoutDomainOverflow,

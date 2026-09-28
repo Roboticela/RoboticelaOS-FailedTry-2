@@ -532,7 +532,8 @@ visibility        visible | hidden | collapse
 
 Five closed sets, and none of them needs a computed-value kind of its own: each
 value *is* its keyword, and a typed enumerator with no reader yet would be a second
-copy of a table for the reader table layout (19.6) will bring. So all five are rows
+copy of a table for the reader table layout (19.6) to bring — and 19.6 reads them
+through exactly these rows, adding no shape of its own (`docs/Table.md` §7). So all five are rows
 in the shared closed-vocabulary body the display and position shapes use — the one
 whose make door carries the keyword — and what the closed set buys is the refusal:
 `table-layout: banana` is a mistake, not a keyword carrying `banana`.
@@ -547,10 +548,11 @@ physical edge. The physical rows are neither axis, which is why `IsBlockAxis` an
 `<length>{1,2}` — the shared length grammar with a pair above it — so it is carried
 PRESERVED until the phase that reads it, exactly as the grid track templates are.
 And the internal table display types (`display: table`, `table-row`, `table-cell`,
-…) are **not** rows in this build's display vocabulary: an internal table box is a
-layout fact of its own, and the phase that introduces it is table layout (19.6).
-This phase types the properties a table box is described by and names the boxes it
-does not yet have rather than implying them.
+…) were **not** rows in this build's display vocabulary at the time: an internal table
+box is a layout fact of its own, and the phase that introduced it is table layout
+(19.6), which added the ten values, the third outer kind and the `table` inner. This
+phase types the properties a table box is described by and named the boxes it did not
+yet have rather than implying them.
 
 One capability joins the table (`tables`), one diagnostic domain
 (`RoboCssDomainTable`), and the module moves to `0.23.0`.
@@ -1488,7 +1490,7 @@ declarations until the track grammar is a phase of its own. The fifth is the tab
 vocabulary (18.5, §5 and `docs/Table.md`): five closed sets describing a table box —
 the first family here whose members are *mostly inherited* — read through the shared
 closed-vocabulary body, with `border-spacing`'s pair grammar carried and the internal
-table display types named as table layout's (19.6). The sixth is the multi-column
+table display types named as table layout's and, from 19.6, added by it. The sixth is the multi-column
 vocabulary (18.6, §5 and `docs/MultiColumn.md`): the two closed sets a fragmentation
 container behaves by, a count and a width read through the shapes every other number
 and length uses, the rule decoration reused from the border family, and the gutter

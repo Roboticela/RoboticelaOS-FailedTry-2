@@ -187,6 +187,7 @@ box's *placement* while leaving its height to the pass that will own it.
 |---|---|---|
 | a box whose display is inline-level | `inline_level_skipped` | 10.4 |
 | a box participating in an inline context | `inline_level_skipped` | 10.4 |
+| an **internal table box** whose table is not in the tree (`LAYOUT_BLOCK_TABLE_INTERNAL`, 19.6) | `inline_level_skipped` **and** `table.itemsSkipped` | 19.6, via the anonymous table CSS would generate |
 | a box whose display is `none` | *nothing* — it has no box at all | 10.1's builder |
 | a block-level box inside an inline box | `unreached` | 10.4, via the anonymous box |
 | anything under an unreached box | `unreached` | 10.4 |
@@ -385,8 +386,11 @@ boundary item in `Margins.md` §6.
 - **No CSS parsing.** Display is read through 9.12's own accessors —
   `CssDisplayIsBlockLevel` and its siblings — and there is deliberately no
   second block-level predicate in this module: a copy would be the *worse* copy,
-  because the day a display value adds a row with an outer of `block`, 9.12's table
-  is where that fact lands — and 19.3's `flex` is that day (`RoboCSSDisplay.c`).
+  because the day a display value adds a row with a new outer, 9.12's table is where
+  that fact lands — and it has landed four times: 19.3's `flex` (`RoboCSSDisplay.c`),
+  19.4's `grid`, and 19.6's table family, which is the first to add an **outer** kind
+  rather than only rows, so `CssDisplayIsBlockLevel` answers 0 for an internal table
+  box and this pass never treats one as something it may stack.
 - **No Chromium.** Blink's `LayoutBlockFlow` and its margin-collapsing and
   intrinsic-size machinery are temporary technical reference only; the rules here
   are Roboticela's, and `Tools/Build.ps1 -Verify` scans this directory for a
